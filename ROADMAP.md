@@ -11,7 +11,7 @@ Do not start a phase while a P0 or P1 finding is open in a dependency phase.
 
 ## Phase 0 — Architecture
 
-Status: **complete and approved by Codex.** No product code was written.
+Status: **complete, awaiting final Codex approval.** No product code was written.
 
 - [x] Repository inspection
 - [x] Product scope review
@@ -36,6 +36,10 @@ Status: **complete and approved by Codex.** No product code was written.
   follow-on gaps closed (person columns reference `memberships` not `users`,
   `users.avatar_url` replaces an org-scoped file FK, public contact endpoint
   resolves its org from config). See [DATABASE.md §5.1](docs/architecture/DATABASE.md)
+- [x] Verification round 2 — membership deletion semantics
+  ([DATABASE.md §5.2](docs/architecture/DATABASE.md)) and an organization-aware
+  FK for `organizations.logo_file_id`
+- [ ] Final Codex approval
 
 ### Open decisions carried out of Phase 0
 

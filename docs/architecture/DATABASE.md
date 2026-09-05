@@ -51,6 +51,11 @@ User 1─* Session
 ### identity
 
 **organizations** — `id`, `name`, `slug` (uq), `logo_file_id?`, timestamps.
+`logo_file_id` needs the §5.1 treatment even though this table has no
+`organization_id` column: its own `id` **is** the tenant key, so the constraint
+is `FOREIGN KEY (id, logo_file_id) REFERENCES file_objects (organization_id, id)`,
+which makes an organization pointing at another organization's file impossible.
+`ON DELETE SET NULL` — a missing logo is cosmetic.
 
 **users** — `id`, `firebase_uid` (uq), `email` (**citext**, globally unique),
 `auth_provider` (`PASSWORD|GOOGLE`), `full_name`, `avatar_url?`,
@@ -305,6 +310,42 @@ Two deliberate exceptions, both because the row must outlive the membership:
 `activity_events.actor_id` and `invitations.invited_by` reference `users`
 directly. History must not disappear when someone leaves, and `ON DELETE` on a
 membership must not cascade into the audit trail.
+
+### 5.2 Membership deletion semantics
+
+**A membership row is never deleted by any product flow.** Removing someone from
+the organization sets `status = INACTIVE`, which
+[AUTH.md §7](AUTH.md#7-session--organization) already rejects at authentication
+time. The row stays, so every FK pointing at it stays valid and every past
+assignment, comment and payment remains attributable.
+
+This is not a new soft-delete column — `memberships.status` already exists — so
+it does not contradict [ADR-0011](../adr/0011-selective-soft-delete.md).
+
+Referential actions, chosen so that an *unexpected* delete fails loudly rather
+than silently damaging data:
+
+| Referencing column | Action | Why |
+|---|---|---|
+| `tasks.assignee_id`, `projects.owner_id`, `clients.owner_id`, `leads.assigned_to`, `meeting_participants.user_id` | `ON DELETE RESTRICT` | Nullable, but `SET NULL` would silently erase who owned the work. Deactivation, not deletion, is the supported path. |
+| `tasks.created_by`, `task_comments.author_id`, `payments.recorded_by`, `meetings.created_by`, and every other authorship column | `ON DELETE RESTRICT` | Non-nullable by design — attribution is the point. There is no correct automatic behaviour here. |
+| `project_members.user_id` | `ON DELETE CASCADE` | A project membership for a non-member is meaningless. |
+| `sessions.(organization_id, user_id)` | `ON DELETE CASCADE` | A session without a membership is garbage; cascading is the correct cleanup. |
+
+`ON UPDATE` needs no action anywhere: `organization_id` and `user_id` are
+immutable once written.
+
+**Deactivation is not silent.** When a membership goes `INACTIVE`, the service
+revokes that user's sessions and returns the count of open items still assigned
+to them, so the UI can prompt for reassignment. Nothing is auto-reassigned or
+auto-nulled — losing that information is worse than showing an inactive name.
+
+**Genuine erasure** (a GDPR request) is an operator procedure, not a product
+feature: anonymize the global `users` row — clear `full_name`, `email`,
+`avatar_url`, `firebase_uid` — and leave `memberships` and history intact. The
+identity disappears; the referential graph does not. This is documented rather
+than built, because it has never been asked for.
+`ponytail: manual procedure; build it when someone actually requests erasure.`
 
 Postgres RLS is the stronger answer and is deliberately deferred to the
 multi-tenant SaaS phase; the schema is already shaped for it.

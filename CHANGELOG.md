@@ -32,3 +32,13 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
   into org-scoped `file_objects`.
 - Public contact endpoint resolves `organization_id` from configuration,
   validated at startup.
+
+### Changed — Phase 0 verification round 2
+- Documented membership deletion semantics (DATABASE.md §5.2): membership rows
+  are never deleted by a product flow — removal is `status = INACTIVE`.
+  Referential actions are `RESTRICT` on assignment and authorship columns,
+  `CASCADE` for `project_members` and `sessions`. Deactivation revokes sessions
+  and reports open assignments for manual reassignment; GDPR erasure is an
+  operator procedure that anonymizes `users` and preserves the graph.
+- `organizations.logo_file_id` uses its own `id` as the tenant key:
+  `FOREIGN KEY (id, logo_file_id) REFERENCES file_objects (organization_id, id)`.
