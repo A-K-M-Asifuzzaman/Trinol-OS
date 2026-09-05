@@ -41,6 +41,22 @@ async def _get_membership_in_org(
     return membership
 
 
+def _ensure_actor_can_act(actor: Membership, organization_id: uuid.UUID) -> None:
+    """Defense in depth, shared by change_role and remove_member: neither
+    function may trust that its caller passed a matching (actor,
+    organization_id) pair, or that actor already has ADMIN+ — the route-level
+    Permission.MEMBER_ROLE_WRITE/MEMBER_REMOVE gate (RBAC.md §2) and
+    get_current_membership resolving the org from the session are what make
+    that true in practice, but this function has no way to verify either
+    happened. A caller bug that passes a mismatched organization_id — e.g.
+    from a request body or path param instead of the actor's own session —
+    would otherwise let an OWNER of org A operate on org B's memberships."""
+    if actor.organization_id != organization_id:
+        raise ForbiddenError("Actor does not belong to this organization")
+    if actor.role not in (Role.ADMIN, Role.OWNER):
+        raise ForbiddenError("Insufficient role to act on organization membership")
+
+
 async def _ensure_not_last_owner(
     db: AsyncSession, organization_id: uuid.UUID, *, excluding_membership_id: uuid.UUID
 ) -> None:
@@ -66,14 +82,7 @@ async def change_role(
     target_membership_id: uuid.UUID,
     new_role: Role,
 ) -> Membership:
-    # Defense in depth: RBAC.md §2 already gates this action on
-    # Permission.MEMBER_ROLE_WRITE (ADMIN+) at the route level, but this
-    # function must not rely on that alone. Without this check, a MANAGER or
-    # MEMBER actor reaching this function directly could demote an ADMIN —
-    # guard 3 below only restricts *ADMIN* actors, so it wouldn't catch a
-    # lower-privileged one.
-    if actor.role not in (Role.ADMIN, Role.OWNER):
-        raise ForbiddenError("Insufficient role to change a member's role")
+    _ensure_actor_can_act(actor, organization_id)
 
     await _lock_organization(db, organization_id)
     target = await _get_membership_in_org(
@@ -108,9 +117,7 @@ async def remove_member(
 ) -> Membership:
     """ "Remove" is deactivation, never a delete (DATABASE.md §5.2) —
     memberships are never deleted by any product flow."""
-    # Defense in depth — see the matching comment in change_role.
-    if actor.role not in (Role.ADMIN, Role.OWNER):
-        raise ForbiddenError("Insufficient role to remove a member")
+    _ensure_actor_can_act(actor, organization_id)
 
     await _lock_organization(db, organization_id)
     target = await _get_membership_in_org(

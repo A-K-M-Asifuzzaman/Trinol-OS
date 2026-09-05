@@ -200,6 +200,50 @@ async def test_target_in_another_organization_is_not_found(db_session) -> None:
         )
 
 
+async def test_actor_from_another_organization_cannot_change_role(db_session) -> None:
+    """A caller bug (organization_id not actually derived from actor's own
+    session) must not let an OWNER of one org operate on another org's
+    memberships just because organization_id was passed as that other org."""
+    org, owner, admin, manager, member = await _setup(db_session)
+    other_org = await make_organization(db_session)
+    other_org_owner = await make_membership(
+        db_session,
+        organization=other_org,
+        user=await make_user(db_session, email="otherorgowner@x.com"),
+        role=Role.OWNER,
+    )
+    await db_session.commit()
+
+    with pytest.raises(ForbiddenError, match="does not belong to this organization"):
+        await change_role(
+            db_session,
+            organization_id=org.id,
+            actor=other_org_owner,
+            target_membership_id=manager.id,
+            new_role=Role.ADMIN,
+        )
+
+
+async def test_actor_from_another_organization_cannot_remove_member(db_session) -> None:
+    org, owner, admin, manager, member = await _setup(db_session)
+    other_org = await make_organization(db_session)
+    other_org_owner = await make_membership(
+        db_session,
+        organization=other_org,
+        user=await make_user(db_session, email="otherorgowner2@x.com"),
+        role=Role.OWNER,
+    )
+    await db_session.commit()
+
+    with pytest.raises(ForbiddenError, match="does not belong to this organization"):
+        await remove_member(
+            db_session,
+            organization_id=org.id,
+            actor=other_org_owner,
+            target_membership_id=manager.id,
+        )
+
+
 async def test_guard_4_concurrent_demotion_of_both_owners_only_one_succeeds() -> None:
     """The scenario the FOR UPDATE lock (guard 4) exists for: two owners try
     to demote each other at the same moment. If both succeeded, the org
