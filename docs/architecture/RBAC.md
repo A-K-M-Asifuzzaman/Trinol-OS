@@ -100,6 +100,14 @@ Explicit rules, each with a regression test:
 6. Every role change, member removal and permission-relevant settings change
    writes an `is_audit` activity event.
 
+`membership_service.change_role`/`remove_member` also reject an actor who
+isn't ADMIN or OWNER outright, before any of the above. Guard 3 alone doesn't
+cover this: it only restricts an *ADMIN* actor touching an OWNER/ADMIN
+target, so without this precondition a MANAGER or MEMBER reaching either
+function directly (bypassing the route-level `Permission.MEMBER_ROLE_WRITE`
+gate) could demote or remove someone with no guard catching it. Defense in
+depth — the service must not rely solely on the route decorator above it.
+
 ## 6. Testing
 
 Authorization is tested as a matrix, not as scattered assertions:

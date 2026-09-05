@@ -8,6 +8,8 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from trinol.core.authz.require import public
+from trinol.core.authz.startup_audit import audit_routes
 from trinol.core.db.engine import get_engine
 from trinol.core.db.org_session import register_org_scope_guard
 from trinol.core.deps import get_settings
@@ -46,10 +48,12 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
 
     @app.get("/health", tags=["meta"])
+    @public
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/ready", tags=["meta"])
+    @public
     async def ready() -> JSONResponse:
         try:
             async with get_engine().connect() as connection:
@@ -61,6 +65,12 @@ def create_app() -> FastAPI:
         if current_revision != _alembic_head():
             return JSONResponse({"status": "not_ready", "reason": "migrations not at head"}, 503)
         return JSONResponse({"status": "ok"})
+
+    # RBAC.md §3: fails boot if any route has neither require(...) nor
+    # @public — the single most valuable guard in the system, turning
+    # "forgot to add authorization" into a boot failure instead of a
+    # vulnerability. Last, so every route above is registered first.
+    audit_routes(app)
 
     return app
 

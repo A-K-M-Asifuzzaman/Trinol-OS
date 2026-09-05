@@ -4,9 +4,10 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from tests.factories import make_invitation, make_membership, make_organization, make_user
+from trinol.core.authz.permissions import Role
 from trinol.core.ids import uuid7
 from trinol.modules.identity.identity_verifier import VerifiedIdentity
-from trinol.modules.identity.models import Invitation, MembershipRole, MembershipStatus, User
+from trinol.modules.identity.models import Invitation, MembershipStatus, User
 
 
 def _identity(
@@ -48,7 +49,7 @@ async def test_unknown_uid_with_open_invitation_provisions_and_returns_200(
         organization=org,
         email="invitee@example.com",
         invited_by=inviter,
-        role=MembershipRole.MANAGER,
+        role=Role.MANAGER,
     )
     await db_session.commit()
 
@@ -117,7 +118,7 @@ async def test_existing_user_successful_login_returns_200(
 ) -> None:
     org = await make_organization(db_session)
     user = await make_user(db_session, email="member@example.com")
-    await make_membership(db_session, organization=org, user=user, role=MembershipRole.MEMBER)
+    await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
     await db_session.commit()
 
     identity = _identity(firebase_uid=user.firebase_uid, email=user.email)

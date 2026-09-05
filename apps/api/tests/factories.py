@@ -4,12 +4,12 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from trinol.core.authz.permissions import Role
 from trinol.core.ids import uuid7
 from trinol.modules.identity.models import (
     AuthProvider,
     Invitation,
     Membership,
-    MembershipRole,
     MembershipStatus,
     Organization,
     User,
@@ -54,7 +54,7 @@ async def make_membership(
     *,
     organization: Organization,
     user: User,
-    role: MembershipRole = MembershipRole.MEMBER,
+    role: Role = Role.MEMBER,
     status: MembershipStatus = MembershipStatus.ACTIVE,
 ) -> Membership:
     membership = Membership(
@@ -75,7 +75,7 @@ async def make_invitation(
     organization: Organization,
     email: str,
     invited_by: User,
-    role: MembershipRole = MembershipRole.MEMBER,
+    role: Role = Role.MEMBER,
     expires_in: timedelta = timedelta(days=7),
     token_hash: str | None = None,
 ) -> Invitation:

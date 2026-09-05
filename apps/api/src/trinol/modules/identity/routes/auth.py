@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from trinol.core.authz.require import public
 from trinol.core.db.engine import get_db_session
 from trinol.core.deps import get_settings
 from trinol.modules.identity.deps import (
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 @router.post("/session", response_model=SessionExchangeResponse)
+@public  # unauthenticated by design — this is what creates a session
 async def create_session(
     payload: SessionExchangeRequest,
     request: Request,
@@ -62,6 +64,7 @@ async def create_session(
 
 
 @router.get("/session", response_model=SessionInfoResponse)
+@public  # authenticated (get_current_session), but self-service — no Permission to check
 async def get_session_info(
     session: Session = Depends(get_current_session),
     membership: Membership = Depends(get_current_membership),
@@ -75,6 +78,7 @@ async def get_session_info(
 
 
 @router.delete("/session", status_code=204)
+@public  # self-service logout, no Permission to check
 async def logout(
     response: Response,
     session: Session = Depends(get_current_session),
@@ -87,6 +91,7 @@ async def logout(
 
 
 @router.delete("/sessions", status_code=204)
+@public  # self-service logout-everywhere, no Permission to check
 async def logout_everywhere(
     response: Response,
     session: Session = Depends(get_current_session),

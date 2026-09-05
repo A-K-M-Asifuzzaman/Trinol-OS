@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from trinol.core.errors import register_exception_handlers
+from trinol.core.request_id import RequestIDMiddleware
 from trinol.main import app
 
 
@@ -14,7 +17,15 @@ async def test_health_ok() -> None:
 
 
 async def test_unhandled_exception_returns_error_envelope() -> None:
-    @app.get("/__boom_test_only")
+    # A throwaway app, not the shared `app` singleton: adding a route to that
+    # one leaks for the rest of the test session (routes are never removed),
+    # which once made an unrelated startup-route-audit test fail — it found
+    # this deliberately-broken route still registered, with no @public marker.
+    test_app = FastAPI()
+    test_app.add_middleware(RequestIDMiddleware)
+    register_exception_handlers(test_app)
+
+    @test_app.get("/__boom_test_only")
     async def boom() -> None:
         raise RuntimeError("kaboom")
 
@@ -22,7 +33,7 @@ async def test_unhandled_exception_returns_error_envelope() -> None:
     # re-raises the original exception so a real ASGI server can log/debug it
     # (uvicorn just logs and keeps the already-sent response; only the test
     # transport needs telling not to treat that as a broken request).
-    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    transport = ASGITransport(app=test_app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/__boom_test_only")
 

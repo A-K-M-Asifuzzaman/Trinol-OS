@@ -10,6 +10,7 @@ from sqlalchemy import ForeignKey, ForeignKeyConstraint, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import CITEXT, INET
 from sqlalchemy.orm import Mapped, mapped_column
 
+from trinol.core.authz.permissions import Role
 from trinol.core.db.base import Base
 from trinol.core.db.org_scoped import OrgScoped
 from trinol.core.ids import uuid7
@@ -22,24 +23,19 @@ class AuthProvider(StrEnum):
     GOOGLE = "GOOGLE"
 
 
-class MembershipRole(StrEnum):
-    OWNER = "OWNER"
-    ADMIN = "ADMIN"
-    MANAGER = "MANAGER"
-    MEMBER = "MEMBER"
-
-
 class MembershipStatus(StrEnum):
     ACTIVE = "ACTIVE"
     ON_LEAVE = "ON_LEAVE"
     INACTIVE = "INACTIVE"
 
 
+# `Role` (not a separate MembershipRole) lives in core/authz/permissions.py —
+# one enum for the concept, shared by the DB column and the permission map.
 # Defined once, reused by both Membership.role and Invitation.role, so
 # SQLAlchemy treats them as the same native Postgres enum type rather than
 # trying to create "membership_role" twice.
 _membership_role_type = PgEnum(
-    MembershipRole, name="membership_role", values_callable=lambda e: [m.value for m in e]
+    Role, name="membership_role", values_callable=lambda e: [m.value for m in e]
 )
 
 
@@ -81,7 +77,7 @@ class Membership(OrgScoped, Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
-    role: Mapped[MembershipRole] = mapped_column(_membership_role_type, nullable=False)
+    role: Mapped[Role] = mapped_column(_membership_role_type, nullable=False)
     job_title: Mapped[str | None] = mapped_column(sa.Text, default=None)
     status: Mapped[MembershipStatus] = mapped_column(
         PgEnum(
@@ -108,7 +104,7 @@ class Invitation(OrgScoped, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid7)
     email: Mapped[str] = mapped_column(CITEXT, nullable=False)
-    role: Mapped[MembershipRole] = mapped_column(_membership_role_type, nullable=False)
+    role: Mapped[Role] = mapped_column(_membership_role_type, nullable=False)
     token_hash: Mapped[str] = mapped_column(sa.Text, unique=True, nullable=False)
     # Exception to the "references reach memberships, not users" rule
     # (DATABASE.md §5.1): the inviter may not be a member of this org yet.

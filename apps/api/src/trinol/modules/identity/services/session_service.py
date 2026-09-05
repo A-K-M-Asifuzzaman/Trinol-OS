@@ -165,6 +165,27 @@ async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
     await db.commit()
 
 
+async def revoke_org_sessions(
+    db: AsyncSession, *, organization_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
+    """RBAC.md §5 guard 5: a role change or removal takes effect immediately
+    by revoking the target's sessions — scoped to just this organization,
+    unlike revoke_all_sessions (logout everywhere), which deliberately spans
+    every organization a user belongs to. A role change in org A has nothing
+    to do with that same user's session in org B."""
+    now = datetime.now(UTC)
+    await db.execute(
+        update(Session)
+        .where(
+            Session.organization_id == organization_id,
+            Session.user_id == user_id,
+            Session.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    await db.commit()
+
+
 async def _resolve_or_provision_user(db: AsyncSession, identity: VerifiedIdentity) -> User:
     result = await db.execute(select(User).where(User.firebase_uid == identity.firebase_uid))
     user = result.scalar_one_or_none()
