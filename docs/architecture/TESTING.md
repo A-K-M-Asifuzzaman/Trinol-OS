@@ -48,6 +48,14 @@ represented:
    org A → `404`, never `403` and never `200`.
 4. **Escalation** — the six guards in [RBAC.md §5](RBAC.md#5-escalation-guards),
    including the concurrent last-owner demotion.
+5. **Schema integrity** — one test reads `information_schema` against the
+   migrated database and asserts that every FK between two org-scoped tables is
+   composite, and that every table targeted by one carries its
+   `UNIQUE (organization_id, id)`
+   ([DATABASE.md §5.1](DATABASE.md#51-cross-organization-relationship-integrity)).
+   A single-column FK to an org-scoped table fails the suite. This is what stops
+   the rule from decaying: a plain `ForeignKey("projects.id")` is the natural
+   thing to type, and review will not reliably catch it.
 
 ## 5. End-to-end
 

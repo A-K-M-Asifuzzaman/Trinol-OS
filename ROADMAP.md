@@ -11,7 +11,7 @@ Do not start a phase while a P0 or P1 finding is open in a dependency phase.
 
 ## Phase 0 — Architecture
 
-Status: **complete, awaiting final Codex approval.** No product code was written.
+Status: **APPROVED by Codex.** No product code was written.
 
 - [x] Repository inspection
 - [x] Product scope review
@@ -39,13 +39,20 @@ Status: **complete, awaiting final Codex approval.** No product code was written
 - [x] Verification round 2 — membership deletion semantics
   ([DATABASE.md §5.2](docs/architecture/DATABASE.md)) and an organization-aware
   FK for `organizations.logo_file_id`
-- [ ] Final Codex approval
+- [x] Verification round 3 — added `UNIQUE (organization_id, id)` to all eight
+  composite-FK-target tables (not just `file_objects`), plus a CI schema-
+  integrity test so a single-column FK to an org-scoped table fails the suite
+- [x] Final Codex approval — 3 verification rounds, all P0/P1 resolved
 
 ### Open decisions carried out of Phase 0
 
-Answers needed before Phase 1 finishes; none block starting it.
+1. **Firebase sign-in methods** — **resolved: both email/password and Google**,
+   invitation-gated, verified email required. Matches the design already in
+   [ADR-0013](docs/adr/0013-firebase-as-identity-provider.md) and
+   [AUTH.md §4](docs/architecture/AUTH.md); no change needed.
 
-1. **Firebase sign-in methods** — email/password, Google, or both.
+Answers still needed before Phase 5/6 respectively; none block Phase 1.
+
 2. **Hosting target** — single VM (assumed, [ADR-0009](docs/adr/0009-deployment-single-host-compose.md)) or a PaaS split, which changes the same-origin cookie assumption.
 3. **Invoice tax model** — one rate per invoice is assumed; per-line tax and VAT/GST numbers are not built.
 4. **Google Calendar** — treated as not justified until asked ([ADR-0012](docs/adr/0012-v1-scope-trims.md)).
