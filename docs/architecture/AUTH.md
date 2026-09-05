@@ -80,8 +80,11 @@ token. It:
    other Firebase project is rejected.
 2. Requires `email_verified == true`.
 3. Resolves `users.firebase_uid`. Unknown uid with no open invitation and no
-   existing membership → `403`. **No account is auto-created**; without this,
-   enabling Google sign-in would admit any Google account on the internet.
+   existing membership → `403`. For an open invitation, the invitation row is
+   locked with `SELECT ... FOR UPDATE`; user creation, membership creation and
+   invitation consumption commit as one transaction. **No account is
+   auto-created**; without this, enabling Google sign-in would admit any
+   Google account on the internet.
 4. Rejects a membership that is missing or `INACTIVE`.
 5. Creates the session row and sets the cookie.
 

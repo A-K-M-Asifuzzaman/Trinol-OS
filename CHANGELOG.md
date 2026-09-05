@@ -12,3 +12,12 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
   infrastructure, soft delete, V1 scope trims, and Firebase as identity provider.
 - V1 scope document and roadmap with per-phase exit criteria and a technical
   debt ledger.
+
+### Changed — Phase 0 audit resolution
+- Documented composite organization-scoped foreign keys for cross-tenant
+  relationship integrity.
+- Specified atomic PostgreSQL rate-limit updates.
+- Removed persisted `OVERDUE` invoice status and required invoice-row locking
+  for concurrent payment recording.
+- Made invited-user provisioning and invitation consumption one locked
+  transaction.

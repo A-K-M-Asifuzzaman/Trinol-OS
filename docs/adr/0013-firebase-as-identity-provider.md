@@ -28,7 +28,7 @@ request is allowed to do, and when access ends.
               (offline: cached Google public keys, no per-request network call)
 4. FastAPI  → look up users.firebase_uid
               ├─ found        → continue
-              ├─ invited      → provision the user, consume the invitation
+              ├─ invited      → lock invitation, provision the user and consume it
               └─ neither      → 403, no account is created
 5. FastAPI  → create a session row, set the httpOnly cookie (ADR-0002 §2)
 6. Browser  → firebase.auth().signOut() locally, discarding the ID token
@@ -59,6 +59,12 @@ an authenticated session.
 
 Invitation acceptance matches on the **verified** email claim only
 (`email_verified == true`); an unverified claim is rejected.
+
+Invitation provisioning is one transaction. The open invitation is selected
+`FOR UPDATE` before creating the user and membership and setting `accepted_at`.
+A second concurrent exchange therefore observes the consumed invitation and
+cannot provision a second account; the unique Firebase UID and
+organization/user membership constraints remain final backstops.
 
 ## Alternatives rejected
 

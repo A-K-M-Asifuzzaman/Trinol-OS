@@ -174,7 +174,7 @@ See [ADR-0007](../adr/0007-money-and-invoice-totals.md) for the arithmetic rules
 **invoices** — `id`, `organization_id`, `invoice_number`, `client_id`,
 `project_id?`, `issue_date`, `due_date`, `currency`, `subtotal`,
 `discount_amount`, `tax_amount`, `total`, `amount_paid`, `status`
-(`DRAFT|SENT|PARTIALLY_PAID|PAID|OVERDUE|CANCELLED`), `notes?`, `terms?`,
+(`DRAFT|SENT|PARTIALLY_PAID|PAID|CANCELLED`), `notes?`, `terms?`,
 `sent_at?`, `created_by`, `archived_at?`, timestamps.
 - `uq_invoice_org_number (organization_id, invoice_number)` — the hard guarantee
   against duplicate numbers.
@@ -223,6 +223,9 @@ Storage abstraction in [SECURITY.md §6](SECURITY.md#6-file-uploads).
 
 **rate_limit_buckets** — `key` (pk), `window_start`, `count`. Postgres-backed
 fixed-window limiter for the public contact endpoint and login.
+Counters are updated with one atomic `INSERT ... ON CONFLICT DO UPDATE`
+statement; callers never read, increment and write a bucket in separate
+statements.
 `ponytail: fixed window in Postgres; move to Redis sliding window if the public
 endpoint ever sees real traffic.`
 
@@ -254,6 +257,18 @@ Isolation is enforced in the application at one choke point, not by scattering
    it turns a silent data leak into a 500.
 4. A cross-org isolation test matrix runs every org-scoped endpoint as a member
    of org B against a resource in org A and asserts `404`.
+
+### 5.1 Cross-organization relationship integrity
+
+Every foreign key from one organization-owned table to another must be a
+composite foreign key containing both `organization_id` and the referenced id.
+The referenced table exposes a matching unique key, for example
+`UNIQUE (organization_id, id)`, and a task's `(organization_id, project_id)`
+references the project's corresponding pair. This applies to nullable
+references and join tables. References to global `users` are the exception,
+but membership/resource ownership is still validated by the service layer.
+Migration tests deliberately attempt cross-organization references and assert
+that PostgreSQL rejects them.
 
 Postgres RLS is the stronger answer and is deliberately deferred to the
 multi-tenant SaaS phase; the schema is already shaped for it.

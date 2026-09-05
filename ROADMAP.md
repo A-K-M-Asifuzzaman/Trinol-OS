@@ -11,7 +11,7 @@ Do not start a phase while a P0 or P1 finding is open in a dependency phase.
 
 ## Phase 0 — Architecture
 
-Status: **complete, awaiting Codex audit.** No product code was written.
+Status: **complete and approved by Codex.** No product code was written.
 
 - [x] Repository inspection
 - [x] Product scope review
@@ -28,8 +28,10 @@ Status: **complete, awaiting Codex audit.** No product code was written.
 - [x] Security review — [SECURITY.md](docs/architecture/SECURITY.md)
 - [x] ADRs — [docs/adr/](docs/adr/README.md), 13 records
 - [x] V1 scope and trims — [V1_SCOPE.md](docs/product/V1_SCOPE.md), [ADR-0012](docs/adr/0012-v1-scope-trims.md)
-- [ ] Codex architecture audit
-- [ ] Resolve P0/P1 findings
+- [x] Codex architecture audit
+- [x] Resolve P0/P1 findings — composite tenant foreign keys, atomic rate
+  limiting, invoice/payment locking, and race-safe invitation provisioning
+  documented in the architecture and ADRs
 
 ### Open decisions carried out of Phase 0
 

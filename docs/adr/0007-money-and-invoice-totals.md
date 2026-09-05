@@ -49,13 +49,17 @@ fields are frozen; corrections are a credit note or a cancellation, never a
 silent edit. Cancellation is a status change with an audit event, never a
 delete.
 
-**`OVERDUE` is derived**, not stored: `status IN (SENT, PARTIALLY_PAID) AND
-due_date < today`. No nightly job to run, to monitor, or to forget.
+**`OVERDUE` is derived**, not stored: persisted status is one of `DRAFT`,
+`SENT`, `PARTIALLY_PAID`, `PAID` or `CANCELLED`; presentation code derives
+overdue from `status IN (SENT, PARTIALLY_PAID) AND due_date < today`. No
+nightly job to run, to monitor, or to forget.
 
-**Payments** are append-only rows. `amount_paid` is recomputed as the sum of
-payments inside the same transaction, and the status moves to
-`PARTIALLY_PAID` or `PAID` from that sum. Overpayment beyond the total is
-rejected with a `409`.
+**Payments** are append-only rows. Recording a payment first locks the invoice
+row with `SELECT ... FOR UPDATE`, then recomputes `amount_paid` as the sum of
+payments and moves the status to `PARTIALLY_PAID` or `PAID` from that sum.
+Overpayment beyond the total is rejected with a `409`. Concurrent-payment
+tests are required to prove that two requests cannot both pass the balance
+check against the same prior amount.
 
 **Multi-currency** is out of V1: one currency per organization, stored per row
 so the column does not have to be added later. Cross-currency reporting and

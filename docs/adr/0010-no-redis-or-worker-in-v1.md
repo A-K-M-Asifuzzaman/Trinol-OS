@@ -11,10 +11,11 @@ a rate limiter, and a Celery/RQ worker for email and scheduled jobs.
 
 Neither is introduced in V1.
 
-- **Rate limiting** → a `rate_limit_buckets` table in PostgreSQL, fixed window.
-  The endpoints that need it (login, password reset, public contact) see a
-  handful of requests per minute. `ponytail: fixed window in Postgres; move to
-  Redis sliding window if the public endpoint takes real traffic.`
+- **Rate limiting** → a `rate_limit_buckets` table in PostgreSQL, fixed window,
+  updated by one atomic `INSERT ... ON CONFLICT DO UPDATE` statement. The
+  endpoints that need it (login, password reset, public contact) see a handful
+  of requests per minute. `ponytail: fixed window in Postgres; move to Redis
+  sliding window if the public endpoint takes real traffic.`
 - **Email** → FastAPI background task, sent after commit. There is no persistent
   outbox; a lost transactional email is currently recoverable by a human.
 - **Scheduled work** → designed out where possible. `OVERDUE` invoices and
