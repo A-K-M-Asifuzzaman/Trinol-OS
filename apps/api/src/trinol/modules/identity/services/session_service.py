@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.db.org_session import OrgSession
@@ -33,10 +34,23 @@ _EXCHANGE_RATE_LIMIT = 30
 _EXCHANGE_RATE_WINDOW = timedelta(minutes=1)
 
 _SESSION_ABSOLUTE_LIFETIME = timedelta(days=30)  # AUTH.md §3
+SESSION_IDLE_TIMEOUT = timedelta(days=7)  # AUTH.md §3
+LAST_SEEN_REFRESH_INTERVAL = timedelta(minutes=5)  # AUTH.md §3
 
 
 def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def get_session_by_token_hash(db: AsyncSession, token_hash: str) -> Session | None:
+    """Shared by deps.py (get_current_session) and core/security/csrf.py —
+    both need to resolve a session from a raw cookie value before its
+    organization is known, hence unscoped (DATABASE.md §5.1's documented
+    escape hatch, same as the membership/invitation lookups below)."""
+    result = await db.execute(
+        OrgSession.unscoped(select(Session).where(Session.token_hash == token_hash))
+    )
+    return result.scalar_one_or_none()
 
 
 def _auth_provider_for(sign_in_provider: str) -> AuthProvider:
@@ -114,7 +128,7 @@ async def exchange_session(
         id=uuid7(),
         user_id=user.id,
         token_hash=_hash(token),
-        csrf_hash=_hash(csrf_token),
+        csrf_token=csrf_token,
         user_agent=user_agent,
         ip=ip,
         expires_at=now + _SESSION_ABSOLUTE_LIFETIME,
@@ -128,6 +142,27 @@ async def exchange_session(
     return ExchangeResult(
         session_token=token, session=session_row, user=user, membership=membership
     )
+
+
+async def revoke_session(db: AsyncSession, session: Session) -> None:
+    """AUTH.md §3: logout revokes the current session."""
+    session.revoked_at = datetime.now(UTC)
+    await db.commit()
+
+
+async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """AUTH.md §3: "log out everywhere" — every session for this user,
+    unscoped deliberately. A future multi-org account's sessions in other
+    organizations must be revoked too, not just the current one."""
+    now = datetime.now(UTC)
+    await db.execute(
+        OrgSession.unscoped(
+            update(Session)
+            .where(Session.user_id == user_id, Session.revoked_at.is_(None))
+            .values(revoked_at=now)
+        )
+    )
+    await db.commit()
 
 
 async def _resolve_or_provision_user(db: AsyncSession, identity: VerifiedIdentity) -> User:
@@ -150,14 +185,14 @@ async def _resolve_or_provision_user(db: AsyncSession, identity: VerifiedIdentit
     # Unknown firebase_uid: only proceeds if there's an open invitation for
     # this verified email (ADR-0013 "Provisioning"). No account is ever
     # auto-created without one.
-    result = await db.execute(
+    invitation_result = await db.execute(
         OrgSession.unscoped(
             select(Invitation)
             .where(Invitation.email == identity.email, Invitation.accepted_at.is_(None))
             .with_for_update()
         )
     )
-    invitation = result.scalars().first()
+    invitation = invitation_result.scalars().first()
     if invitation is None:
         raise ForbiddenError("No account or open invitation for this identity")
     if invitation.expires_at < datetime.now(UTC):

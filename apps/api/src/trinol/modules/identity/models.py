@@ -129,7 +129,12 @@ class Session(OrgScoped, Base):
     # + user_id together (DATABASE.md §5.1 — "sessions follows the same rule").
     user_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     token_hash: Mapped[str] = mapped_column(sa.Text, unique=True, nullable=False)
-    csrf_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    # Plaintext, not hashed like token_hash: AUTH.md §6 requires the raw
+    # value back from GET /api/v1/auth/session, impossible from a one-way
+    # hash. Security here is same-origin-policy-based (a cross-site page
+    # can't read the response or set X-CSRF-Token), not secrecy-at-rest —
+    # standard for double-submit CSRF tokens (see migration 0002).
+    csrf_token: Mapped[str] = mapped_column(sa.Text, nullable=False)
     user_agent: Mapped[str | None] = mapped_column(sa.Text, default=None)
     ip: Mapped[str | None] = mapped_column(INET, default=None)
     expires_at: Mapped[datetime] = mapped_column(_TZ, nullable=False)

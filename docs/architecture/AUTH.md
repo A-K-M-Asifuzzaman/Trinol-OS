@@ -108,11 +108,18 @@ behaviour varies). Defence in depth on every unsafe method
 
 1. `Origin` (falling back to `Referer`) must match the configured app origin.
    A missing Origin on an unsafe method is rejected.
-2. Double-submit token: `csrf_hash` on the session row, the raw value returned
-   from `GET /api/v1/auth/session` and echoed by the client in `X-CSRF-Token`.
+2. Double-submit token: `csrf_token` (plaintext — see DATABASE.md's sessions
+   entry for why) on the session row, returned from `GET /api/v1/auth/session`
+   and echoed by the client in `X-CSRF-Token`.
 
-Both checks are middleware. They are not per-route decorators — a new route must
-not be able to forget them.
+Both are enforced globally, so a new route can't forget them, but not both by
+the same mechanism: the origin check is raw ASGI middleware (no request
+state needed); the CSRF check is a FastAPI *global dependency* instead, since
+it needs a DB lookup and participates in the same dependency-injection graph
+tests already override. Both skip `POST /api/v1/auth/session` for the CSRF
+half specifically — it can't carry a token from a session that doesn't exist
+yet at the point this request creates one; the origin check still applies to
+it in full.
 
 ## 7. Session → organization
 

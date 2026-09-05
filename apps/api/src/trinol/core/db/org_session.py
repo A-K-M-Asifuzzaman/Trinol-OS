@@ -14,6 +14,7 @@ from trinol.core.db.org_scoped import OrgScoped
 _UNSCOPED_OPTION = "trinol_unscoped"
 
 ModelT = TypeVar("ModelT", bound=OrgScoped)
+StatementT = TypeVar("StatementT", bound="Select[Any] | Update | Delete")
 
 
 class OrgSession:
@@ -61,14 +62,17 @@ class OrgSession:
         await self.session.commit()
 
     @staticmethod
-    def unscoped(stmt: Select[Any]) -> Select[Any]:
-        """Deliberate, greppable escape hatch for a genuine cross-org read.
-
-        Not used anywhere in Phase 1 — exists so a future admin-tooling query
-        has one explicit, auditable spelling instead of reaching for the raw
-        session to dodge the guard.
+    def unscoped(stmt: StatementT) -> StatementT:
+        """Deliberate, greppable escape hatch for a genuine cross-org
+        operation — a select, update, or delete. Used for: resolving a
+        session/membership before its organization is known (session_service.py),
+        and "log out everywhere" revoking a user's sessions across every
+        organization they belong to (AUTH.md §3).
         """
-        return stmt.execution_options(**{_UNSCOPED_OPTION: True})
+        # execution_options() mutates and returns the same concrete statement
+        # type at runtime; mypy can't verify that through a Union-bound
+        # TypeVar, so the cast just asserts what's already true.
+        return cast(StatementT, stmt.execution_options(**{_UNSCOPED_OPTION: True}))
 
 
 _guard_registered = False

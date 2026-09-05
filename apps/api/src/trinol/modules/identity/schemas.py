@@ -11,3 +11,10 @@ class SessionExchangeResponse(BaseModel):
     user_id: str
     organization_id: str
     role: str
+
+
+class SessionInfoResponse(BaseModel):
+    user_id: str
+    organization_id: str
+    role: str
+    csrf_token: str

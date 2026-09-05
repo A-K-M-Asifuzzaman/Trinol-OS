@@ -79,7 +79,13 @@ because addresses change.
   the org row, with a regression test. See [RBAC.md §5](RBAC.md#5-escalation-guards).
 
 **sessions** — `id`, `user_id`, `organization_id`, `token_hash` (sha256, uq),
-`csrf_hash`, `user_agent`, `ip`, `expires_at`, `last_seen_at`, `revoked_at?`.
+`csrf_token`, `user_agent`, `ip`, `expires_at`, `last_seen_at`, `revoked_at?`.
+`csrf_token` is stored in **plaintext**, unlike `token_hash` — AUTH.md §6
+requires the raw value back from `GET /api/v1/auth/session`, impossible from
+a one-way hash, and its security comes from the browser's same-origin policy
+rather than secrecy at rest (standard for double-submit CSRF tokens; Phase 1
+Stage 5 caught and corrected an earlier `csrf_hash` naming/design that
+couldn't actually satisfy this).
 Detail in [AUTH.md](AUTH.md).
 
 **invitations** — `id`, `organization_id`, `email`, `role`, `token_hash` (uq),
