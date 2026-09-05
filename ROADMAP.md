@@ -32,6 +32,10 @@ Status: **complete and approved by Codex.** No product code was written.
 - [x] Resolve P0/P1 findings — composite tenant foreign keys, atomic rate
   limiting, invoice/payment locking, and race-safe invitation provisioning
   documented in the architecture and ADRs
+- [x] Claude review of the audit resolution — all four accepted; three
+  follow-on gaps closed (person columns reference `memberships` not `users`,
+  `users.avatar_url` replaces an org-scoped file FK, public contact endpoint
+  resolves its org from config). See [DATABASE.md §5.1](docs/architecture/DATABASE.md)
 
 ### Open decisions carried out of Phase 0
 

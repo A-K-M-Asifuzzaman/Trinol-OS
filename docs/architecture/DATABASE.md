@@ -53,8 +53,12 @@ User 1─* Session
 **organizations** — `id`, `name`, `slug` (uq), `logo_file_id?`, timestamps.
 
 **users** — `id`, `firebase_uid` (uq), `email` (**citext**, globally unique),
-`auth_provider` (`PASSWORD|GOOGLE`), `full_name`, `avatar_file_id?`,
+`auth_provider` (`PASSWORD|GOOGLE`), `full_name`, `avatar_url?`,
 `last_login_at?`, timestamps.
+`avatar_url` is a plain URL, not a `file_objects` FK: `users` is global while
+`file_objects` is org-scoped, so an FK there would be the one cross-tenant
+reference §5.1 cannot express. Google sign-in supplies a photo URL for free,
+and this removes the avatar upload path entirely.
 A user is global; organization access comes only from `memberships`.
 No `password_hash` — credentials live in Firebase
 ([ADR-0013](../adr/0013-firebase-as-identity-provider.md)). `firebase_uid` is
@@ -142,6 +146,11 @@ analytics in Phase 7. Written in the same transaction as the stage change.
 `company?`, `service?`, `budget?`, `message`, `ip`, `user_agent`,
 `reference_number` (uq per org), `lead_id?`, `spam_score?`, `created_at`.
 Raw inbound record, kept even when the lead is later deleted.
+The endpoint is unauthenticated, so there is no session to take
+`organization_id` from: it comes from configuration (`PUBLIC_CONTACT_ORG_SLUG`),
+resolved once at startup and failing the boot if it does not exist. This is the
+single org-scoped write with no session behind it, and it is why the value is
+config rather than anything the caller can influence.
 
 ### meetings
 
@@ -265,10 +274,37 @@ composite foreign key containing both `organization_id` and the referenced id.
 The referenced table exposes a matching unique key, for example
 `UNIQUE (organization_id, id)`, and a task's `(organization_id, project_id)`
 references the project's corresponding pair. This applies to nullable
-references and join tables. References to global `users` are the exception,
-but membership/resource ownership is still validated by the service layer.
-Migration tests deliberately attempt cross-organization references and assert
-that PostgreSQL rejects them.
+references and join tables. Migration tests deliberately attempt
+cross-organization references and assert that PostgreSQL rejects them.
+
+**References to people are composite too.** `users` is global, so a plain
+`assignee_id → users.id` would happily let a task in org A be assigned to
+someone who has never been a member of it — their name then renders in our UI
+and they receive notifications about work they cannot see. Leaving that to the
+service layer contradicts the reason this rule exists.
+
+So every column naming a person inside an organization references the
+**membership**, not the user:
+
+```sql
+FOREIGN KEY (organization_id, assignee_id)
+  REFERENCES memberships (organization_id, user_id)
+```
+
+with `UNIQUE (organization_id, user_id)` on `memberships` — an index that
+already exists. This covers `tasks.assignee_id`, `tasks.created_by`,
+`projects.owner_id`, `project_members.user_id`, `leads.assigned_to`,
+`clients.owner_id`, `meeting_participants.user_id`, `task_comments.author_id`,
+`payments.recorded_by` and every other actor column on an org-scoped row.
+
+`sessions` follows the same rule: `(organization_id, user_id)` references
+`memberships`, which makes a session for a non-member structurally impossible
+rather than merely checked at login.
+
+Two deliberate exceptions, both because the row must outlive the membership:
+`activity_events.actor_id` and `invitations.invited_by` reference `users`
+directly. History must not disappear when someone leaves, and `ON DELETE` on a
+membership must not cascade into the audit trail.
 
 Postgres RLS is the stronger answer and is deliberately deferred to the
 multi-tenant SaaS phase; the schema is already shaped for it.

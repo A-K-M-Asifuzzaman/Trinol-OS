@@ -21,3 +21,14 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
   for concurrent payment recording.
 - Made invited-user provisioning and invitation consumption one locked
   transaction.
+
+### Changed — Claude review of the audit resolution
+- Extended composite tenant foreign keys to person columns: assignee, owner,
+  author and participant columns reference `memberships (organization_id,
+  user_id)`, closing the cross-org assignment the service-layer exception left
+  open. `activity_events.actor_id` and `invitations.invited_by` stay global so
+  history survives a departure.
+- `users.avatar_file_id` → `users.avatar_url`; a global user cannot hold an FK
+  into org-scoped `file_objects`.
+- Public contact endpoint resolves `organization_id` from configuration,
+  validated at startup.
