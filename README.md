@@ -35,6 +35,21 @@ Product specification:
 Roadmap:
 - ROADMAP.md
 
+## Architecture
+
+Phase 0 design (no product code yet):
+
+- [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) — system shape, modules, request path, frontend
+- [DATABASE.md](docs/architecture/DATABASE.md) — ERD, tables, constraints, organization isolation
+- [AUTH.md](docs/architecture/AUTH.md) — Firebase identity, local sessions, CSRF
+- [RBAC.md](docs/architecture/RBAC.md) — roles, permission matrix, escalation guards
+- [SECURITY.md](docs/architecture/SECURITY.md) — trust boundaries, top risks, headers, uploads
+- [EMAIL.md](docs/architecture/EMAIL.md) — sender abstraction, templates, contact flow
+- [TESTING.md](docs/architecture/TESTING.md) — test layers, security matrices, CI gates
+- [DEPLOYMENT.md](docs/architecture/DEPLOYMENT.md) — environments, images, migrations, backups
+- [docs/adr/](docs/adr/README.md) — 13 decision records
+- [V1_SCOPE.md](docs/product/V1_SCOPE.md) — what V1 is and is not
+
 ## Recommended Workflow
 
 1. Claude executes Phase 0 only.
