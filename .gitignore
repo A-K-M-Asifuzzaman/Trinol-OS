@@ -1,0 +1,41 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+*firebase*adminsdk*.json
+*-service-account.json
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# node
+node_modules/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# playwright
+test-results/
+playwright-report/
+
+# local data
+uploads/
+storage/
+postgres-data/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
