@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from trinol.core.db.org_session import OrgSession
 from trinol.core.ids import uuid7
-from trinol.modules.identity.models import Membership
+from trinol.modules.identity.models import Membership, MembershipStatus
 
 pytestmark = pytest.mark.usefixtures("db_session")
 
@@ -38,3 +38,40 @@ async def test_unscoped_escape_hatch_bypasses_guard(db_session) -> None:
     stmt = OrgSession.unscoped(select(Membership))
     result = await db_session.execute(stmt)
     assert result.scalars().all() is not None
+
+
+async def test_raw_update_on_org_scoped_table_without_filter_raises(db_session) -> None:
+    stmt = update(Membership).values(status=MembershipStatus.INACTIVE.value)
+    with pytest.raises(RuntimeError, match="organization_id"):
+        await db_session.execute(stmt)
+
+
+async def test_raw_delete_on_org_scoped_table_without_filter_raises(db_session) -> None:
+    with pytest.raises(RuntimeError, match="organization_id"):
+        await db_session.execute(delete(Membership))
+
+
+async def test_update_with_org_filter_is_allowed(db_session) -> None:
+    org_id = uuid7()
+    stmt = (
+        update(Membership)
+        .where(Membership.organization_id == org_id)
+        .values(status=MembershipStatus.INACTIVE.value)
+    )
+    result = await db_session.execute(stmt)
+    assert result.rowcount == 0
+
+
+async def test_add_stamps_organization_id_when_unset(db_session) -> None:
+    org_session = OrgSession(db_session, organization_id=uuid7())
+    membership = Membership(user_id=uuid7(), role="MEMBER")
+    org_session.add(membership)
+    assert membership.organization_id == org_session.organization_id
+
+
+async def test_add_rejects_mismatched_organization_id(db_session) -> None:
+    org_session = OrgSession(db_session, organization_id=uuid7())
+    other_org_id = uuid7()
+    membership = Membership(organization_id=other_org_id, user_id=uuid7(), role="MEMBER")
+    with pytest.raises(ValueError, match="does not match"):
+        org_session.add(membership)

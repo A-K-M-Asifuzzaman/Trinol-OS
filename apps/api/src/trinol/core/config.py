@@ -5,13 +5,30 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Resolved relative to this file, not CWD, so `uv run pytest` from apps/api
-# and a Makefile `cd apps/api && ...` both find the repo-root .env.
-_ENV_FILE = Path(__file__).resolve().parents[5] / ".env"
+
+def _find_env_file(start: Path | None = None) -> str | None:
+    """Walk upward from `start` (default: this file) looking for a `.env`,
+    instead of a fixed `parents[N]` — a hardcoded depth matches the host
+    layout (repo root five levels up) but not Docker's, where only apps/api
+    is mounted at /app and no `.env` exists at any ancestor. `Path.parents`
+    terminates at the filesystem root on its own, so this can't raise the way
+    indexing a fixed offset did; it just finds nothing and returns None,
+    which tells pydantic-settings to skip dotenv loading and read real env
+    vars only — exactly what Compose already injects via
+    `env_file:`/`environment:`.
+    """
+    for directory in (start or Path(__file__).resolve()).parents:
+        candidate = directory / ".env"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+_ENV_FILE = _find_env_file()
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=str(_ENV_FILE), extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     app_env: Literal["local", "staging", "production"] = "local"
     api_port: int = 8000

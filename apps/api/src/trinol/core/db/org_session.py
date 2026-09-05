@@ -7,6 +7,7 @@ from sqlalchemy import Select, event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 from sqlalchemy.orm.session import ORMExecuteState
+from sqlalchemy.sql.dml import Delete, Update
 
 from trinol.core.db.org_scoped import OrgScoped
 
@@ -21,8 +22,9 @@ class OrgSession:
     `select()` injects the organization_id filter and `add()` stamps it, but
     those are convenience only — the actual enforcement is the
     `do_orm_execute` guard registered by `register_org_scope_guard()`, which
-    fires for any statement against an `OrgScoped` table regardless of how it
-    was built, so a raw `session.execute(select(Task))` is caught too.
+    fires for any select/update/delete against an `OrgScoped` table regardless
+    of how it was built, so a raw `session.execute(select(Task))` is caught
+    too.
     """
 
     def __init__(self, session: AsyncSession, organization_id: uuid.UUID) -> None:
@@ -33,8 +35,20 @@ class OrgSession:
         return select(entity).where(entity.organization_id == self.organization_id)
 
     def add(self, instance: OrgScoped) -> None:
-        if getattr(instance, "organization_id", None) is None:
+        """Stamps organization_id when unset; **rejects** an instance already
+        carrying a different one rather than silently keeping it. This is the
+        only check on the insert path — `do_orm_execute` (below) does not fire
+        for `session.add()`-triggered inserts, those go through the ORM's
+        flush/unit-of-work, not a Core statement."""
+        current = getattr(instance, "organization_id", None)
+        if current is None:
             instance.organization_id = self.organization_id
+        elif current != self.organization_id:
+            raise ValueError(
+                f"Refusing to add a {type(instance).__name__} whose "
+                f"organization_id ({current}) does not match this "
+                f"OrgSession's organization ({self.organization_id})."
+            )
         self.session.add(instance)
 
     async def execute(self, stmt: Any) -> Any:
@@ -63,11 +77,14 @@ _guard_registered = False
 def register_org_scope_guard() -> None:
     """DATABASE.md §5 item 3: on in every environment, not just tests.
 
-    Covers SELECT only for now — Phase 1 has no bulk `update()`/`delete()`
-    Core statements against org-scoped tables (ORM-loaded-then-mutated rows go
-    through flush, not this event, the same way `session.add()` does).
-    `ponytail: SELECT-only guard; extend to bulk update/delete if one is ever
-    written directly instead of loading and mutating.`
+    Covers select/update/delete — every Core statement `do_orm_execute` fires
+    for. It does *not* cover a bulk Core `insert()` statement (rare; the
+    write path here is `OrgSession.add()`, which rejects a mismatched
+    organization_id itself, above) or a row loaded then mutated then flushed
+    (flush doesn't go through `do_orm_execute` either, but a loaded row was
+    necessarily fetched through an already-guarded select).
+    `ponytail: select/update/delete guard; extend to bulk insert() if one is
+    ever written instead of session.add().`
 
     Called from both `main.py` (real runtime) and `conftest.py` (tests import
     models/db helpers directly, without necessarily importing `trinol.main`
@@ -80,21 +97,23 @@ def register_org_scope_guard() -> None:
 
     @event.listens_for(SyncSession, "do_orm_execute")
     def _guard(orm_execute_state: ORMExecuteState) -> None:
-        if not orm_execute_state.is_select:
+        if not (
+            orm_execute_state.is_select
+            or orm_execute_state.is_update
+            or orm_execute_state.is_delete
+        ):
             return
         if orm_execute_state.execution_options.get(_UNSCOPED_OPTION):
             return
 
-        # is_select above guarantees this at runtime; Executable itself
-        # doesn't carry column_descriptions/whereclause statically.
-        statement = cast(Select[Any], orm_execute_state.statement)
-        touches_org_scoped = any(
-            isinstance(desc.get("entity"), type) and issubclass(desc["entity"], OrgScoped)
-            for desc in statement.column_descriptions
-        )
-        if not touches_org_scoped:
+        mapper = orm_execute_state.bind_mapper
+        if mapper is None or not issubclass(mapper.class_, OrgScoped):
             return
 
+        # Select, Update and Delete all expose whereclause; is_select/update/
+        # delete above guarantees one of those three at runtime, but the
+        # common Executable type these share statically doesn't.
+        statement = cast("Select[Any] | Update | Delete", orm_execute_state.statement)
         where_clause = statement.whereclause
         if where_clause is None or "organization_id" not in str(where_clause):
             raise RuntimeError(
