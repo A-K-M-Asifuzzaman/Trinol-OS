@@ -239,6 +239,17 @@ One table serves both the §21 activity feed (`is_audit = false`) and the §28
 audit log (`is_audit = true`). Append-only: the application database role is
 granted `INSERT, SELECT` and **not** `UPDATE, DELETE`
 ([ADR-0006](../adr/0006-single-append-only-activity-table.md)).
+
+That grant is only real if the application connects as a role other than the
+table's owner — Postgres lets an owner bypass its own grants, the same fact
+ADR-0003 notes about RLS. So there are **two roles in every environment,
+including local and CI, not just production**: `trinol_migrator` owns every
+object and is what `DATABASE_MIGRATION_URL` / Alembic connects as; `trinol_app`
+is the runtime role or `DATABASE_URL` connects as, and is the one actually
+`REVOKE`d from `UPDATE, DELETE` on this table. The migration that creates
+`activity_events` also does the revoke, and `ALTER DEFAULT PRIVILEGES` grants
+`trinol_app` the normal set on every table `trinol_migrator` creates
+afterward, so later migrations don't need to repeat the grant.
 - `ix_activity_org_created (organization_id, created_at DESC)`,
   `ix_activity_entity (organization_id, entity_type, entity_id)`.
 

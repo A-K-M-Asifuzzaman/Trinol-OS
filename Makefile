@@ -1,13 +1,18 @@
-.PHONY: help dev test lint check migrate seed openapi
+.PHONY: help dev test lint check migrate seed openapi db-setup
 
 help:
 	@echo "make dev       - start postgres+api+web via docker compose"
+	@echo "make db-setup  - create the trinol_os DB + roles on a local (non-Docker) Postgres"
 	@echo "make test      - run backend and frontend test suites"
 	@echo "make lint      - ruff + eslint + prettier --check"
 	@echo "make check     - full local gate list (lint, typecheck, tests, build)"
 	@echo "make migrate   - run Alembic migrations to head (trinol_migrator)"
 	@echo "make seed      - seed the local database"
 	@echo "make openapi   - regenerate apps/web/lib/api/types.gen.ts from the API schema"
+
+db-setup:
+	psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'trinol_os'" | grep -q 1 || createdb trinol_os
+	psql -d trinol_os -v ON_ERROR_STOP=1 -f infrastructure/postgres/init.sql
 
 dev:
 	docker compose up

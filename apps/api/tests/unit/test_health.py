@@ -32,6 +32,14 @@ async def test_unhandled_exception_returns_error_envelope() -> None:
     assert "request_id" in body["error"]
 
 
+async def test_ready_ok_when_migrated() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 async def test_request_id_header_echoed() -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
