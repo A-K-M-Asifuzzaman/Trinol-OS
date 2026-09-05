@@ -1,0 +1,3 @@
+-- Filled in Phase 1 Stage 3 (DB foundation migration): creates the
+-- trinol_migrator and trinol_app roles per docs/architecture/DATABASE.md.
+-- Placeholder so docker-compose.yml has a real file to mount.

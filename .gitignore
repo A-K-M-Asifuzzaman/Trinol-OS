@@ -7,6 +7,9 @@
 *.pem
 *.key
 
+# generated (regenerate with `make openapi`; types.gen.ts IS committed per ADR-0005)
+apps/api/openapi.json
+
 # python
 __pycache__/
 *.py[cod]
