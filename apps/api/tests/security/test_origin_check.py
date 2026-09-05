@@ -81,7 +81,9 @@ def test_contact_path_falls_back_to_app_origin_when_unconfigured(
     fake_settings = SimpleNamespace(app_origin="http://localhost:3000", public_contact_origin=None)
     monkeypatch.setattr(origin_check, "get_settings", lambda: fake_settings)
 
-    assert origin_check._allowed_origin_for("/api/public/contact") == "http://localhost:3000"
+    assert (
+        origin_check._allowed_origin_for("POST", "/api/public/contact") == "http://localhost:3000"
+    )
 
 
 def test_contact_path_allows_its_configured_origin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -91,10 +93,31 @@ def test_contact_path_allows_its_configured_origin(monkeypatch: pytest.MonkeyPat
     )
     monkeypatch.setattr(origin_check, "get_settings", lambda: fake_settings)
 
-    assert origin_check._allowed_origin_for("/api/public/contact") == "https://www.trinolit.com"
+    assert (
+        origin_check._allowed_origin_for("POST", "/api/public/contact")
+        == "https://www.trinolit.com"
+    )
     # Every other path is unaffected — still strict APP_ORIGIN, even with
     # PUBLIC_CONTACT_ORIGIN configured.
-    assert origin_check._allowed_origin_for("/api/v1/auth/session") == "http://localhost:3000"
+    assert (
+        origin_check._allowed_origin_for("POST", "/api/v1/auth/session") == "http://localhost:3000"
+    )
+
+
+def test_contact_path_exception_is_post_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SECURITY.md §5 says 'POST /api/public/contact', not any unsafe method
+    at that path — a future DELETE or PUT there (unlikely, but not
+    impossible) must not inherit the relaxed origin."""
+    fake_settings = SimpleNamespace(
+        app_origin="http://localhost:3000",
+        public_contact_origin="https://www.trinolit.com",
+    )
+    monkeypatch.setattr(origin_check, "get_settings", lambda: fake_settings)
+
+    for method in ("PUT", "PATCH", "DELETE"):
+        assert origin_check._allowed_origin_for(method, "/api/public/contact") == (
+            "http://localhost:3000"
+        )
 
 
 async def test_safe_method_is_not_checked() -> None:
