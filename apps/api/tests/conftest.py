@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncSession,
@@ -10,8 +11,11 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from tests.fakes import FakeIdentityVerifier
+from trinol.core.db.engine import get_db_session
 from trinol.core.db.org_session import register_org_scope_guard
 from trinol.core.deps import get_settings
+from trinol.modules.identity.deps import get_identity_verifier
 
 register_org_scope_guard()
 
@@ -43,3 +47,36 @@ async def db_session(_connection: AsyncConnection) -> AsyncIterator[AsyncSession
     finally:
         await session.close()
         await transaction.rollback()
+
+
+@pytest.fixture
+async def client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    """Every route test uses this, not a bare ASGITransport(app=app) — it
+    overrides get_db_session so requests run inside this test's own
+    transaction-wrapped session and roll back with everything else."""
+    from trinol.main import app
+
+    async def _override_get_db_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = _override_get_db_session
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as async_client:
+            yield async_client
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.fixture
+def fake_verifier() -> FakeIdentityVerifier:
+    """Overrides get_identity_verifier for the duration of the test — no test
+    anywhere in the suite calls real Firebase (ADR-0013)."""
+    from trinol.main import app
+
+    verifier = FakeIdentityVerifier()
+    app.dependency_overrides[get_identity_verifier] = lambda: verifier
+    try:
+        yield verifier
+    finally:
+        app.dependency_overrides.pop(get_identity_verifier, None)
