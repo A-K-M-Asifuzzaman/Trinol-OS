@@ -58,3 +58,7 @@ class Settings(BaseSettings):
     smtp_from_name: str | None = None
 
     public_contact_org_slug: str | None = None
+    # SECURITY.md §5: the one endpoint OriginCheckMiddleware allows a
+    # different origin for. None until Phase 3 builds the route and this is
+    # actually configured — no code change needed then, only this env var.
+    public_contact_origin: str | None = None

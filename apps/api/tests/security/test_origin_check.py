@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from httpx import AsyncClient
+from types import SimpleNamespace
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from trinol.core.security import origin_check
 
 # AUTH.md §6 item 1, enforced globally by OriginCheckMiddleware. Exercised
 # here against POST /api/v1/auth/session — the only unsafe-method route that
@@ -66,12 +71,36 @@ async def test_referer_fallback_is_accepted_when_origin_absent(
     assert response.status_code == 401
 
 
+def test_contact_path_falls_back_to_app_origin_when_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SECURITY.md §5's exception only activates once PUBLIC_CONTACT_ORIGIN is
+    actually set (Phase 3). Until then this path behaves like any other —
+    strict APP_ORIGIN only — which matters today since it doesn't correspond
+    to a real route yet."""
+    fake_settings = SimpleNamespace(app_origin="http://localhost:3000", public_contact_origin=None)
+    monkeypatch.setattr(origin_check, "get_settings", lambda: fake_settings)
+
+    assert origin_check._allowed_origin_for("/api/public/contact") == "http://localhost:3000"
+
+
+def test_contact_path_allows_its_configured_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_settings = SimpleNamespace(
+        app_origin="http://localhost:3000",
+        public_contact_origin="https://www.trinolit.com",
+    )
+    monkeypatch.setattr(origin_check, "get_settings", lambda: fake_settings)
+
+    assert origin_check._allowed_origin_for("/api/public/contact") == "https://www.trinolit.com"
+    # Every other path is unaffected — still strict APP_ORIGIN, even with
+    # PUBLIC_CONTACT_ORIGIN configured.
+    assert origin_check._allowed_origin_for("/api/v1/auth/session") == "http://localhost:3000"
+
+
 async def test_safe_method_is_not_checked() -> None:
     # GET isn't in the unsafe-method set; no Origin header needed. There's no
     # GET /api/v1/auth/session route yet (Stage 5), so /health stands in as
     # any safe-method route.
-    from httpx import ASGITransport
-
     from trinol.main import app
 
     transport = ASGITransport(app=app)

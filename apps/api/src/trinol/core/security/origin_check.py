@@ -10,12 +10,26 @@ from trinol.core.request_id import get_request_id
 
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+# SECURITY.md §5: the one documented exception. A plain single-origin check
+# would reject trinolit.com's own contact form, which by design POSTs from a
+# different origin than the app itself. Not a general per-path allowlist —
+# there is exactly one known exception; if a second one is ever needed, that
+# is the time to generalize this, not before (YAGNI).
+_PUBLIC_CONTACT_PATH = "/api/public/contact"
+
 
 def _origin_of(url: str) -> str | None:
     parsed = urlparse(url)
     if not parsed.scheme or not parsed.netloc:
         return None
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _allowed_origin_for(path: str) -> str | None:
+    settings = get_settings()
+    if path == _PUBLIC_CONTACT_PATH and settings.public_contact_origin:
+        return settings.public_contact_origin
+    return settings.app_origin
 
 
 class OriginCheckMiddleware:
@@ -51,7 +65,7 @@ class OriginCheckMiddleware:
         if candidate is None and referer_header:
             candidate = _origin_of(referer_header.decode())
 
-        if candidate is None or candidate != get_settings().app_origin:
+        if candidate is None or candidate != _allowed_origin_for(scope["path"]):
             response = JSONResponse(
                 {
                     "error": {
