@@ -63,7 +63,7 @@ password policy, hashing, reset or verification flow.
 Firebase project configuration (set once per environment, recorded in
 `infrastructure/`):
 
-- Sign-in methods: as agreed with the owner — email/password and/or Google.
+- Sign-in methods: **both email/password and Google** enabled.
 - Password policy: minimum 12 characters, Firebase's compromised-password check
   enabled.
 - Email enumeration protection: **on** (Firebase returns a generic error rather

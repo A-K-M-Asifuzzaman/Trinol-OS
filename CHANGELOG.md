@@ -53,3 +53,9 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
 - Added a schema-integrity CI test (TESTING.md) that reads
   `information_schema` and fails on any single-column FK between two
   org-scoped tables.
+
+## Phase 0 — APPROVED
+
+Codex verification, round 4: no remaining P0/P1 findings. Verdict APPROVE.
+Firebase sign-in methods confirmed as both email/password and Google —
+matched the design already in place, no changes required.
