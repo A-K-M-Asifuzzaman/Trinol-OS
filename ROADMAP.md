@@ -63,13 +63,12 @@ Exit criteria: an invited user can sign in, land on a dashboard shell, and be
 correctly refused everything their role does not permit — with the security
 matrices green in CI.
 
-- [ ] Monorepo skeleton, Makefile, `.env.example` ([ADR-0001](docs/adr/0001-monorepo-and-stack.md))
-- [ ] Docker Compose: web, api, postgres, minio
-- [ ] FastAPI app: config, structured logging, request_id, error envelope, `/health`, `/ready`
-- [ ] SQLAlchemy base, `OrgScoped`, `OrgSession`, org-filter guard ([ADR-0003](docs/adr/0003-single-db-org-scoping.md))
-- [ ] Alembic setup + first migration: organizations, users, memberships, sessions, invitations, activity_events, rate_limit_buckets
-- [ ] Firebase Admin verification behind `IdentityVerifier`; token exchange endpoint ([ADR-0013](docs/adr/0013-firebase-as-identity-provider.md))
-- [ ] Session issue/revoke, CSRF middleware, origin check
+- [x] Monorepo skeleton, Makefile, `.env.example` ([ADR-0001](docs/adr/0001-monorepo-and-stack.md)) — Stage 1, `c639bfb`. minio deferred (no upload code until a phase needs it; see technical debt ledger)
+- [x] FastAPI app: config, structured logging, request_id, error envelope, `/health` — Stage 2, `fe9f0d5`. `/ready` completed in Stage 3
+- [x] SQLAlchemy base, `OrgScoped`, `OrgSession`, org-filter guard ([ADR-0003](docs/adr/0003-single-db-org-scoping.md)) — Stage 3, `f3ec0dc`; guard covers select/update/delete and `OrgSession.add()` rejects a mismatched org id (fixed post-review, `621fa7c`)
+- [x] Alembic setup + first migration: organizations, users, memberships, sessions, invitations, activity_events, rate_limit_buckets — Stage 3, `f3ec0dc`, two-role split (`trinol_migrator`/`trinol_app`), `alembic check` clean
+- [x] Firebase Admin verification behind `IdentityVerifier`; token exchange endpoint ([ADR-0013](docs/adr/0013-firebase-as-identity-provider.md)) — Stage 4, `81b6dae`. Codex review: Origin/Referer check on the exchange endpoint (`58a993e`), contact-endpoint origin exception (`e195cf0`, `e6e48d2`). **Approved.**
+- [ ] Session issue/revoke, CSRF double-submit token, `GET`/`DELETE /api/v1/auth/session` (Origin check already done, Stage 4)
 - [ ] Permission enum + role map + `require()` dependency + startup route audit ([ADR-0004](docs/adr/0004-roles-as-code.md))
 - [ ] Escalation guards incl. last-owner protection ([RBAC.md §5](docs/architecture/RBAC.md))
 - [ ] Activity/audit writer, append-only grants ([ADR-0006](docs/adr/0006-single-append-only-activity-table.md))
@@ -170,3 +169,6 @@ not mean "never".
 | Proxied uploads | ADR-0008 | files over ~25 MiB or API host saturates |
 | App-layer org scoping, not RLS | ADR-0003 | V4 multi-tenant SaaS |
 | Session revocation reconciled on exchange + daily sweep | AUTH.md §8 | near-instant revocation needed |
+| minio omitted from Phase 1 Compose | Stage 1 plan (`docs/adr/0001-monorepo-and-stack.md`'s sibling decisions) | whichever phase first adds file uploads (task attachments, Phase 2) |
+| Org-scope guard covers select/update/delete, not bulk Core `insert()` | `core/db/org_session.py` | a bulk insert is ever written instead of `session.add()`/`OrgSession.add()` |
+| Contact-endpoint origin exception is a single hardcoded special case, not a general allowlist | `core/security/origin_check.py` | a second endpoint ever needs a non-default origin |
