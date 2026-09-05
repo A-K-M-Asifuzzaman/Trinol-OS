@@ -14,6 +14,7 @@ from trinol.core.deps import get_settings
 from trinol.core.errors import register_exception_handlers
 from trinol.core.logging import configure_logging
 from trinol.core.request_id import RequestIDMiddleware
+from trinol.core.security.origin_check import OriginCheckMiddleware
 from trinol.modules.identity.routes.auth import router as auth_router
 
 _ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
@@ -30,6 +31,11 @@ def create_app() -> FastAPI:
     register_org_scope_guard()
 
     app = FastAPI(title="Trinol OS API", version="0.1.0")
+    # add_middleware: the *last* one added ends up outermost. RequestIDMiddleware
+    # must wrap OriginCheckMiddleware (not the reverse) so get_request_id()
+    # is already set by the time a rejection response is built — verified
+    # empirically, not assumed; this ordering is load-bearing.
+    app.add_middleware(OriginCheckMiddleware)
     app.add_middleware(RequestIDMiddleware)
     register_exception_handlers(app)
     app.include_router(auth_router)

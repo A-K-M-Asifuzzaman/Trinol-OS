@@ -53,7 +53,13 @@ async def db_session(_connection: AsyncConnection) -> AsyncIterator[AsyncSession
 async def client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
     """Every route test uses this, not a bare ASGITransport(app=app) — it
     overrides get_db_session so requests run inside this test's own
-    transaction-wrapped session and roll back with everything else."""
+    transaction-wrapped session and roll back with everything else.
+
+    Default Origin header matches settings.app_origin: OriginCheckMiddleware
+    (AUTH.md §6) rejects any unsafe method without one, same as a real
+    browser request from our own frontend would always include. A test that
+    specifically exercises the rejection overrides or removes it per-request.
+    """
     from trinol.main import app
 
     async def _override_get_db_session() -> AsyncIterator[AsyncSession]:
@@ -62,7 +68,11 @@ async def client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides[get_db_session] = _override_get_db_session
     transport = ASGITransport(app=app)
     try:
-        async with AsyncClient(transport=transport, base_url="http://test") as async_client:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"Origin": get_settings().app_origin},
+        ) as async_client:
             yield async_client
     finally:
         app.dependency_overrides.pop(get_db_session, None)
