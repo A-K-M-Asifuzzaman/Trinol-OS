@@ -42,3 +42,14 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
   operator procedure that anonymizes `users` and preserves the graph.
 - `organizations.logo_file_id` uses its own `id` as the tenant key:
   `FOREIGN KEY (id, logo_file_id) REFERENCES file_objects (organization_id, id)`.
+
+### Changed — Phase 0 verification round 3
+- Added the `UNIQUE (organization_id, id)` constraint PostgreSQL requires on
+  every table targeted by a composite FK — `projects`, `clients`, `tasks`,
+  `milestones`, `meetings`, `invoices`, `leads`, `file_objects` — each named at
+  its table definition rather than only asserted in §5.1. Fixes the
+  `organizations.logo_file_id` migration failure Codex identified, which
+  applied to seven other tables as well.
+- Added a schema-integrity CI test (TESTING.md) that reads
+  `information_schema` and fails on any single-column FK between two
+  org-scoped tables.

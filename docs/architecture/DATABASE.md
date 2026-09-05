@@ -93,6 +93,9 @@ Detail in [AUTH.md](AUTH.md).
 `budget?`, `currency`, `repository_url?`, `production_url?`, `staging_url?`,
 `archived_at?`, timestamps.
 - `uq_project_org_code (organization_id, project_code)`
+- `uq_projects_org_id (organization_id, id)` — required by composite FKs from
+  `tasks`, `milestones`, `meetings`, `income`, `invoices`,
+  `document_references.project_id` (§5.1)
 - `ck_project_dates (deadline IS NULL OR start_date IS NULL OR deadline >= start_date)`
 - `progress` is **derived** (done tasks / total tasks), computed on read.
   Not stored — a stored copy is a cache that goes stale on every task write.
@@ -102,6 +105,7 @@ Detail in [AUTH.md](AUTH.md).
 
 **milestones** — `id`, `organization_id`, `project_id`, `name`, `description?`,
 `due_date?`, `completed_at?`, `position`.
+- `uq_milestones_org_id (organization_id, id)` — required by `tasks.milestone_id` (§5.1)
 
 **tasks** — `id`, `organization_id`, `project_id?`, `title`, `description?`,
 `status` (`TODO|IN_PROGRESS|REVIEW|DONE|CANCELLED`),
@@ -118,6 +122,9 @@ timestamps.
   `ix_tasks_org_assignee_status (organization_id, assignee_id, status)`,
   `ix_tasks_project (project_id)`.
 - `ck_task_completed (status <> 'DONE' OR completed_at IS NOT NULL)`.
+- `uq_tasks_org_id (organization_id, id)` — required by composite FKs from
+  `task_comments`, `task_checklist_items`, `task_attachments`,
+  `meeting_actions.task_id` (§5.1)
 
 **task_comments** — `id`, `organization_id`, `task_id`, `author_id`, `body`,
 `edited_at?`, timestamps.
@@ -132,6 +139,9 @@ timestamps.
 
 **clients** — `id`, `organization_id`, `name`, `company?`, `email?`, `phone?`,
 `website?`, `address?`, `notes?`, `status`, `owner_id?`, `archived_at?`, timestamps.
+- `uq_clients_org_id (organization_id, id)` — required by composite FKs from
+  `projects.client_id`, `leads.converted_client_id`, `meetings.client_id`,
+  `income.client_id`, `invoices.client_id`, `document_references.client_id` (§5.1)
 
 **leads** — `id`, `organization_id`, `name`, `company?`, `email?`, `phone?`,
 `source` (`WEBSITE|FACEBOOK|LINKEDIN|REFERRAL|EMAIL|PHONE|OTHER`), `service?`,
@@ -142,6 +152,8 @@ timestamps.
 - `ix_leads_org_stage (organization_id, stage)`,
   `ix_leads_org_followup (organization_id, next_follow_up)`.
 - `ck_lead_contact (email IS NOT NULL OR phone IS NOT NULL)`.
+- `uq_leads_org_id (organization_id, id)` — required by
+  `lead_stage_events.lead_id`, `contact_submissions.lead_id` (§5.1)
 
 **lead_stage_events** — `id`, `organization_id`, `lead_id`, `from_stage?`,
 `to_stage`, `actor_id?`, `created_at`. Pipeline history, needed for conversion
@@ -163,6 +175,9 @@ config rather than anything the caller can influence.
 `ends_at`, `client_id?`, `project_id?`, `meeting_url?`, `location?`, `notes?`,
 `external_event_id?`, `created_by`, timestamps.
 `ck_meeting_times (ends_at > starts_at)`.
+`uq_meetings_org_id (organization_id, id)` — required by composite FKs from
+`meeting_participants`, `meeting_decisions`, `meeting_actions`,
+`document_references.meeting_id` (§5.1)
 
 **meeting_participants** — `id`, `organization_id`, `meeting_id`, `user_id?`,
 `external_email?`, `response`. `ck` exactly one of `user_id` / `external_email`.
@@ -192,6 +207,8 @@ See [ADR-0007](../adr/0007-money-and-invoice-totals.md) for the arithmetic rules
 `sent_at?`, `created_by`, `archived_at?`, timestamps.
 - `uq_invoice_org_number (organization_id, invoice_number)` — the hard guarantee
   against duplicate numbers.
+- `uq_invoices_org_id (organization_id, id)` — required by composite FKs from
+  `invoice_items`, `payments`, `income.invoice_id` (§5.1)
 - `ck_invoice_amounts (subtotal >= 0 AND discount_amount >= 0 AND tax_amount >= 0
    AND total >= 0 AND amount_paid >= 0)`
 - `ck_invoice_total (total = subtotal - discount_amount + tax_amount)` — the
@@ -233,6 +250,9 @@ granted `INSERT, SELECT` and **not** `UPDATE, DELETE`
 
 **file_objects** — `id`, `organization_id`, `storage_key` (uq), `filename`,
 `content_type`, `size_bytes`, `checksum_sha256`, `uploaded_by`, `created_at`.
+- `uq_file_objects_org_id (organization_id, id)` — required by the composite FKs
+  from `organizations.logo_file_id`, `expenses.receipt_file_id` and
+  `task_attachments.file_id` (§5.1).
 Storage abstraction in [SECURITY.md §6](SECURITY.md#6-file-uploads).
 
 **rate_limit_buckets** — `key` (pk), `window_start`, `count`. Postgres-backed
@@ -276,11 +296,37 @@ Isolation is enforced in the application at one choke point, not by scattering
 
 Every foreign key from one organization-owned table to another must be a
 composite foreign key containing both `organization_id` and the referenced id.
-The referenced table exposes a matching unique key, for example
-`UNIQUE (organization_id, id)`, and a task's `(organization_id, project_id)`
-references the project's corresponding pair. This applies to nullable
-references and join tables. Migration tests deliberately attempt
-cross-organization references and assert that PostgreSQL rejects them.
+A task's `(organization_id, project_id)` references the project's corresponding
+pair. This applies to nullable references and join tables. Migration tests
+deliberately attempt cross-organization references and assert that PostgreSQL
+rejects them.
+
+**The referenced table must carry the matching unique constraint.** PostgreSQL
+will not accept a composite FK unless a unique constraint exists on exactly
+those columns in that order — a composite FK to a table that only has a primary
+key on `id` fails at migration time, not at review time.
+
+So every org-scoped table that is the target of a composite FK declares:
+
+```sql
+UNIQUE (organization_id, id)
+```
+
+which today means `projects`, `clients`, `tasks`, `milestones`, `meetings`,
+`invoices`, `leads` and `file_objects` — each listed with its constraint name
+and the columns that depend on it in §3. Any new org-scoped table that acquires
+a child gets this in the same migration that adds the child.
+
+This constraint is redundant for *uniqueness* — `id` alone is already unique —
+and exists solely to satisfy the FK requirement. It costs one additional index
+per table, which is the price of having PostgreSQL enforce tenant integrity
+instead of trusting the service layer. Do not let a reviewer or an autogenerated
+migration remove it as dead weight; a comment on each constraint says why it is
+there.
+
+The person-reference rule below uses `memberships`, which already has
+`uq_membership_org_user (organization_id, user_id)` — the required constraint
+exists for the same reason and needs no addition.
 
 **References to people are composite too.** `users` is global, so a plain
 `assignee_id → users.id` would happily let a task in org A be assigned to

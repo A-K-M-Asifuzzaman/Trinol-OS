@@ -39,6 +39,9 @@ Status: **complete, awaiting final Codex approval.** No product code was written
 - [x] Verification round 2 — membership deletion semantics
   ([DATABASE.md §5.2](docs/architecture/DATABASE.md)) and an organization-aware
   FK for `organizations.logo_file_id`
+- [x] Verification round 3 — added `UNIQUE (organization_id, id)` to all eight
+  composite-FK-target tables (not just `file_objects`), plus a CI schema-
+  integrity test so a single-column FK to an org-scoped table fails the suite
 - [ ] Final Codex approval
 
 ### Open decisions carried out of Phase 0
