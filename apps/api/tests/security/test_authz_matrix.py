@@ -86,3 +86,45 @@ async def test_removal_requires_admin_or_owner(
         headers={"X-CSRF-Token": actor.csrf_token},
     )
     assert response.status_code == expected_status
+
+
+async def test_patch_rejects_role_and_status_together(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    """Codex Stage 9 review: role and status each map to their own
+    lock+commit service call (change_role, remove_member). Accepting both in
+    one PATCH ran them back to back with no shared transaction — if the
+    second raised, the first's mutation was already durably committed while
+    the client saw one failed request. Rejected at the schema now: exactly
+    one of role/status, never both."""
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    target_user = await make_user(db_session, email=f"target-both-{actor.organization.id}@x.com")
+    target = await make_membership(
+        db_session, organization=actor.organization, user=target_user, role=Role.MEMBER
+    )
+    await db_session.commit()
+
+    response = await client.patch(
+        f"/api/v1/memberships/{target.id}",
+        json={"role": "MANAGER", "status": "INACTIVE"},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 422
+
+
+async def test_patch_rejects_neither_role_nor_status(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    target_user = await make_user(db_session, email=f"target-neither-{actor.organization.id}@x.com")
+    target = await make_membership(
+        db_session, organization=actor.organization, user=target_user, role=Role.MEMBER
+    )
+    await db_session.commit()
+
+    response = await client.patch(
+        f"/api/v1/memberships/{target.id}",
+        json={},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 422

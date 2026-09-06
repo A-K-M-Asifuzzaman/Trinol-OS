@@ -94,6 +94,12 @@ async def update_team_member(
     # covers the status branch below too. change_role/remove_member each
     # independently re-check actor.role in (ADMIN, OWNER) regardless
     # (defense in depth, same as every other membership-mutating path).
+    #
+    # The schema guarantees exactly one of role/status, never both: each
+    # branch below is its own single, atomically-committed operation. Two
+    # separate calls chained here (role change committed, then removal)
+    # would not be atomic — a failure in the second would leave the first
+    # durably persisted despite the request reporting a single failure.
     if payload.role is not None:
         await change_role(
             db,
@@ -102,7 +108,8 @@ async def update_team_member(
             target_membership_id=membership_id,
             new_role=payload.role,
         )
-    if payload.status is not None:
+    else:
+        assert payload.status is not None  # guaranteed by the schema validator
         await remove_member(
             db,
             organization_id=membership.organization_id,

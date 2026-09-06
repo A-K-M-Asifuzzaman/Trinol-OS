@@ -85,7 +85,17 @@ class MembershipUpdateRequest(BaseModel):
     status: Literal[MembershipStatus.INACTIVE] | None = None
 
     @model_validator(mode="after")
-    def _at_least_one_field(self) -> MembershipUpdateRequest:
-        if self.role is None and self.status is None:
-            raise ValueError("At least one of role or status must be provided")
+    def _exactly_one_field(self) -> MembershipUpdateRequest:
+        # Exactly one, not "at least one": role and status map to two
+        # separate membership_service calls (change_role, remove_member),
+        # each its own lock+commit. Allowing both in one request executed
+        # them back to back with no shared transaction — if the second call
+        # raised, the first's mutation was already durably committed while
+        # the client saw a single failed PATCH. Rejecting "both" here means
+        # every accepted request maps to exactly one atomic service call;
+        # a client that wants to change role AND remove someone makes two
+        # PATCH requests, same as a role-dropdown and a remove-button would
+        # naturally produce on the Team page anyway.
+        if (self.role is None) == (self.status is None):
+            raise ValueError("Exactly one of role or status must be provided")
         return self
