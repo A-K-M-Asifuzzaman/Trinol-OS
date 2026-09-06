@@ -4,10 +4,13 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from dotenv import dotenv_values
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.factories import make_membership, make_organization, make_user
 from trinol.core.authz.permissions import Role
+from trinol.core.config import _ENV_FILE
 from trinol.core.db.engine import get_session_factory
 from trinol.core.errors import ForbiddenError, NotFoundError
 from trinol.core.ids import uuid7
@@ -19,9 +22,11 @@ from trinol.modules.identity.models import (
     User,
 )
 from trinol.modules.identity.services.membership_service import change_role, remove_member
+from trinol.platform.models import ActivityEvent
 
-# RBAC.md §5's six escalation guards. #6 (activity events) is a Stage 7
-# retrofit — not tested here, same as exchange_session's.
+# RBAC.md §5's six escalation guards. #6 (activity events) is implemented in
+# membership_service.py but asserted in tests/integration/test_activity_writer.py,
+# not here.
 
 pytestmark = pytest.mark.usefixtures("db_session")
 
@@ -332,6 +337,23 @@ async def test_guard_4_concurrent_demotion_of_both_owners_only_one_succeeds() ->
     finally:
         await session_1.close()
         await session_2.close()
+
+        # trinol_app (get_session_factory's role) is REVOKEd from
+        # UPDATE/DELETE on activity_events by design (ADR-0006 — "must be run
+        # by a maintenance role, since the application role cannot delete.
+        # That friction is the point."). The winning change_role call wrote a
+        # real row there (guard 6), so cleanup needs the migrator role, same
+        # as Alembic uses, for this one step only.
+        migration_url = dotenv_values(_ENV_FILE)["DATABASE_MIGRATION_URL"]
+        assert migration_url is not None
+        migrator_engine = create_async_engine(migration_url)
+        try:
+            async with migrator_engine.begin() as conn:
+                await conn.execute(
+                    ActivityEvent.__table__.delete().where(ActivityEvent.organization_id == org_id)
+                )
+        finally:
+            await migrator_engine.dispose()
 
         cleanup_session = session_factory()
         try:

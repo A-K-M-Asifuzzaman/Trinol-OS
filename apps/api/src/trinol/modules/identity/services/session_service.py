@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -25,7 +26,10 @@ from trinol.modules.identity.models import (
     Session,
     User,
 )
+from trinol.platform.activity import record
 from trinol.platform.rate_limit import check_rate_limit
+
+logger = logging.getLogger(__name__)
 
 # Backstop against a runaway client hammering the DB, not the primary defense
 # against credential-guessing — that's Firebase's own throttling (AUTH.md
@@ -76,9 +80,13 @@ async def exchange_session(
     """AUTH.md §5 / ADR-0013's login flow, steps 1-5. Step 6 (browser signs
     out of the Firebase SDK) is client-side, not this function's concern.
 
-    Activity-event writes for a successful exchange and for a step-3/4
-    rejection are a Stage 7 retrofit (platform/activity.py doesn't exist
-    yet) — see ROADMAP.md Phase 1 Stage 7.
+    AUTH.md §5: "a rejection at step 3 or 4" writes an is_audit event —
+    caveat found while implementing it: activity_events.organization_id is
+    NOT NULL, so that's only possible where an organization is actually
+    determinable (an invitation names one; an inactive membership names the
+    org it's inactive in). A truly unknown identity with no invitation and no
+    membership anywhere has nowhere to attach an event to — logged instead,
+    not silently dropped.
     """
     await check_rate_limit(
         db,
@@ -101,22 +109,38 @@ async def exchange_session(
     if not identity.email_verified:
         raise ForbiddenError("Email address is not verified")
 
-    user = await _resolve_or_provision_user(db, identity)
+    user = await _resolve_or_provision_user(db, identity, ip=ip)
 
     # Unscoped deliberately: at this point we don't yet know which org this
     # user belongs to — discovering that IS this query (DATABASE.md §5.1's
     # documented escape hatch). V1 has one org, so at most one row comes
     # back; a future multi-org account would need an org-picker step here.
+    # Any status, not just ACTIVE: an inactive membership still names an
+    # organization to attribute a step-4 rejection's audit event to, which a
+    # status-filtered query would have thrown away before we could see it.
     result = await db.execute(
-        OrgSession.unscoped(
-            select(Membership).where(
-                Membership.user_id == user.id,
-                Membership.status == MembershipStatus.ACTIVE,
-            )
-        )
+        OrgSession.unscoped(select(Membership).where(Membership.user_id == user.id))
     )
     membership = result.scalars().first()
     if membership is None:
+        logger.warning(
+            "auth exchange rejected: no membership for this account",
+            extra={"user_id": str(user.id), "ip": ip},
+        )
+        raise ForbiddenError("No active membership for this account")
+    if membership.status != MembershipStatus.ACTIVE:
+        await record(
+            db,
+            organization_id=membership.organization_id,
+            event="auth.exchange.rejected",
+            entity_type="user",
+            entity_id=user.id,
+            actor_id=user.id,
+            metadata={"reason": "membership_inactive", "user_agent": user_agent},
+            audit=True,
+            ip=ip,
+        )
+        await db.commit()
         raise ForbiddenError("No active membership for this account")
 
     now = datetime.now(UTC)
@@ -137,6 +161,17 @@ async def exchange_session(
     org_session.add(session_row)
 
     user.last_login_at = now
+    await record(
+        db,
+        organization_id=membership.organization_id,
+        event="auth.session.created",
+        entity_type="user",
+        entity_id=user.id,
+        actor_id=user.id,
+        metadata={"user_agent": user_agent} if user_agent else None,
+        audit=True,
+        ip=ip,
+    )
     await db.commit()
 
     return ExchangeResult(
@@ -186,7 +221,9 @@ async def revoke_org_sessions(
     await db.commit()
 
 
-async def _resolve_or_provision_user(db: AsyncSession, identity: VerifiedIdentity) -> User:
+async def _resolve_or_provision_user(
+    db: AsyncSession, identity: VerifiedIdentity, *, ip: str | None
+) -> User:
     result = await db.execute(select(User).where(User.firebase_uid == identity.firebase_uid))
     user = result.scalar_one_or_none()
 
@@ -215,8 +252,26 @@ async def _resolve_or_provision_user(db: AsyncSession, identity: VerifiedIdentit
     )
     invitation = invitation_result.scalars().first()
     if invitation is None:
+        # AUTH.md §5 step 3, but genuinely no organization to attach an
+        # is_audit event to (activity_events.organization_id is NOT NULL) —
+        # logged instead of silently dropped.
+        logger.warning(
+            "auth exchange rejected: unknown identity, no open invitation",
+            extra={"firebase_uid": identity.firebase_uid, "email": identity.email, "ip": ip},
+        )
         raise ForbiddenError("No account or open invitation for this identity")
     if invitation.expires_at < datetime.now(UTC):
+        await record(
+            db,
+            organization_id=invitation.organization_id,
+            event="auth.exchange.rejected",
+            entity_type="invitation",
+            entity_id=invitation.id,
+            metadata={"reason": "invitation_expired", "email": identity.email},
+            audit=True,
+            ip=ip,
+        )
+        await db.commit()
         raise ForbiddenError("Invitation has expired")
 
     user = User(

@@ -9,10 +9,9 @@ from trinol.core.authz.permissions import Role
 from trinol.core.errors import ForbiddenError, NotFoundError
 from trinol.modules.identity.models import Membership, MembershipStatus, Organization
 from trinol.modules.identity.services.session_service import revoke_org_sessions
+from trinol.platform.activity import record
 
-# RBAC.md §5's six escalation guards. #6 (activity events for role changes
-# and removals) is a Stage 7 retrofit, same as exchange_session's — see
-# ROADMAP.md Phase 1 Stage 7; platform/activity.py doesn't exist yet.
+# RBAC.md §5's six escalation guards.
 
 
 async def _lock_organization(db: AsyncSession, organization_id: uuid.UUID) -> None:
@@ -85,27 +84,50 @@ async def change_role(
     _ensure_actor_can_act(actor, organization_id)
 
     await _lock_organization(db, organization_id)
-    target = await _get_membership_in_org(
-        db, organization_id=organization_id, membership_id=target_membership_id
-    )
-
-    if target.user_id == actor.user_id:
-        raise ForbiddenError("You cannot change your own role")  # guard 1
-    if new_role in (Role.OWNER, Role.ADMIN) and actor.role != Role.OWNER:
-        raise ForbiddenError("Only an OWNER may grant OWNER or ADMIN")  # guard 2
-    if actor.role == Role.ADMIN and target.role in (Role.OWNER, Role.ADMIN):
-        raise ForbiddenError("An ADMIN may not modify an OWNER or another ADMIN")  # guard 3
-    if target.role == Role.OWNER and new_role != Role.OWNER:
-        await _ensure_not_last_owner(  # guard 4
-            db, organization_id, excluding_membership_id=target.id
+    # Everything from here runs while holding the FOR UPDATE lock taken
+    # above. A Python exception does not issue a SQL ROLLBACK by itself —
+    # without this except clause, a guard raising here left the transaction
+    # (and the lock) open until whatever ambient cleanup eventually closed
+    # the session. Harmless in isolation, but under real concurrency it's
+    # exactly the pile-up this lock exists to prevent: found by two
+    # concurrent change_role calls genuinely deadlocking in a test, one
+    # waiting on a lock the other had already "finished" without releasing.
+    try:
+        target = await _get_membership_in_org(
+            db, organization_id=organization_id, membership_id=target_membership_id
         )
 
-    target.role = new_role
-    await revoke_org_sessions(  # guard 5
-        db, organization_id=organization_id, user_id=target.user_id
-    )
-    await db.commit()
-    return target
+        if target.user_id == actor.user_id:
+            raise ForbiddenError("You cannot change your own role")  # guard 1
+        if new_role in (Role.OWNER, Role.ADMIN) and actor.role != Role.OWNER:
+            raise ForbiddenError("Only an OWNER may grant OWNER or ADMIN")  # guard 2
+        if actor.role == Role.ADMIN and target.role in (Role.OWNER, Role.ADMIN):
+            raise ForbiddenError("An ADMIN may not modify an OWNER or another ADMIN")  # guard 3
+        if target.role == Role.OWNER and new_role != Role.OWNER:
+            await _ensure_not_last_owner(  # guard 4
+                db, organization_id, excluding_membership_id=target.id
+            )
+
+        previous_role = target.role
+        target.role = new_role
+        await revoke_org_sessions(  # guard 5
+            db, organization_id=organization_id, user_id=target.user_id
+        )
+        await record(  # guard 6
+            db,
+            organization_id=organization_id,
+            event="membership.role_changed",
+            entity_type="membership",
+            entity_id=target.id,
+            actor_id=actor.user_id,
+            metadata={"from_role": previous_role.value, "to_role": new_role.value},
+            audit=True,
+        )
+        await db.commit()
+        return target
+    except Exception:
+        await db.rollback()
+        raise
 
 
 async def remove_member(
@@ -120,27 +142,43 @@ async def remove_member(
     _ensure_actor_can_act(actor, organization_id)
 
     await _lock_organization(db, organization_id)
-    target = await _get_membership_in_org(
-        db, organization_id=organization_id, membership_id=target_membership_id
-    )
-
-    if target.user_id == actor.user_id:
-        # Not literally one of RBAC.md §5's six numbered guards, but the same
-        # spirit as guard 1: self-service removal through an ADMIN-gated
-        # action invites exactly the kind of accidental self-lockout guard 1
-        # exists to prevent, and nothing in the spec asks for a "leave org"
-        # feature this would otherwise double as.
-        raise ForbiddenError("You cannot remove yourself")
-    if actor.role == Role.ADMIN and target.role in (Role.OWNER, Role.ADMIN):
-        raise ForbiddenError("An ADMIN may not remove an OWNER or another ADMIN")  # guard 3
-    if target.role == Role.OWNER:
-        await _ensure_not_last_owner(  # guard 4
-            db, organization_id, excluding_membership_id=target.id
+    # See the matching comment in change_role: without an explicit rollback,
+    # a guard raising here leaves the FOR UPDATE lock held indefinitely.
+    try:
+        target = await _get_membership_in_org(
+            db, organization_id=organization_id, membership_id=target_membership_id
         )
 
-    target.status = MembershipStatus.INACTIVE
-    await revoke_org_sessions(  # guard 5
-        db, organization_id=organization_id, user_id=target.user_id
-    )
-    await db.commit()
-    return target
+        if target.user_id == actor.user_id:
+            # Not literally one of RBAC.md §5's six numbered guards, but the
+            # same spirit as guard 1: self-service removal through an
+            # ADMIN-gated action invites exactly the kind of accidental
+            # self-lockout guard 1 exists to prevent, and nothing in the spec
+            # asks for a "leave org" feature this would otherwise double as.
+            raise ForbiddenError("You cannot remove yourself")
+        if actor.role == Role.ADMIN and target.role in (Role.OWNER, Role.ADMIN):
+            raise ForbiddenError("An ADMIN may not remove an OWNER or another ADMIN")  # guard 3
+        if target.role == Role.OWNER:
+            await _ensure_not_last_owner(  # guard 4
+                db, organization_id, excluding_membership_id=target.id
+            )
+
+        target.status = MembershipStatus.INACTIVE
+        await revoke_org_sessions(  # guard 5
+            db, organization_id=organization_id, user_id=target.user_id
+        )
+        await record(  # guard 6
+            db,
+            organization_id=organization_id,
+            event="membership.removed",
+            entity_type="membership",
+            entity_id=target.id,
+            actor_id=actor.user_id,
+            metadata={"role": target.role.value},
+            audit=True,
+        )
+        await db.commit()
+        return target
+    except Exception:
+        await db.rollback()
+        raise

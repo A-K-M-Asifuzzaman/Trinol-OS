@@ -108,6 +108,17 @@ function directly (bypassing the route-level `Permission.MEMBER_ROLE_WRITE`
 gate) could demote or remove someone with no guard catching it. Defense in
 depth — the service must not rely solely on the route decorator above it.
 
+Everything from `_lock_organization` onward runs inside a `try/except` that
+explicitly rolls back on any exception. This is not optional cleanup: raising
+a Python exception does not itself issue a SQL `ROLLBACK`, so a guard
+rejecting a request would otherwise leave the `FOR UPDATE` lock held until
+whatever ambient code eventually closes that session. Found by two concurrent
+`change_role` calls genuinely hanging in a test — one blocked indefinitely on
+a lock the other had already "finished" (raised past) without releasing.
+Harmless under light load, where the connection is closed soon after either
+way, but exactly the kind of pile-up a lock like this exists to prevent under
+real concurrent traffic.
+
 ## 6. Testing
 
 Authorization is tested as a matrix, not as scattered assertions:
