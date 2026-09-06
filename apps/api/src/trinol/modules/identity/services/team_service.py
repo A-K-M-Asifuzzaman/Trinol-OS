@@ -60,7 +60,13 @@ async def list_members(
     org_session = OrgSession(db, organization_id=organization_id)
     membership_result = await db.execute(
         org_session.select(Membership)
-        .order_by(Membership.joined_at.asc())
+        # joined_at alone isn't a unique sort key (server_default now() can
+        # tie within the same transaction, e.g. a seed script inserting
+        # several memberships at once) — an OFFSET/LIMIT page over a
+        # non-unique order can skip or repeat rows across pages. id (uuid7)
+        # is unique and already time-ordered, so it breaks ties without
+        # changing the intended chronological ordering.
+        .order_by(Membership.joined_at.asc(), Membership.id.asc())
         .limit(limit)
         .offset(offset)
     )
