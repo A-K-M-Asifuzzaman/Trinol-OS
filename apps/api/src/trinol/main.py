@@ -19,6 +19,7 @@ from trinol.core.request_id import RequestIDMiddleware
 from trinol.core.security.origin_check import OriginCheckMiddleware
 from trinol.modules.identity.csrf import verify_csrf
 from trinol.modules.identity.routes.auth import router as auth_router
+from trinol.modules.identity.routes.invitations import router as invitations_router
 
 _ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)
     register_exception_handlers(app)
     app.include_router(auth_router)
+    app.include_router(invitations_router)
 
     @app.get("/health", tags=["meta"])
     @public

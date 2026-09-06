@@ -16,6 +16,8 @@ from trinol.core.db.engine import get_db_session
 from trinol.core.db.org_session import register_org_scope_guard
 from trinol.core.deps import get_settings
 from trinol.modules.identity.deps import get_identity_verifier
+from trinol.platform.email.deps import get_email_sender
+from trinol.platform.email.memory import MemoryEmailSender
 
 register_org_scope_guard()
 
@@ -90,3 +92,17 @@ def fake_verifier() -> FakeIdentityVerifier:
         yield verifier
     finally:
         app.dependency_overrides.pop(get_identity_verifier, None)
+
+
+@pytest.fixture
+def fake_email_sender() -> MemoryEmailSender:
+    """Overrides get_email_sender for the duration of the test — no test
+    anywhere in the suite sends real mail (EMAIL.md §1)."""
+    from trinol.main import app
+
+    sender = MemoryEmailSender()
+    app.dependency_overrides[get_email_sender] = lambda: sender
+    try:
+        yield sender
+    finally:
+        app.dependency_overrides.pop(get_email_sender, None)

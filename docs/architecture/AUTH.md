@@ -148,12 +148,25 @@ Firebase Auth blocking function or webhook if near-instant revocation is needed.
 ## 9. Endpoints (Phase 1)
 
 ```
-POST   /api/v1/auth/session          → exchange Firebase ID token for a session
-GET    /api/v1/auth/session          → current user, org, role, csrf token
-DELETE /api/v1/auth/session          → logout (revoke this session)
-DELETE /api/v1/auth/sessions         → log out everywhere
-POST   /api/v1/invitations/accept
+POST   /api/v1/auth/session           → exchange Firebase ID token for a session
+GET    /api/v1/auth/session           → current user, org, role, csrf token
+DELETE /api/v1/auth/session           → logout (revoke this session)
+DELETE /api/v1/auth/sessions          → log out everywhere
+POST   /api/v1/invitations            → create (ADMIN+)
+GET    /api/v1/invitations            → list open invitations (ADMIN+)
+GET    /api/v1/invitations/{token}    → public preview: org name + role, for
+                                         the invitation-landing page. No auth,
+                                         no mutation.
 ```
+
+There is no separate "accept" endpoint, and deliberately so: ADR-0013's
+provisioning already happens *inside* `POST /auth/session` — an unknown
+`firebase_uid` whose verified email matches an open invitation is provisioned
+and the invitation consumed, all in that one transaction. A second endpoint
+doing the same provisioning again would be dead code; nothing would ever call
+it, since signing in *is* accepting. The public preview above exists purely so
+the invitation-landing page can render "You've been invited to join {org} as
+{role}" before the user signs into Firebase — it mutates nothing.
 
 There is no public self-signup and no local password endpoint. Users exist
 because an OWNER/ADMIN invited them — this is internal company software first

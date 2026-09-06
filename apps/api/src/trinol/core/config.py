@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from_email: str | None = None
     smtp_from_name: str | None = None
+    # EMAIL.md §3: "non-production environments refuse to send to any address
+    # outside an allowlist, so a seeded database can never mail a real
+    # client." Comma-separated; checked only when app_env != "production".
+    smtp_dev_allowlist: str | None = None
 
     public_contact_org_slug: str | None = None
     # SECURITY.md §5: the one endpoint OriginCheckMiddleware allows a
