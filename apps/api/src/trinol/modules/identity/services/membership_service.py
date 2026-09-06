@@ -6,31 +6,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Role
-from trinol.core.errors import ForbiddenError, NotFoundError
+from trinol.core.errors import ForbiddenError
 from trinol.modules.identity.models import Membership, MembershipStatus
+from trinol.modules.identity.services.membership_lookup import get_membership_in_org
 from trinol.modules.identity.services.organization_lock import lock_organization
 from trinol.modules.identity.services.session_service import revoke_org_sessions
 from trinol.platform.activity import record
 
 # RBAC.md §5's six escalation guards.
-
-
-async def _get_membership_in_org(
-    db: AsyncSession, *, organization_id: uuid.UUID, membership_id: uuid.UUID
-) -> Membership:
-    result = await db.execute(
-        select(Membership).where(
-            Membership.organization_id == organization_id,
-            Membership.id == membership_id,
-        )
-    )
-    membership = result.scalar_one_or_none()
-    if membership is None:
-        # Not RBAC.md §4's cross-org case specifically, but the same
-        # principle: the query is already org-scoped, so a wrong-org id
-        # lands here indistinguishably from a genuinely missing one.
-        raise NotFoundError("Membership not found")
-    return membership
 
 
 def _ensure_actor_can_act(actor: Membership, organization_id: uuid.UUID) -> None:
@@ -86,7 +69,7 @@ async def change_role(
     # concurrent change_role calls genuinely deadlocking in a test, one
     # waiting on a lock the other had already "finished" without releasing.
     try:
-        target = await _get_membership_in_org(
+        target = await get_membership_in_org(
             db, organization_id=organization_id, membership_id=target_membership_id
         )
 
@@ -138,7 +121,7 @@ async def remove_member(
     # See the matching comment in change_role: without an explicit rollback,
     # a guard raising here leaves the FOR UPDATE lock held indefinitely.
     try:
-        target = await _get_membership_in_org(
+        target = await get_membership_in_org(
             db, organization_id=organization_id, membership_id=target_membership_id
         )
 
