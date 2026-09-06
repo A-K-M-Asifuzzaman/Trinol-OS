@@ -38,6 +38,14 @@ class InvitationResponse(BaseModel):
     accepted_at: datetime | None
 
 
+class InvitationListResponse(BaseModel):
+    """ADR-0005: every list endpoint returns {items, total}, never a bare
+    array."""
+
+    items: list[InvitationResponse]
+    total: int
+
+
 class InvitationPreviewResponse(BaseModel):
     organization_name: str
     role: Role

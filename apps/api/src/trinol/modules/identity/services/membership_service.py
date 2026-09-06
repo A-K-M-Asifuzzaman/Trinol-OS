@@ -7,19 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Role
 from trinol.core.errors import ForbiddenError, NotFoundError
-from trinol.modules.identity.models import Membership, MembershipStatus, Organization
+from trinol.modules.identity.models import Membership, MembershipStatus
+from trinol.modules.identity.services.organization_lock import lock_organization
 from trinol.modules.identity.services.session_service import revoke_org_sessions
 from trinol.platform.activity import record
 
 # RBAC.md §5's six escalation guards.
-
-
-async def _lock_organization(db: AsyncSession, organization_id: uuid.UUID) -> None:
-    """Guard 4 needs this taken before either function reads the current
-    owner count, so two concurrent demotions of different owners can't both
-    observe "more than one owner remaining" and both proceed."""
-    stmt = select(Organization.id).where(Organization.id == organization_id).with_for_update()
-    await db.execute(stmt)
 
 
 async def _get_membership_in_org(
@@ -83,7 +76,7 @@ async def change_role(
 ) -> Membership:
     _ensure_actor_can_act(actor, organization_id)
 
-    await _lock_organization(db, organization_id)
+    await lock_organization(db, organization_id)
     # Everything from here runs while holding the FOR UPDATE lock taken
     # above. A Python exception does not issue a SQL ROLLBACK by itself —
     # without this except clause, a guard raising here left the transaction
@@ -141,7 +134,7 @@ async def remove_member(
     memberships are never deleted by any product flow."""
     _ensure_actor_can_act(actor, organization_id)
 
-    await _lock_organization(db, organization_id)
+    await lock_organization(db, organization_id)
     # See the matching comment in change_role: without an explicit rollback,
     # a guard raising here leaves the FOR UPDATE lock held indefinitely.
     try:

@@ -1,20 +1,34 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from dotenv import dotenv_values
 from httpx import AsyncClient
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.factories import make_invitation, make_membership, make_organization, make_user
 from trinol.core.authz.permissions import Role
+from trinol.core.config import _ENV_FILE
+from trinol.core.db.engine import get_session_factory
 from trinol.core.errors import ConflictError, ForbiddenError, NotFoundError
 from trinol.modules.identity.identity_verifier import VerifiedIdentity
+from trinol.modules.identity.models import (
+    Invitation,
+    Membership,
+    MembershipStatus,
+    Organization,
+    User,
+)
 from trinol.modules.identity.services.invitation_service import (
     create_invitation,
     get_invitation_preview,
     list_open_invitations,
 )
+from trinol.platform.models import ActivityEvent
 
 # Stage 8 (Phase 1 plan, decision 3): invitation creation/preview, plus the
 # sign-in path completing acceptance — that last part is already exercised in
@@ -100,12 +114,39 @@ async def test_cannot_invite_an_existing_active_member(db_session) -> None:
     await make_membership(db_session, organization=org, user=existing, role=Role.MEMBER)
     await db_session.commit()
 
-    with pytest.raises(ConflictError, match="already a member"):
+    with pytest.raises(ConflictError, match="already has a membership"):
         await create_invitation(
             db_session,
             organization_id=org.id,
             actor=admin,
             email="already-here@x.com",
+            role=Role.MEMBER,
+        )
+
+
+async def test_cannot_invite_an_inactive_former_member(db_session) -> None:
+    """Codex Stage 8 P1: creation only rejected ACTIVE memberships, but
+    signing back in as an existing user never re-checks invitations
+    (session_service._resolve_or_provision_user's "existing user" branch
+    returns immediately) — so an invitation for a former member could never
+    be consumed and would just sit there as a dead row."""
+    org, owner, admin, manager, owner_user = await _setup(db_session)
+    former = await make_user(db_session, email="former-member@x.com")
+    await make_membership(
+        db_session,
+        organization=org,
+        user=former,
+        role=Role.MEMBER,
+        status=MembershipStatus.INACTIVE,
+    )
+    await db_session.commit()
+
+    with pytest.raises(ConflictError, match="already has a membership"):
+        await create_invitation(
+            db_session,
+            organization_id=org.id,
+            actor=admin,
+            email="former-member@x.com",
             role=Role.MEMBER,
         )
 
@@ -145,7 +186,7 @@ async def test_expired_open_invitation_does_not_block_a_re_invite(db_session) ->
     assert result.invitation.email == "lapsed@x.com"
 
 
-async def test_list_open_invitations_excludes_accepted(db_session) -> None:
+async def test_list_open_invitations_excludes_accepted_and_expired(db_session) -> None:
     org, owner, admin, manager, owner_user = await _setup(db_session)
     open_invitation = await make_invitation(
         db_session, organization=org, email="open@x.com", invited_by=owner_user
@@ -154,10 +195,39 @@ async def test_list_open_invitations_excludes_accepted(db_session) -> None:
         db_session, organization=org, email="accepted@x.com", invited_by=owner_user
     )
     accepted_invitation.accepted_at = datetime.now(UTC)
+    await make_invitation(
+        db_session,
+        organization=org,
+        email="expired@x.com",
+        invited_by=owner_user,
+        expires_in=timedelta(days=-1),
+    )
     await db_session.commit()
 
-    invitations = await list_open_invitations(db_session, organization_id=org.id, actor=admin)
-    assert [inv.id for inv in invitations] == [open_invitation.id]
+    result = await list_open_invitations(db_session, organization_id=org.id, actor=admin)
+    assert [inv.id for inv in result.items] == [open_invitation.id]
+    assert result.total == 1
+
+
+async def test_list_open_invitations_is_paginated(db_session) -> None:
+    org, owner, admin, manager, owner_user = await _setup(db_session)
+    for i in range(3):
+        await make_invitation(
+            db_session, organization=org, email=f"page-{i}@x.com", invited_by=owner_user
+        )
+    await db_session.commit()
+
+    page = await list_open_invitations(
+        db_session, organization_id=org.id, actor=admin, limit=2, offset=0
+    )
+    assert len(page.items) == 2
+    assert page.total == 3
+
+    second_page = await list_open_invitations(
+        db_session, organization_id=org.id, actor=admin, limit=2, offset=2
+    )
+    assert len(second_page.items) == 1
+    assert second_page.total == 3
 
 
 async def test_manager_cannot_list_invitations(db_session) -> None:
@@ -285,3 +355,113 @@ async def test_preview_endpoint_is_public_and_needs_no_auth(
 async def test_preview_endpoint_404s_for_an_unknown_token(client: AsyncClient) -> None:
     response = await client.get("/api/v1/invitations/not-a-real-token")
     assert response.status_code == 404
+
+
+async def test_concurrent_invitations_for_the_same_email_only_one_succeeds() -> None:
+    """Codex Stage 8 P1: create_invitation's check-then-insert had no lock,
+    so two simultaneous requests for the same org+email could both pass the
+    "no open invitation exists" check and both insert. Needs two genuinely
+    independent DB connections, not two SAVEPOINTs sharing one transaction —
+    the point is Postgres actually serializing two concurrent transactions
+    via the organization row's FOR UPDATE lock (organization_lock.py), same
+    approach and same reason as test_escalation.py's last-owner-demotion
+    test. Real commits, cleaned up explicitly at the end."""
+    session_factory = get_session_factory()
+
+    setup_session = session_factory()
+    try:
+        org = await make_organization(setup_session)
+        admin_user = await make_user(setup_session, email=f"admin-{org.id}@x.com")
+        admin = await make_membership(
+            setup_session, organization=org, user=admin_user, role=Role.ADMIN
+        )
+        await setup_session.commit()
+        org_id, admin_id, admin_user_id = org.id, admin.id, admin_user.id
+    finally:
+        await setup_session.close()
+
+    session_1 = session_factory()
+    session_2 = session_factory()
+    try:
+        actor_1 = (
+            await session_1.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == admin_id
+                )
+            )
+        ).scalar_one()
+        actor_2 = (
+            await session_2.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == admin_id
+                )
+            )
+        ).scalar_one()
+
+        results = await asyncio.gather(
+            create_invitation(
+                session_1,
+                organization_id=org_id,
+                actor=actor_1,
+                email="race@x.com",
+                role=Role.MEMBER,
+            ),
+            create_invitation(
+                session_2,
+                organization_id=org_id,
+                actor=actor_2,
+                email="race@x.com",
+                role=Role.MEMBER,
+            ),
+            return_exceptions=True,
+        )
+
+        successes = [r for r in results if not isinstance(r, Exception)]
+        failures = [r for r in results if isinstance(r, Exception)]
+        assert len(successes) == 1, f"expected exactly one success, got: {results}"
+        assert len(failures) == 1
+        assert isinstance(failures[0], ConflictError)
+
+        remaining = (
+            (
+                await session_1.execute(
+                    select(Invitation).where(
+                        Invitation.organization_id == org_id, Invitation.email == "race@x.com"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(remaining) == 1, "the race must never produce two open invitations"
+    finally:
+        await session_1.close()
+        await session_2.close()
+
+        # See test_escalation.py's matching cleanup: trinol_app is REVOKEd
+        # from UPDATE/DELETE on activity_events (ADR-0006), so the winning
+        # create_invitation call's audit row needs the migrator role to clean up.
+        migration_url = dotenv_values(_ENV_FILE)["DATABASE_MIGRATION_URL"]
+        assert migration_url is not None
+        migrator_engine = create_async_engine(migration_url)
+        try:
+            async with migrator_engine.begin() as conn:
+                await conn.execute(
+                    ActivityEvent.__table__.delete().where(ActivityEvent.organization_id == org_id)
+                )
+        finally:
+            await migrator_engine.dispose()
+
+        cleanup_session = session_factory()
+        try:
+            await cleanup_session.execute(
+                delete(Invitation).where(Invitation.organization_id == org_id)
+            )
+            await cleanup_session.execute(
+                delete(Membership).where(Membership.organization_id == org_id)
+            )
+            await cleanup_session.execute(delete(User).where(User.id == admin_user_id))
+            await cleanup_session.execute(delete(Organization).where(Organization.id == org_id))
+            await cleanup_session.commit()
+        finally:
+            await cleanup_session.close()

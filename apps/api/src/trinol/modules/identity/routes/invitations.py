@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Permission
@@ -10,6 +10,7 @@ from trinol.modules.identity.deps import get_current_membership
 from trinol.modules.identity.models import Membership
 from trinol.modules.identity.schemas import (
     InvitationCreateRequest,
+    InvitationListResponse,
     InvitationPreviewResponse,
     InvitationResponse,
 )
@@ -56,17 +57,25 @@ async def invite_member(
 
 @router.get(
     "",
-    response_model=list[InvitationResponse],
+    response_model=InvitationListResponse,
     dependencies=[Depends(require(Permission.TEAM_READ))],
 )
 async def list_invitations(
+    limit: int = Query(default=50, ge=1, le=200),  # ADR-0005: default 50, hard cap 200
+    offset: int = Query(default=0, ge=0),
     membership: Membership = Depends(get_current_membership),
     db: AsyncSession = Depends(get_db_session),
-) -> list[InvitationResponse]:
-    invitations = await list_open_invitations(
-        db, organization_id=membership.organization_id, actor=membership
+) -> InvitationListResponse:
+    result = await list_open_invitations(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        limit=limit,
+        offset=offset,
     )
-    return [_to_response(invitation) for invitation in invitations]
+    return InvitationListResponse(
+        items=[_to_response(invitation) for invitation in result.items], total=result.total
+    )
 
 
 @router.get("/{token}", response_model=InvitationPreviewResponse)

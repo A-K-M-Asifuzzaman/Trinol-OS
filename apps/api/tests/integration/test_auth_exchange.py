@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -78,6 +80,53 @@ async def test_unknown_uid_with_open_invitation_provisions_and_returns_200(
         )
     ).scalar_one()
     assert refreshed_invitation.accepted_at is not None
+
+
+async def test_expired_invitation_alongside_a_valid_one_still_provisions(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    """Codex Stage 8 P1: the invitation lookup picked whichever row came back
+    first, with no ordering — if that happened to be an expired one, the
+    exchange was rejected as "expired" even though a second, still-valid
+    invitation for the same email existed (e.g. a re-invite after the first
+    one lapsed). Fixed by ordering by expires_at descending, so a valid
+    invitation (whose expires_at is always later than "now", which is always
+    later than an expired one's) sorts first."""
+    org = await make_organization(db_session)
+    inviter = await make_user(db_session, email="inviter2@x.com")
+    await make_invitation(
+        db_session,
+        organization=org,
+        email="lapsed-then-invited@x.com",
+        invited_by=inviter,
+        role=Role.MEMBER,
+        expires_in=timedelta(days=-1),
+    )
+    valid_invitation = await make_invitation(
+        db_session,
+        organization=org,
+        email="lapsed-then-invited@x.com",
+        invited_by=inviter,
+        role=Role.MANAGER,
+        expires_in=timedelta(days=7),
+    )
+    await db_session.commit()
+
+    identity = _identity(email="lapsed-then-invited@x.com")
+    fake_verifier.register("tok", identity)
+    response = await client.post("/api/v1/auth/session", json={"id_token": "tok"})
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "MANAGER"
+
+    refreshed = (
+        await db_session.execute(
+            select(Invitation).where(
+                Invitation.organization_id == org.id, Invitation.id == valid_invitation.id
+            )
+        )
+    ).scalar_one()
+    assert refreshed.accepted_at is not None
 
 
 async def test_inactive_membership_returns_403(

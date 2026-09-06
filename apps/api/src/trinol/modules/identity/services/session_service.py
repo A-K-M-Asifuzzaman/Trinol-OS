@@ -256,6 +256,15 @@ async def _resolve_or_provision_user(
         OrgSession.unscoped(
             select(Invitation)
             .where(Invitation.email == identity.email, Invitation.accepted_at.is_(None))
+            # A real person can have more than one open invitation for the
+            # same email (a re-invite after the first expired, or invites
+            # from two different orgs). Ordering by expires_at descending
+            # puts a still-valid one first whenever one exists — its
+            # expires_at is necessarily later than "now", which is
+            # necessarily later than any expired row's. Only when every row
+            # is expired does .first() fall through to the most recently
+            # expired one, which is what the rejection below should report.
+            .order_by(Invitation.expires_at.desc())
             .with_for_update()
         )
     )
