@@ -207,7 +207,17 @@ async def revoke_org_sessions(
     by revoking the target's sessions — scoped to just this organization,
     unlike revoke_all_sessions (logout everywhere), which deliberately spans
     every organization a user belongs to. A role change in org A has nothing
-    to do with that same user's session in org B."""
+    to do with that same user's session in org B.
+
+    Deliberately does NOT commit, unlike its siblings above: this is always a
+    sub-step inside change_role/remove_member's larger transaction, not a
+    standalone operation. It used to commit here, which persisted the role
+    change (already autoflushed) and released the organization's FOR UPDATE
+    lock before guard 6's audit event was even written — if that write or the
+    caller's own final commit then failed, the business mutation was already
+    durably committed with no audit record, breaking ADR-0006's same-
+    transaction guarantee. The caller's commit is the only one now.
+    """
     now = datetime.now(UTC)
     await db.execute(
         update(Session)
@@ -218,7 +228,6 @@ async def revoke_org_sessions(
         )
         .values(revoked_at=now)
     )
-    await db.commit()
 
 
 async def _resolve_or_provision_user(

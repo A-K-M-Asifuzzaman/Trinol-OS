@@ -181,6 +181,74 @@ async def test_guard_5_role_change_revokes_target_sessions_in_this_org(db_sessio
     assert refreshed.revoked_at is not None
 
 
+async def test_audit_write_failure_rolls_back_the_role_change_too(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for a P1: revoke_org_sessions used to commit
+    internally, persisting the role change (already autoflushed) before
+    guard 6's audit event was even written. If record() — or anything after
+    it — fails, the role change must not already be durably committed. Forces
+    that failure and confirms the whole operation rolled back, not just the
+    audit half."""
+    org, owner, admin, manager, member = await _setup(db_session)
+    # Captured as plain values, not left as ORM attribute access: db.rollback()
+    # (inside change_role's except clause) expires every object this session
+    # tracks regardless of expire_on_commit, which only governs commit. Using
+    # org.id/manager.id again after that would trigger a synchronous
+    # lazy-reload outside an async-bridging context (MissingGreenlet) — found
+    # by actually running this test, not anticipated.
+    org_id, manager_id, original_role = org.id, manager.id, manager.role
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("simulated audit failure")
+
+    monkeypatch.setattr("trinol.modules.identity.services.membership_service.record", _boom)
+
+    with pytest.raises(RuntimeError, match="simulated audit failure"):
+        await change_role(
+            db_session,
+            organization_id=org_id,
+            actor=owner,
+            target_membership_id=manager_id,
+            new_role=Role.ADMIN,
+        )
+
+    refreshed = (
+        await db_session.execute(
+            select(Membership).where(
+                Membership.organization_id == org_id, Membership.id == manager_id
+            )
+        )
+    ).scalar_one()
+    assert refreshed.role == original_role
+
+
+async def test_audit_write_failure_rolls_back_the_removal_too(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org, owner, admin, manager, member = await _setup(db_session)
+    org_id, manager_id = org.id, manager.id  # see the matching comment above
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("simulated audit failure")
+
+    monkeypatch.setattr("trinol.modules.identity.services.membership_service.record", _boom)
+
+    with pytest.raises(RuntimeError, match="simulated audit failure"):
+        await remove_member(
+            db_session, organization_id=org_id, actor=owner, target_membership_id=manager_id
+        )
+
+    refreshed = (
+        await db_session.execute(
+            select(Membership).where(
+                Membership.organization_id == org_id, Membership.id == manager_id
+            )
+        )
+    ).scalar_one()
+    assert refreshed.status == MembershipStatus.ACTIVE
+
+
 async def test_target_in_another_organization_is_not_found(db_session) -> None:
     """RBAC.md §4: a cross-org target is 404, not 403 — the query is already
     org-scoped, so a wrong-org id lands here indistinguishably from a
