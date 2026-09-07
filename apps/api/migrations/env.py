@@ -16,6 +16,7 @@ from trinol.core.db.base import Base
 # Imported for their side effect of registering tables on Base.metadata —
 # every module with models must be imported here or Alembic won't see it.
 from trinol.modules.identity import models as _identity_models  # noqa: F401
+from trinol.modules.work import models as _work_models  # noqa: F401
 from trinol.platform import models as _platform_models  # noqa: F401
 
 load_dotenv(_ENV_FILE)

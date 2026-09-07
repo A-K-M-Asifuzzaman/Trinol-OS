@@ -98,9 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages).** Stage 1 (`work` module
-schema) is in progress. See the audit and decisions below for the reasoning
-each stage builds on.
+Status: **Implementation plan approved (11 stages). Stage 1 complete.**
+Stage 2 (Project CRUD + project-member management) is next. See the audit
+and decisions below for the reasoning each stage builds on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -239,10 +239,22 @@ module in full, and nothing found in this audit requires changing it:
 
 ### Checklist (11 implementation stages, per the approved stage plan)
 
-- [ ] Stage 1 — `work` module schema: `models.py` (Project, ProjectMember,
+- [x] Stage 1 — `work` module schema: `models.py` (Project, ProjectMember,
       Milestone, Task, TaskComment, TaskChecklistItem; `TaskAttachment`
       deferred to Stage 6 alongside `file_objects`) + migration `0003`;
-      `PROJECT_MEMBER_WRITE` added to `Permission`/`_MEMBER` (decision 6)
+      `PROJECT_MEMBER_WRITE` added to `Permission`/`_MEMBER` (decision 6).
+      `alembic upgrade`/`downgrade -1`/`upgrade`/`check` all clean;
+      schema-integrity and permission-hierarchy tests pass; full suite
+      (160 tests), ruff, mypy all green. Entity-to-entity FK deletion
+      semantics (not covered by DATABASE.md §5.2's person-column table)
+      chosen and documented inline in `models.py`: `project_members.*` and
+      `task_comments/task_checklist_items.task_id` CASCADE (child
+      meaningless without parent, ADR-0011 confirms tasks/comments are hard
+      -deleted); `tasks.milestone_id` SET NULL (milestone is a lightweight
+      grouping, task must survive it); `milestones.project_id` and
+      `tasks.project_id` RESTRICT (projects are soft-deleted only per
+      ADR-0011, so an unexpected hard delete should fail loudly, not
+      cascade away real deliverable history).
 - [ ] Stage 2 — Project CRUD + `project_members` management (decision 6
       above: route gated on the new `PROJECT_MEMBER_WRITE` permission,
       MEMBER-tier; service enforces `PROJECT_WRITE` (MANAGER+) OR

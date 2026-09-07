@@ -29,6 +29,11 @@ class Permission(StrEnum):
     TASK_WRITE_ANY = "TASK_WRITE_ANY"
     PROJECT_WRITE = "PROJECT_WRITE"
     PROJECT_DELETE = "PROJECT_DELETE"
+    # MEMBER-tier, route-reachability only (RBAC.md §3, ROADMAP.md Phase 2
+    # decision 6): gates project-member-management routes for everyone, same
+    # shape as TASK_WRITE_OWN vs TASK_WRITE_ANY. The service checks the real
+    # rule (PROJECT_WRITE i.e. MANAGER+, OR project.owner_id == user.id).
+    PROJECT_MEMBER_WRITE = "PROJECT_MEMBER_WRITE"
 
     # CRM — Phase 3
     LEAD_READ = "LEAD_READ"
@@ -68,6 +73,7 @@ class Permission(StrEnum):
 _MEMBER: frozenset[Permission] = frozenset(
     {
         Permission.PROJECT_READ,
+        Permission.PROJECT_MEMBER_WRITE,
         Permission.TASK_READ,
         Permission.TASK_WRITE_OWN,
         Permission.LEAD_READ,
