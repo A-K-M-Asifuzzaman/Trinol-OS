@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.routing import APIRoute
 from httpx import AsyncClient
 
 from tests.factories import make_membership, make_user
 from tests.helpers import login_as
-from trinol.core.authz.permissions import Role
+from trinol.core.authz.permissions import ROLE_PERMISSIONS, Permission, Role
+from trinol.core.authz.require import is_public
+from trinol.core.authz.startup_audit import iter_api_routes
+from trinol.main import app
 
 # RBAC.md §6: for every route x every role x own resource, assert the
-# expected status. Team routes only for now (they're the first routes this
-# repo has that need role-differentiated behavior beyond a flat public/
-# authenticated split) — Stage 11 adds the meta-assertion that fails when a
-# new route has no row here.
+# expected status.
 
 pytestmark = pytest.mark.usefixtures("db_session")
 
@@ -128,3 +129,86 @@ async def test_patch_rejects_neither_role_nor_status(
         headers={"X-CSRF-Token": actor.csrf_token},
     )
     assert response.status_code == 422
+
+
+# Stage 11: the formal matrix RBAC.md §6 asks for, plus the meta-assertion
+# that "a new route with no row in it fails the suite" — one row per
+# permission-gated route, with an example valid payload for the routes that
+# need a body, so a role that legitimately holds the permission isn't
+# rejected by request validation. {membership_id} is filled with a freshly
+# created target membership per test, not the actor's own — PATCHing
+# yourself hits change_role/remove_member's separate "can't act on your own
+# membership" guard, which isn't what this matrix is testing.
+_MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
+    (
+        "POST",
+        "/api/v1/invitations",
+        Permission.MEMBER_INVITE,
+        {"email": "row@x.com", "role": "MEMBER"},
+    ),
+    ("GET", "/api/v1/invitations", Permission.MEMBER_INVITE, None),
+    ("GET", "/api/v1/memberships", Permission.TEAM_READ, None),
+    ("GET", "/api/v1/memberships/{membership_id}", Permission.TEAM_READ, None),
+    (
+        "PATCH",
+        "/api/v1/memberships/{membership_id}",
+        Permission.MEMBER_ROLE_WRITE,
+        {"role": "MANAGER"},
+    ),
+]
+
+
+def _live_permission_gated_routes() -> set[tuple[str, str]]:
+    pairs: set[tuple[str, str]] = set()
+    for route in iter_api_routes(app):
+        if not isinstance(route, APIRoute) or is_public(route.endpoint):
+            continue
+        for method in route.methods or set():
+            if method in ("HEAD", "OPTIONS"):
+                continue
+            pairs.add((method, route.path))
+    return pairs
+
+
+def test_matrix_covers_every_permission_gated_route() -> None:
+    """RBAC.md §6: "a new route with no row in it fails the suite." Derives
+    the live set of non-public routes from the app itself (the same markers
+    core/authz/startup_audit.py's boot-time check reads), so a new route
+    can't silently go untested the way a hand-maintained list with no
+    cross-check against reality could."""
+    matrix_routes = {(method, path) for method, path, _permission, _body in _MATRIX_ROWS}
+    missing = _live_permission_gated_routes() - matrix_routes
+    assert not missing, f"Route(s) with no authz-matrix row: {sorted(missing)}"
+
+
+@pytest.mark.parametrize("method,path,permission,body", _MATRIX_ROWS)
+@pytest.mark.parametrize("role", list(Role))
+async def test_matrix_row_respects_required_permission(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    role: Role,
+    method: str,
+    path: str,
+    permission: Permission,
+    body: dict[str, str] | None,
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=role)
+    target_user = await make_user(db_session, email=f"matrix-target-{actor.organization.id}@x.com")
+    target = await make_membership(
+        db_session, organization=actor.organization, user=target_user, role=Role.MEMBER
+    )
+    await db_session.commit()
+
+    resolved_path = path.replace("{membership_id}", str(target.id))
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(method, resolved_path, json=body, headers=headers)
+
+    if permission in ROLE_PERMISSIONS[role]:
+        assert response.status_code != 403, (
+            f"{role} unexpectedly forbidden on {method} {path}: {response.text}"
+        )
+    else:
+        assert response.status_code == 403, (
+            f"{role} unexpectedly allowed on {method} {path}: {response.text}"
+        )

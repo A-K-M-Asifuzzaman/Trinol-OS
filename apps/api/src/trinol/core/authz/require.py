@@ -28,6 +28,15 @@ def is_public(endpoint: Callable[..., object]) -> bool:
     return bool(getattr(endpoint, _PUBLIC_MARKER, False))
 
 
+def get_required_permission(dependency: Callable[..., object]) -> Permission | None:
+    """Reads the marker `require()` stamps on its closure. Shared by
+    startup_audit.py's boot-time check (only needs to know one exists) and
+    the security-matrix tests (need the actual Permission, to know which
+    roles a route should 403 for) — one place reading the marker instead of
+    two modules each duplicating the constant."""
+    return getattr(dependency, _REQUIRES_MARKER, None)
+
+
 def require(permission: Permission) -> Callable[..., Awaitable[None]]:
     """`dependencies=[Depends(require(Permission.X))]` (RBAC.md §3). Checks
     role-level permission only — resource-level rules (e.g. "MANAGER+ or the

@@ -58,7 +58,12 @@ async def invite_member(
 @router.get(
     "",
     response_model=InvitationListResponse,
-    dependencies=[Depends(require(Permission.TEAM_READ))],
+    # Not TEAM_READ: listing *pending invitations* is invite-management, not
+    # roster viewing — list_open_invitations already enforces ADMIN+ itself
+    # (_ensure_actor_is_admin); this must match or the declared gate lies
+    # about what the endpoint actually allows (caught by the Stage 11 authz
+    # matrix, which derives its rows from this exact marker).
+    dependencies=[Depends(require(Permission.MEMBER_INVITE))],
 )
 async def list_invitations(
     limit: int = Query(default=50, ge=1, le=200),  # ADR-0005: default 50, hard cap 200

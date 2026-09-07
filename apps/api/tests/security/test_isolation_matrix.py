@@ -4,7 +4,7 @@ import pytest
 from httpx import AsyncClient
 
 from tests.factories import make_membership, make_organization, make_user
-from tests.helpers import login_as
+from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import Role
 
 # TESTING.md §4.3: every org-scoped route, member of org B against a
@@ -64,3 +64,24 @@ async def test_list_team_never_leaks_another_orgs_members(
     assert response.status_code == 200
     emails = [member["email"] for member in response.json()["items"]]
     assert other_user.email not in emails
+
+
+async def test_every_role_in_org_b_gets_404_for_org_as_membership(
+    client: AsyncClient, fake_verifier, db_session, two_orgs
+) -> None:
+    """Broader than the single-probe tests above: every role in org B — not
+    just ADMIN — must get 404, never 403 and never 200, for a resource that
+    only exists in org A (TESTING.md §4.3)."""
+    org_a, org_b = two_orgs
+    target = org_a.memberships[Role.MEMBER]
+
+    for role in Role:
+        await login_as_existing(
+            client,
+            fake_verifier,
+            user=org_b.users[role],
+            membership=org_b.memberships[role],
+            organization=org_b.organization,
+        )
+        response = await client.get(f"/api/v1/memberships/{target.id}")
+        assert response.status_code == 404, f"{role} in org B got {response.status_code}"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -11,11 +12,14 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from tests.factories import make_membership, make_organization, make_user
 from tests.fakes import FakeIdentityVerifier
+from trinol.core.authz.permissions import Role
 from trinol.core.db.engine import get_db_session
 from trinol.core.db.org_session import register_org_scope_guard
 from trinol.core.deps import get_settings
 from trinol.modules.identity.deps import get_identity_verifier
+from trinol.modules.identity.models import Membership, Organization, User
 from trinol.platform.email.deps import get_email_sender
 from trinol.platform.email.memory import MemoryEmailSender
 
@@ -106,3 +110,42 @@ def fake_email_sender() -> MemoryEmailSender:
         yield sender
     finally:
         app.dependency_overrides.pop(get_email_sender, None)
+
+
+@dataclass(frozen=True, slots=True)
+class OrgWithRoles:
+    """One organization with a full OWNER/ADMIN/MANAGER/MEMBER roster —
+    the baseline every authz/isolation matrix test needs (RBAC.md §6,
+    TESTING.md §4.2/4.3): permission checks need every role in one org,
+    isolation checks need a second org to probe across."""
+
+    organization: Organization
+    users: dict[Role, User]
+    memberships: dict[Role, Membership]
+
+
+async def _make_org_with_roles(db: AsyncSession, *, slug_prefix: str) -> OrgWithRoles:
+    # No explicit slug: make_organization's own default already guarantees
+    # uniqueness (the schema requires it) with a random suffix.
+    organization = await make_organization(db, name=slug_prefix)
+    users: dict[Role, User] = {}
+    memberships: dict[Role, Membership] = {}
+    for role in Role:
+        user = await make_user(
+            db, email=f"{slug_prefix}-{role.value.lower()}-{organization.id}@x.com"
+        )
+        membership = await make_membership(db, organization=organization, user=user, role=role)
+        users[role] = user
+        memberships[role] = membership
+    return OrgWithRoles(organization=organization, users=users, memberships=memberships)
+
+
+@pytest.fixture
+async def two_orgs(db_session: AsyncSession) -> tuple[OrgWithRoles, OrgWithRoles]:
+    """Two organizations, each with all four roles — org_a and org_b, ready
+    for both the authorization matrix (within org_a) and the isolation
+    matrix (org_b's resources probed from org_a, and vice versa)."""
+    org_a = await _make_org_with_roles(db_session, slug_prefix="org-a")
+    org_b = await _make_org_with_roles(db_session, slug_prefix="org-b")
+    await db_session.commit()
+    return org_a, org_b
