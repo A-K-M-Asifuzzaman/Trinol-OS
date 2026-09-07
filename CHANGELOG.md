@@ -127,3 +127,37 @@ for open shortcuts.
   (RBAC.md §2), and the app shell had no mobile layout at all. Added a
   `next.config.mjs` `/api/*` rewrite, server-resolved role passed to the
   sidebar, and a collapsible mobile nav.
+
+### Added — Stage 11: test foundation checkpoint
+- `two_orgs` fixture (two organizations, each with a full role roster) and
+  `login_as_existing`; all five TESTING.md §4 security matrices now exist,
+  including a new authentication matrix and a formal authorization matrix
+  with a meta-assertion that fails if a route has no row.
+- Building that matrix caught a real bug: `GET /api/v1/invitations`
+  declared a permission granted to every role, but its service function
+  has always enforced ADMIN+ only. Fixed to declare the permission it
+  actually enforces.
+
+### Added — Stage 12: seed script
+- `scripts/seed.py`: one organization (`trinolit`) with three placeholder
+  users (Founder/Developer/Designer) under the real company domain.
+- Codex review: the idempotency test's cleanup tracked pre-existence only
+  at the organization level, so a partially-seeded org or an unrelated
+  pre-existing user at a seed email could be mishandled. Fixed to track
+  pre-existence per entity (org, each user, each membership).
+
+### Added — Stage 13: CI
+- `.github/workflows/ci.yml`: four jobs (backend, frontend, OpenAPI diff,
+  security) covering TESTING.md §6's full gate list against a real
+  Postgres service container.
+- Found a real, pre-existing vulnerability while wiring up the security
+  job: `next`'s bundled internal `postcss` copy carries four disclosed
+  CVEs; our own direct `postcss` dependency was never affected. Confirmed
+  a pnpm override can't reach next's internally-pinned copy (it changed
+  nothing, tested with and without it), so the CI gate documents and
+  allowlists this one upstream-only exception rather than silently
+  passing or permanently blocking on it.
+- Checked every pinned GitHub Action version against the live API rather
+  than trusting cached knowledge: all five were multiple majors behind,
+  migrating off the Node 20 Actions runtime GitHub removes from hosted
+  runners on 2026-09-16.
