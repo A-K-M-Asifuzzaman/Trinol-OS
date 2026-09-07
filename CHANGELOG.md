@@ -60,7 +60,7 @@ Codex verification, round 4: no remaining P0/P1 findings. Verdict APPROVE.
 Firebase sign-in methods confirmed as both email/password and Google —
 matched the design already in place, no changes required.
 
-## Phase 1 — Foundation (in progress)
+## Phase 1 — Foundation
 
 Full history and per-stage Codex review notes live in ROADMAP.md; this is
 the condensed release-note version. See ROADMAP.md's technical debt ledger
@@ -168,3 +168,10 @@ for open shortcuts.
   allowlist matched on package name alone, which would silently pass any
   future postcss advisory — tightened to the exact four known advisory
   IDs and the exact dependency path.
+
+## Phase 1 — APPROVED
+
+Codex final verification (Stage 13): "Phase 1 is feature-complete ...
+there are no remaining Codex P0/P1 blockers." All 13 stages independently
+reviewed and re-verified per-stage throughout, not as one end-of-phase
+pass — full history in ROADMAP.md.
