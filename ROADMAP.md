@@ -261,7 +261,21 @@ module in full, and nothing found in this audit requires changing it:
       infrastructure, not a reuse**: `file_objects` doesn't exist in any
       migration yet (`organizations.logo_file_id` was deferred in Stage 1/3
       for exactly this reason). `TaskAttachment` + migration `0004` land
-      here, once `file_objects` exists.
+      here, once `file_objects` exists. **`organizations.logo_file_id` and
+      its composite FK are restored in this same migration** — Codex caught
+      that the first pass of this stage only wired `task_attachments`,
+      leaving the logo relationship still deferred even though its
+      prerequisite (`file_objects`) now exists in the same migration that
+      would add it. `Organization.logo_file_id: uuid.UUID | None` +
+      `FOREIGN KEY (id, logo_file_id) REFERENCES file_objects
+      (organization_id, id) ON DELETE SET NULL` (DATABASE.md §3/§5.1's exact
+      spec — `organizations` uses its own `id` as the tenant key here, not an
+      `organization_id` column, since it's the tenant root). Needs a
+      dedicated regression check, not just the generic schema-integrity
+      test: that test walks `information_schema` for org-scoped tables
+      identified by an `organization_id` column, and `organizations` itself
+      has none — so a single-column-FK regression here wouldn't be caught by
+      the existing generic assertion the way it would for any other table.
 - [ ] Stage 7 — Activity feed events wired for task/project changes
       (decision 2 above); first real exercise of `platform.activity.
       list_feed` (built Stage 7 of Phase 1, never called by a route until
