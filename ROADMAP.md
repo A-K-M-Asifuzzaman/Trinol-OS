@@ -98,7 +98,7 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Phase 0 (architecture) audit complete, awaiting Codex review.** No product code written yet — see the audit and decisions below.
+Status: **Phase 0 (architecture) audit approved by Codex.** No product code written yet — see the audit and decisions below. Stage-sequenced implementation planning is next.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
