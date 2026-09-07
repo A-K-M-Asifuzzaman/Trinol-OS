@@ -153,6 +153,12 @@ jobs:
         # TESTING.md §6 says "npm audit" generically; this project only ever
         # uses pnpm (no package-lock.json exists), so pnpm's own equivalent
         # is the correct concrete gate, not a substitution of convenience.
+        # No --prod: TESTING.md §6 wants the full audit, dev dependencies
+        # included — a vulnerable lint/test/build-tool dependency is exactly
+        # the kind of thing this gate exists to catch (and did: vite/esbuild/
+        # vitest advisories were only visible once --prod was dropped, fixed
+        # by the vitest 2->5 upgrade below rather than allowlisted, since a
+        # real fix existed).
         #
         # One known, accepted exception, not a blanket bypass: next@15.5.25
         # bundles its own internal postcss@8.4.31 (four disclosed CVEs, all
@@ -165,15 +171,36 @@ jobs:
         # requires internally at an exact pin — removed it since it changed
         # nothing either way. Fixable only by a next.js release or adopting
         # pnpm's patchedDependencies to hand-patch next's own package.json,
-        # neither of which belongs in a CI-setup change. This step still
-        # fails hard on any advisory in any *other* package.
+        # neither of which belongs in a CI-setup change.
+        #
+        # The allowlist below matches on the exact four known advisory IDs
+        # AND the exact dependency path (next@15.5.25 > postcss@8.4.31) —
+        # not just "module_name == postcss", which would silently wave
+        # through a *different* future postcss advisory, a version bump, or
+        # postcss showing up via some other path (e.g. our own chain, which
+        # has never been vulnerable and should never need this exception).
+        # Any advisory outside that exact set fails the job.
         working-directory: apps/web
         run: |
           pnpm install --frozen-lockfile
-          pnpm audit --prod --json > audit.json || true
-          unexpected=$(jq '[.advisories[] | select(.module_name != "postcss")] | length' audit.json)
+          pnpm audit --json > audit.json || true
+          allowed='["1117015","1124252","1130709","1139510"]'
+          path='. > next@15.5.25 > postcss@8.4.31'
+          unexpected=$(jq --argjson allowed "$allowed" --arg path "$path" '
+            [
+              .advisories | to_entries[]
+              | select(
+                  ((.key as $k | ($allowed | index($k))) == null)
+                  or
+                  any(.value.findings[].paths[]; . != $path)
+                )
+            ] | length
+          ' audit.json)
           if [ "$unexpected" != "0" ]; then
             echo "Advisory found outside the known, tracked postcss/next exception:"
-            jq '.advisories[] | select(.module_name != "postcss")' audit.json
+            jq --argjson allowed "$allowed" --arg path "$path" '
+              .advisories | to_entries[]
+              | select(((.key as $k | ($allowed | index($k))) == null) or any(.value.findings[].paths[]; . != $path))
+            ' audit.json
             exit 1
           fi

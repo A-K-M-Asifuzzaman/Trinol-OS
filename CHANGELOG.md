@@ -161,3 +161,10 @@ for open shortcuts.
   than trusting cached knowledge: all five were multiple majors behind,
   migrating off the Node 20 Actions runtime GitHub removes from hosted
   runners on 2026-09-16.
+- Codex review: fixed two P1s. `pnpm audit --prod` skipped devDependencies,
+  hiding a critical `vitest` advisory and several `vite`/`esbuild` ones —
+  fixed for real with a `vitest` 2→5 major upgrade (a real fix existed,
+  unlike the postcss/next case) rather than allowlisted. The postcss
+  allowlist matched on package name alone, which would silently pass any
+  future postcss advisory — tightened to the exact four known advisory
+  IDs and the exact dependency path.

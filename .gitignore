@@ -9,6 +9,7 @@
 
 # generated (regenerate with `make openapi`; types.gen.ts IS committed per ADR-0005)
 apps/api/openapi.json
+apps/web/audit.json
 
 # python
 __pycache__/
