@@ -1,5 +1,5 @@
-import { cookies } from "next/headers";
 import { fetchTeamMembers } from "@/lib/api/client";
+import { getServerCookieHeader } from "@/lib/api/server-cookie";
 
 // ARCHITECTURE.md §5: lists/pages are server-rendered by default — the
 // server component calls the API with the incoming cookie. Phase 1 plan
@@ -7,12 +7,10 @@ import { fetchTeamMembers } from "@/lib/api/client";
 // count tile, which is the only data that exists yet (GET /memberships).
 async function getTeamCount(): Promise<number | null> {
   try {
-    const cookieStore = await cookies();
-    const cookieHeader = cookieStore
-      .getAll()
-      .map((cookie) => `${cookie.name}=${cookie.value}`)
-      .join("; ");
-    const result = await fetchTeamMembers({ limit: 1, cookie: cookieHeader });
+    const result = await fetchTeamMembers({
+      limit: 1,
+      cookie: await getServerCookieHeader(),
+    });
     return result.total;
   } catch {
     return null;

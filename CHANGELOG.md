@@ -59,3 +59,71 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
 Codex verification, round 4: no remaining P0/P1 findings. Verdict APPROVE.
 Firebase sign-in methods confirmed as both email/password and Google —
 matched the design already in place, no changes required.
+
+## Phase 1 — Foundation (in progress)
+
+Full history and per-stage Codex review notes live in ROADMAP.md; this is
+the condensed release-note version. See ROADMAP.md's technical debt ledger
+for open shortcuts.
+
+### Added — Stages 1–3: repo skeleton and database foundation
+- Monorepo scaffold (`apps/api`, `apps/web`), Makefile, Docker Compose,
+  `.env.example`.
+- FastAPI app: structured JSON logging with redaction, request-id
+  middleware, the `{error: {code, message, request_id, details}}` envelope,
+  `/health`/`/ready`.
+- `OrgScoped`/`OrgSession` and the `do_orm_execute` guard that fails any
+  select/update/delete against an org-scoped table with no
+  `organization_id` predicate (ADR-0003). Alembic + the initial migration
+  (organizations, users, memberships, sessions, invitations,
+  activity_events, rate_limit_buckets), with the `trinol_migrator`/
+  `trinol_app` two-role split ADR-0006 requires.
+
+### Added — Stages 4–7: auth, sessions, RBAC, activity
+- Firebase Admin token verification behind an `IdentityVerifier` Protocol;
+  `POST /api/v1/auth/session` exchanges a Firebase ID token for an opaque
+  server-side session (ADR-0013). Origin/Referer checked on every unsafe
+  request (login-CSRF).
+- Session lifecycle (`GET`/`DELETE /api/v1/auth/session`,
+  `DELETE /api/v1/auth/sessions`) and double-submit CSRF verification.
+- `Role`/`Permission`/`ROLE_PERMISSIONS` (RBAC.md §2) and a startup audit
+  that fails app boot if any route has neither `require(...)` nor
+  `@public`. The six escalation guards (RBAC.md §5), including a
+  `FOR UPDATE` lock on the organization row for the last-owner check.
+- One append-only `activity_events` table serving both the feed and the
+  audit log (ADR-0006), with `UPDATE`/`DELETE` revoked from the runtime
+  Postgres role.
+
+### Added — Stage 8: invitations
+- Email abstraction (console/memory/SMTP backends, Jinja templates) and
+  `invitation_service.py` (create, list, public token preview). No
+  separate accept endpoint — `POST /auth/session` already completes
+  provisioning.
+- Codex review: fixed a concurrent-duplicate-invitation race (organization
+  row lock), inconsistent expiry handling across two queries, a bare-array
+  list response (now paginated per ADR-0005), and invitations created for
+  already-departed members that could never be consumed.
+
+### Added — Stage 9: team endpoints + generated types
+- `GET`/`GET {id}`/`PATCH /api/v1/memberships`, backed by a
+  `team_service.py` that assembles Membership+User for the team page's
+  fields. `openapi-typescript` generates `apps/web/lib/api/types.gen.ts`,
+  committed and diff-checked in `make check`.
+- Codex review: fixed a non-atomic `PATCH` (role and status each mapped to
+  their own commit — now exactly one of the two per request) and a
+  pagination tie-breaker on the team listing.
+
+### Added — Stage 10: Next.js frontend shell
+- Next.js tooling (tsconfig, ESLint flat config, Tailwind, Vitest), hand-
+  written shadcn-style primitives, the four-state list primitive
+  (ARCHITECTURE.md §5), login page (Firebase JS SDK loaded only there),
+  app shell with the MASTER_PROMPT §7 nav tree, server-rendered dashboard
+  with a live team-count tile, and a client-rendered Team page (MSW-tested
+  against all four states).
+- Codex review: fixed three P1s — the API client called `localhost:8000`
+  directly instead of a same-origin relative path (CORS is disabled by
+  design; this could never have worked in a real browser), Finance
+  navigation was visible to every role instead of ADMIN+/OWNER only
+  (RBAC.md §2), and the app shell had no mobile layout at all. Added a
+  `next.config.mjs` `/api/*` rewrite, server-resolved role passed to the
+  sidebar, and a collapsible mobile nav.

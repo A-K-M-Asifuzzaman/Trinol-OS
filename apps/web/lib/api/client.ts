@@ -23,8 +23,25 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+// ARCHITECTURE.md §1: "Web and API are served from one origin ... That is
+// what makes a SameSite=Lax session cookie work without CORS credentials or
+// a token in JavaScript." CORS is deliberately disabled server-side
+// (SECURITY.md §3), so the browser must never call the API cross-origin —
+// a relative path is same-origin by construction, and next.config.mjs's
+// /api/* rewrite proxies it to FastAPI.
+//
+// Server components have no browser origin to be relative to (Node's fetch
+// requires an absolute URL) and run outside next.config.mjs's rewrite
+// entirely, so they need a real address: INTERNAL_API_URL, a server-only
+// env var (never NEXT_PUBLIC_, so it's never bundled to the client) — the
+// container hostname inside Docker (docker-compose.yml sets it to
+// http://api:8000), or localhost:8000 for host-side `pnpm dev`.
+const INTERNAL_API_URL =
+  process.env.INTERNAL_API_URL ?? "http://localhost:8000";
+
+function resolveUrl(path: string): string {
+  return typeof window === "undefined" ? `${INTERNAL_API_URL}${path}` : path;
+}
 
 // In-memory only, per ARCHITECTURE.md §5/AUTH.md §6 — never persisted, reset
 // on every page load. Set from GET /auth/session's csrf_token field.
@@ -57,7 +74,7 @@ export async function apiFetch<T>(
   if (UNSAFE_METHODS.has(method) && csrfToken)
     headers["X-CSRF-Token"] = csrfToken;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(resolveUrl(path), {
     method,
     headers,
     credentials: "include",

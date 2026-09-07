@@ -1,11 +1,13 @@
 import { http, HttpResponse } from "msw";
 
-// Matches lib/api/client.ts's fallback NEXT_PUBLIC_API_BASE_URL — tests
-// never set that env var, so this is always the base MSW intercepts.
-export const API_BASE_URL = "http://localhost:8000";
+// Same-origin, relative paths — lib/api/client.ts calls the API this way
+// from the browser (ARCHITECTURE.md §1's /api/* rewrite), and
+// vitest.config.ts's jsdom url gives "relative" a concrete origin to
+// resolve against here, same as it resolves in the real app.
+export const APP_ORIGIN = "http://localhost:3000";
 
 export const handlers = [
-  http.get(`${API_BASE_URL}/api/v1/memberships`, () =>
+  http.get(`${APP_ORIGIN}/api/v1/memberships`, () =>
     HttpResponse.json({
       items: [
         {

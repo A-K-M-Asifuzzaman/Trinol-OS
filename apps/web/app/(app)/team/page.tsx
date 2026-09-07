@@ -46,30 +46,32 @@ export default function TeamPage() {
 
 function TeamTable({ members }: { members: Membership[] }) {
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border text-left text-muted-foreground">
-          <th className="py-2 font-medium">Name</th>
-          <th className="py-2 font-medium">Role</th>
-          <th className="py-2 font-medium">Job title</th>
-          <th className="py-2 font-medium">Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {members.map((member) => (
-          <tr key={member.id} className="border-b border-border">
-            <td className="py-2">
-              <div className="font-medium">{member.full_name}</div>
-              <div className="text-muted-foreground">{member.email}</div>
-            </td>
-            <td className="py-2">
-              <Badge>{member.role}</Badge>
-            </td>
-            <td className="py-2">{member.job_title ?? "—"}</td>
-            <td className="py-2">{member.status}</td>
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] text-sm">
+        <thead>
+          <tr className="border-b border-border text-left text-muted-foreground">
+            <th className="py-2 font-medium">Name</th>
+            <th className="py-2 font-medium">Role</th>
+            <th className="py-2 font-medium">Job title</th>
+            <th className="py-2 font-medium">Status</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {members.map((member) => (
+            <tr key={member.id} className="border-b border-border">
+              <td className="py-2">
+                <div className="font-medium">{member.full_name}</div>
+                <div className="text-muted-foreground">{member.email}</div>
+              </td>
+              <td className="py-2">
+                <Badge>{member.role}</Badge>
+              </td>
+              <td className="py-2">{member.job_title ?? "—"}</td>
+              <td className="py-2">{member.status}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

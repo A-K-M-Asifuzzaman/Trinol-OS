@@ -37,6 +37,10 @@ services:
     working_dir: /app
     command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm dev"
     env_file: .env
+    environment:
+      # api's own hostname on this Docker network, not localhost — the web
+      # and api containers don't share a loopback (ARCHITECTURE.md §1).
+      INTERNAL_API_URL: http://api:8000
     volumes:
       - ./apps/web:/app
       - web-node-modules:/app/node_modules
