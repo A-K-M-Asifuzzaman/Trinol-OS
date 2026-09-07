@@ -97,15 +97,117 @@ matrices green in CI.
 - [x] Resolve P0/P1 findings — every finding raised across all 13 stages was resolved and re-verified; none remain open. Codex's final word on Stage 13: "Phase 1 is feature-complete ... there are no remaining Codex P0/P1 blockers."
 
 ## Phase 2 — Projects + Tasks
-- [ ] Projects
-- [ ] Tasks
-- [ ] Kanban
-- [ ] Milestones
-- [ ] Project members
-- [ ] Comments
-- [ ] Activity
-- [ ] Dashboard project widgets
-- [ ] E2E foundation (Playwright)
+
+Status: **Phase 0 (architecture) audit complete, awaiting Codex review.** No product code written yet — see the audit and decisions below.
+
+Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
+can see their own work, drag a task across a Kanban board, and get a 403/404
+exactly where RBAC.md says they should; the dashboard's task/project tiles
+show real counts instead of Stage 10's placeholders.
+
+### Phase 0 audit: what's already specified
+
+Unlike Phase 1, this phase needed no new architecture documents — Phase 0
+(true Phase 0, before any product code existed) already specified the `work`
+module in full, and nothing found in this audit requires changing it:
+
+- **Schema** — [DATABASE.md §3](docs/architecture/DATABASE.md#3-tables) already
+  has complete table definitions for `projects`, `project_members`,
+  `milestones`, `tasks`, `task_comments`, `task_checklist_items`,
+  `task_attachments`: every column, check constraint, index, and the
+  `board_position numeric` fractional-indexing choice for drag-and-drop
+  (already in the technical debt ledger below).
+- **Cross-org integrity** — [DATABASE.md §5.1](docs/architecture/DATABASE.md#51-cross-organization-relationship-integrity)
+  already specifies every person-reference column on these tables
+  (`tasks.assignee_id`, `tasks.created_by`, `projects.owner_id`,
+  `project_members.user_id`, `task_comments.author_id`) as a composite FK to
+  `memberships (organization_id, user_id)`, not `users.id` — the exact pattern
+  Phase 1's identity tables already implement, so nothing new to design, only
+  to apply.
+- **Deletion semantics** — [DATABASE.md §5.2](docs/architecture/DATABASE.md#52-membership-deletion-semantics)'s
+  table already covers `tasks.assignee_id`/`projects.owner_id` (`RESTRICT`)
+  and `project_members.user_id` (`CASCADE`).
+- **Authorization** — [RBAC.md §2](docs/architecture/RBAC.md#2-permission-matrix)
+  already has the role-level matrix rows (view/create/edit projects and
+  tasks); [RBAC.md §3](docs/architecture/RBAC.md#3-enforcement) already
+  specifies the resource-level predicates this phase implements in the
+  service layer: task edit is `MANAGER+` **or** `task.assignee_id == user.id`
+  **or** `task.created_by == user.id`; project detail is `MANAGER+` **or**
+  membership in `project_members`; comment edit/delete is author-only
+  (`ADMIN+` may delete). `core/authz/permissions.py`'s `Permission` enum
+  already has every value this phase needs (`PROJECT_READ`, `TASK_READ`,
+  `TASK_WRITE_OWN`, `TASK_WRITE_ANY`, `PROJECT_WRITE`, `PROJECT_DELETE`) —
+  built in Stage 6, unused until now.
+- **Scope trims** — [ADR-0012](docs/adr/0012-v1-scope-trims.md) already
+  defers a `TaskAssignee` join table (single `assignee_id` only) and stored
+  `progress` (derived on read, per DATABASE.md §3). Not re-litigated.
+- **One genuine gap, not an architecture gap — an unbuilt-infrastructure
+  one**: [ADR-0008](docs/adr/0008-file-storage.md) (`FileStorage` protocol,
+  `file_objects` table) is fully designed but was never built in Phase 1 —
+  `organizations.logo_file_id` was deferred in Stage 1/3 for exactly this
+  reason. Task attachments are the first real consumer, so this phase builds
+  it for the first time, design already settled.
+
+### Decisions made for Phase 2 (implementation-level, not architecture)
+
+1. **Kanban reorder has no dedicated endpoint.** The client already holds the
+   full column when dragging, so it computes the new `board_position` as the
+   midpoint of the two neighbors and sends it as an ordinary field on the
+   existing task-update route — the same pattern Stage 9's `PATCH
+   /api/v1/memberships/{id}` already established (one resource, one PATCH,
+   one guarded service call), not a new "/reorder" route. `ponytail: no
+   server-side collision handling for two simultaneous drags on the same
+   task; add optimistic-lock or a dedicated endpoint if that's ever observed
+   in practice.`
+2. **Activity events use the lowercase dotted style Phase 1 already
+   established** (`task.created`, `task.status_changed`, `task.completed`,
+   `project.created`, `project.status_changed`, `project_member.added`,
+   `comment.created`), not MASTER_PROMPT §21's illustrative
+   `SCREAMING_SNAKE_CASE` — matching `auth.session.created`,
+   `membership.role_changed`, etc. All `is_audit=false` (ADR-0006: audit is
+   for permission-relevant changes; a task moving columns is ordinary
+   business activity, the first real feed content Phase 1 built infrastructure
+   for but never had data to populate).
+3. **Kanban board loads unpaginated; every other list view follows ADR-0005's
+   standard `{items, total}` + `limit`/`offset`.** A single project's task
+   board is bounded by what one team works on at once — nowhere near the
+   ~50k-row threshold the technical debt ledger already sets for switching
+   away from offset pagination. `GET /projects`, `GET /tasks` (cross-project,
+   e.g. "My Work") paginate normally.
+4. **Seed script gets two realistic projects, not MASTER_PROMPT §36's full
+   list.** §36 also asks for 3–5 clients, which is a Phase 3/CRM concept —
+   `projects.client_id` is nullable, so `scripts/seed.py` adds "TrinolIT
+   Website" and an internal-product project (no client yet) with a spread of
+   tasks across every status/priority, enough to exercise the Kanban board
+   and dashboard tiles realistically without inventing CRM data this phase
+   doesn't own. Full richness (client-linked projects, 20+ tasks, leads)
+   completes once Phase 3 exists.
+5. **"My Work" (MASTER_PROMPT §7) goes live this phase**, not later — it's
+   just `GET /tasks?assignee_id=me` with no new backend concept, and Stage
+   10's sidebar already has it as a disabled placeholder waiting for exactly
+   this.
+
+### Checklist (stage numbers assigned once implementation planning is approved)
+
+- [ ] `work` module: `models.py` (Project, ProjectMember, Milestone, Task,
+      TaskComment, TaskChecklistItem, TaskAttachment) + migration
+- [ ] Project CRUD + `project_members` management
+- [ ] Task CRUD, status/priority transitions, milestone linking
+- [ ] Kanban: board-position field, drag reorder (decision 1 above)
+- [ ] Task comments + checklist items
+- [ ] `platform.FileObject` + `FileStorage` protocol (`LocalFileStorage` at minimum; `S3FileStorage` per [ADR-0008](docs/adr/0008-file-storage.md) if time allows) — **new infrastructure, not a reuse**: `file_objects` doesn't exist in any migration yet (`organizations.logo_file_id` was deferred in Stage 1/3 for exactly this reason). Task attachments are its first consumer.
+- [ ] Activity feed events wired for task/project changes (decision 2 above);
+      first real exercise of `platform.activity.list_feed` (built Stage 7,
+      never called by a route until now)
+- [ ] Dashboard tiles: replace Stage 10's "Open tasks"/"Active projects"
+      placeholders with real counts; enable "My Work" nav (decision 5 above)
+- [ ] `scripts/seed.py` extended (decision 4 above)
+- [ ] Security matrices extended: Stage 11's authz-matrix meta-assertion
+      already fails the suite if any new Project/Task route has no row, so
+      this is enforced structurally, not by discipline alone
+- [ ] E2E foundation (Playwright) — first real page with content to click
+      through; TESTING.md §5 already scopes this to main/release-candidate
+      runs, not every PR
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 
@@ -178,6 +280,7 @@ not mean "never".
 | Fixed-window rate limit in Postgres | ADR-0010 | the public endpoint takes real traffic |
 | No persistent email outbox | ADR-0010 | Phase 5 invoice delivery |
 | Fractional board positions | DATABASE.md | precision exhausted; add a rebalance job |
+| Kanban drag reorder has no collision handling for two simultaneous drags on the same task | Phase 2 plan, ROADMAP.md decision 1 | observed in practice; add optimistic locking or a dedicated reorder endpoint |
 | Single activity table | ADR-0006 | ~50M rows; partition by month |
 | Proxied uploads | ADR-0008 | files over ~25 MiB or API host saturates |
 | App-layer org scoping, not RLS | ADR-0003 | V4 multi-tenant SaaS |
