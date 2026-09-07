@@ -98,7 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Phase 0 (architecture) audit approved by Codex.** No product code written yet — see the audit and decisions below. Stage-sequenced implementation planning is next.
+Status: **Implementation plan approved (11 stages).** Stage 1 (`work` module
+schema) is in progress. See the audit and decisions below for the reasoning
+each stage builds on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -235,40 +237,55 @@ module in full, and nothing found in this audit requires changing it:
    matrices explicitly cover both edge cases Codex named: a `MEMBER` who owns
    the project (must pass) and a `MEMBER` who doesn't (must 403).
 
-### Checklist (stage numbers assigned once implementation planning is approved)
+### Checklist (11 implementation stages, per the approved stage plan)
 
-- [ ] `work` module: `models.py` (Project, ProjectMember, Milestone, Task,
-      TaskComment, TaskChecklistItem, TaskAttachment) + migration
-- [ ] Project CRUD + `project_members` management (decision 6 above: route
-      gated on the new `PROJECT_MEMBER_WRITE` permission, MEMBER-tier; service
-      enforces `PROJECT_WRITE` (MANAGER+) OR `project.owner_id == user.id`;
-      `role_on_project` is `LEAD | CONTRIBUTOR`, no permission weight)
-- [ ] Task CRUD, status/priority transitions, milestone linking
-- [ ] Kanban: board-position field, drag reorder (decision 1 above), board
-      endpoint's 500-task cap (decision 3 above)
-- [ ] Task comments + checklist items
-- [ ] `platform.FileObject` + `FileStorage` protocol: **both** `LocalFileStorage` and `S3FileStorage` — ADR-0008 decided both ("one interface, two implementations, no speculative third"), and MASTER_PROMPT §24 requires S3-compatible storage in production specifically; "S3 if time allows" would silently trim an already-accepted requirement, not defer an undecided one. **New infrastructure, not a reuse**: `file_objects` doesn't exist in any migration yet (`organizations.logo_file_id` was deferred in Stage 1/3 for exactly this reason). Task attachments are its first consumer.
-- [ ] Activity feed events wired for task/project changes (decision 2 above);
-      first real exercise of `platform.activity.list_feed` (built Stage 7,
-      never called by a route until now). `project_member.added`/`removed`
-      write `is_audit=true` instead (decision 2 above, RBAC.md §3) — covered
-      by an activity-writer-style test, not the feed test.
-- [ ] `/tasks/my` page + backend support (decision 5 above) — a real route,
-      not a query-param substitute
-- [ ] Dashboard tiles: replace Stage 10's "Open tasks"/"Active projects"
-      placeholders with real counts; enable "My Work" nav
-- [ ] `scripts/seed.py` extended (decision 4 above)
-- [ ] Security matrices extended: Stage 11's authz-matrix meta-assertion
-      already fails the suite if any new Project/Task route has no row, so
-      this is enforced structurally, not by discipline alone. Explicitly
-      includes project-member-management rows (decision 6) covering all four
-      cases: `MANAGER`/`ADMIN`/`OWNER` (allowed via role), a `MEMBER` who owns
-      the project (allowed via ownership — the case a route-only check would
-      have missed), a `MEMBER` who doesn't own it (403), and the isolation-
-      matrix row (org B's member, owner or not, against org A's project — 404).
-- [ ] E2E foundation (Playwright) — first real page with content to click
-      through; TESTING.md §5 already scopes this to main/release-candidate
-      runs, not every PR
+- [ ] Stage 1 — `work` module schema: `models.py` (Project, ProjectMember,
+      Milestone, Task, TaskComment, TaskChecklistItem; `TaskAttachment`
+      deferred to Stage 6 alongside `file_objects`) + migration `0003`;
+      `PROJECT_MEMBER_WRITE` added to `Permission`/`_MEMBER` (decision 6)
+- [ ] Stage 2 — Project CRUD + `project_members` management (decision 6
+      above: route gated on the new `PROJECT_MEMBER_WRITE` permission,
+      MEMBER-tier; service enforces `PROJECT_WRITE` (MANAGER+) OR
+      `project.owner_id == user.id`; `role_on_project` is
+      `LEAD | CONTRIBUTOR`, no permission weight)
+- [ ] Stage 3 — Task CRUD, status/priority transitions, milestone linking
+- [ ] Stage 4 — Kanban: board endpoint (500-task cap, decision 3), drag
+      reorder via the existing task `PATCH` (decision 1)
+- [ ] Stage 5 — Task comments + checklist items
+- [ ] Stage 6 — `platform.FileObject` + `FileStorage` protocol: **both**
+      `LocalFileStorage` and `S3FileStorage` — ADR-0008 decided both ("one
+      interface, two implementations, no speculative third"), and
+      MASTER_PROMPT §24 requires S3-compatible storage in production
+      specifically; "S3 if time allows" would silently trim an
+      already-accepted requirement, not defer an undecided one. **New
+      infrastructure, not a reuse**: `file_objects` doesn't exist in any
+      migration yet (`organizations.logo_file_id` was deferred in Stage 1/3
+      for exactly this reason). `TaskAttachment` + migration `0004` land
+      here, once `file_objects` exists.
+- [ ] Stage 7 — Activity feed events wired for task/project changes
+      (decision 2 above); first real exercise of `platform.activity.
+      list_feed` (built Stage 7 of Phase 1, never called by a route until
+      now). `project_member.added`/`removed` write `is_audit=true` instead
+      (decision 2 above, RBAC.md §3) — covered by an activity-writer-style
+      test, not the feed test.
+- [ ] Stage 8 — Frontend: Projects list/detail, Tasks list/detail, Kanban
+      board (drag-and-drop UI for decision 1), `/tasks/my` page + backend
+      support (decision 5 above — a real route, not a query-param
+      substitute), dashboard tiles replacing Stage 10's "Open tasks"/"Active
+      projects" placeholders with real counts, "My Work" nav enabled
+- [ ] Stage 9 — Security matrices extended: the authz-matrix meta-assertion
+      (Phase 1 Stage 11) already fails the suite if any new Project/Task
+      route has no row, so this is enforced structurally, not by discipline
+      alone. Explicitly includes project-member-management rows (decision 6)
+      covering all four cases: `MANAGER`/`ADMIN`/`OWNER` (allowed via role),
+      a `MEMBER` who owns the project (allowed via ownership — the case a
+      route-only check would have missed), a `MEMBER` who doesn't own it
+      (403), and the isolation-matrix row (org B's member, owner or not,
+      against org A's project — 404).
+- [ ] Stage 10 — `scripts/seed.py` extended (decision 4 above)
+- [ ] Stage 11 — E2E foundation (Playwright) — first real page with content
+      to click through; TESTING.md §5 already scopes this to
+      main/release-candidate runs, not every PR
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 
