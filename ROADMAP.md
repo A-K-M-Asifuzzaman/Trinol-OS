@@ -134,12 +134,15 @@ module in full, and nothing found in this audit requires changing it:
   service layer: task edit is `MANAGER+` **or** `task.assignee_id == user.id`
   **or** `task.created_by == user.id`; project detail is `MANAGER+` **or**
   membership in `project_members`; comment edit/delete is author-only
-  (`ADMIN+` may delete); project-member management is `MANAGER+` **or**
-  `project.owner_id == user.id` (added to RBAC.md §3 as part of this
-  planning pass — decision 6 below). `core/authz/permissions.py`'s `Permission` enum
-  already has every value this phase needs (`PROJECT_READ`, `TASK_READ`,
-  `TASK_WRITE_OWN`, `TASK_WRITE_ANY`, `PROJECT_WRITE`, `PROJECT_DELETE`) —
-  built in Stage 6, unused until now.
+  (`ADMIN+` may delete); project-member management is gated at the route by
+  a new `MEMBER`-tier permission and at the service by `MANAGER+` **or**
+  `project.owner_id == user.id` (revised in RBAC.md §3 as part of this
+  planning pass — decision 6 below). `core/authz/permissions.py`'s `Permission`
+  enum already has every value this phase needs except one: `PROJECT_READ`,
+  `TASK_READ`, `TASK_WRITE_OWN`, `TASK_WRITE_ANY`, `PROJECT_WRITE`,
+  `PROJECT_DELETE` were built in Stage 6 and sit unused until now;
+  `PROJECT_MEMBER_WRITE` is genuinely new, added by this planning pass'
+  Codex round to close the route/service gap decision 6 describes.
 - **Scope trims** — [ADR-0012](docs/adr/0012-v1-scope-trims.md) already
   defers a `TaskAssignee` join table (single `assignee_id` only) and stored
   `progress` (derived on read, per DATABASE.md §3). Not re-litigated.
@@ -207,30 +210,39 @@ module in full, and nothing found in this audit requires changing it:
    someone else's load) stays a real membership id, never a magic string.
    Stage 10's sidebar already has "My Work" as a disabled placeholder waiting
    for exactly this page.
-6. **Project member management is `MANAGER+` or the project's own owner, not
-   a new permission.** Formalized in
-   [RBAC.md §3](docs/architecture/RBAC.md#3-enforcement) (added alongside
+6. **Project member management is `MANAGER+` or the project's own owner —
+   route and service split, not a single check.** Formalized in
+   [RBAC.md §3](docs/architecture/RBAC.md#3-enforcement) (revised alongside
    this planning pass) rather than left to ROADMAP.md alone, since it's a
-   permanent authorization rule, not a one-off implementation note: adding,
-   removing, or changing `role_on_project` requires `PROJECT_WRITE`
-   (`MANAGER+`, the same permission "create/edit projects" already uses — no
-   new `Permission` value) **or** `project.owner_id == user.id`, mirroring
-   task edit's existing "role threshold or resource ownership" shape rather
-   than inventing a different one. `role_on_project` is a closed enum
-   (`LEAD | CONTRIBUTOR`) with **no permission weight of its own** — purely
-   descriptive, so RBAC stays exactly as simple as already designed (one
-   organization `Role` plus this one resource rule); introducing a second,
-   project-scoped authorization dimension isn't asked for anywhere in the
-   spec. Covered in the authz and isolation matrices like every other
-   permission-gated route.
+   permanent authorization rule, not a one-off implementation note. Codex
+   caught that the first version of this decision named only the
+   service-level rule (`MANAGER+` **or** `project.owner_id == user.id`) and
+   missed that `require(...)` runs *before* the service does: `PROJECT_WRITE`
+   is `MANAGER+`-only, so a `MEMBER` who owns a project would be rejected by
+   the route dependency before the service ever got to evaluate the
+   ownership branch — the ownership half of the rule would have been dead
+   code. Fixed the same way the codebase already solved this exact shape for
+   tasks (`TASK_WRITE_OWN` vs `TASK_WRITE_ANY`): **one new `MEMBER`-tier
+   permission**, `PROJECT_MEMBER_WRITE`, gates the route (everyone passes —
+   it only controls *reaching* the service, per RBAC.md §2's new "Manage
+   members of a project you own" row); the service then checks `actor.role`
+   has `PROJECT_WRITE` (`MANAGER+`, §2's "Manage members of any project" —
+   the same permission "create/edit projects" already uses, not a second new
+   one) **or** `project.owner_id == user.id`. `role_on_project` is a closed
+   enum (`LEAD | CONTRIBUTOR`) with **no permission weight of its own** —
+   purely descriptive, so this doesn't introduce a second, project-scoped
+   authorization dimension nothing in the spec asks for. Authz and isolation
+   matrices explicitly cover both edge cases Codex named: a `MEMBER` who owns
+   the project (must pass) and a `MEMBER` who doesn't (must 403).
 
 ### Checklist (stage numbers assigned once implementation planning is approved)
 
 - [ ] `work` module: `models.py` (Project, ProjectMember, Milestone, Task,
       TaskComment, TaskChecklistItem, TaskAttachment) + migration
-- [ ] Project CRUD + `project_members` management (decision 6 above: `MANAGER+`
-      or `project.owner_id == user.id`; `role_on_project` is `LEAD | CONTRIBUTOR`,
-      no permission weight)
+- [ ] Project CRUD + `project_members` management (decision 6 above: route
+      gated on the new `PROJECT_MEMBER_WRITE` permission, MEMBER-tier; service
+      enforces `PROJECT_WRITE` (MANAGER+) OR `project.owner_id == user.id`;
+      `role_on_project` is `LEAD | CONTRIBUTOR`, no permission weight)
 - [ ] Task CRUD, status/priority transitions, milestone linking
 - [ ] Kanban: board-position field, drag reorder (decision 1 above), board
       endpoint's 500-task cap (decision 3 above)
@@ -249,9 +261,11 @@ module in full, and nothing found in this audit requires changing it:
 - [ ] Security matrices extended: Stage 11's authz-matrix meta-assertion
       already fails the suite if any new Project/Task route has no row, so
       this is enforced structurally, not by discipline alone. Explicitly
-      includes project-member-management rows (decision 6) — `MANAGER`/`OWNER`/
-      the project's own `MEMBER`-role owner allowed, everyone else 403 — and
-      the isolation-matrix row for it (org B's member against org A's project).
+      includes project-member-management rows (decision 6) covering all four
+      cases: `MANAGER`/`ADMIN`/`OWNER` (allowed via role), a `MEMBER` who owns
+      the project (allowed via ownership — the case a route-only check would
+      have missed), a `MEMBER` who doesn't own it (403), and the isolation-
+      matrix row (org B's member, owner or not, against org A's project — 404).
 - [ ] E2E foundation (Playwright) — first real page with content to click
       through; TESTING.md §5 already scopes this to main/release-candidate
       runs, not every PR

@@ -34,6 +34,8 @@ test, so a hand-edit to the map cannot quietly break the hierarchy.
 | Edit any task | – | ✓ | ✓ | ✓ |
 | Create/edit projects | – | ✓ | ✓ | ✓ |
 | Delete project | – | – | ✓ | ✓ |
+| Manage members of a project you own | ✓ | ✓ | ✓ | ✓ |
+| Manage members of any project | – | ✓ | ✓ | ✓ |
 | Leads & clients: view | ✓ | ✓ | ✓ | ✓ |
 | Leads & clients: create/edit | – | ✓ | ✓ | ✓ |
 | Convert lead | – | ✓ | ✓ | ✓ |
@@ -71,21 +73,36 @@ check that walks the router table. This is the single most valuable guard in the
 system: it makes "forgot to add authorization" a boot failure instead of a
 vulnerability.
 
-Resource rules live in services, not routes, expressed as small predicates:
+Resource rules live in services, not routes, expressed as small predicates —
+but the route's own `require(...)` still has to admit everyone the resource
+rule could ever approve, or the service never gets the chance to run: a
+`MEMBER` rejected by `require(Permission.TASK_WRITE_ANY)` never reaches the
+service-level check for "is this actually their own task." So every "role
+threshold **or** resource ownership" rule below is really two permissions,
+not one — a `MEMBER`-tier one that only gates *route access*, and a
+`MANAGER+`-tier one the service checks to decide the broader case:
 
-- Task edit: `MANAGER+` **or** `task.assignee_id == user.id` **or**
-  `task.created_by == user.id`.
-- Project detail: `MANAGER+` **or** membership in `project_members`.
+- Task edit — route: `Permission.TASK_WRITE_OWN` (`MEMBER`-tier, everyone
+  passes). Service: `actor.role` has `TASK_WRITE_ANY` (`MANAGER+`) **or**
+  `task.assignee_id == user.id` **or** `task.created_by == user.id`.
+- Project detail — route: `Permission.PROJECT_READ` (`MEMBER`-tier already,
+  no gap here). Service: `MANAGER+` **or** membership in `project_members`.
 - Comment edit/delete: author only (`ADMIN+` may delete).
-- Project member management (add/remove, set `role_on_project`): `MANAGER+`
-  **or** `project.owner_id == user.id` — the same "role threshold or resource
-  ownership" shape as task edit above, not a new mechanism. `role_on_project`
-  (`LEAD | CONTRIBUTOR`) is descriptive only — it carries no permission
-  weight of its own; all authorization here is the organization `Role` plus
-  this rule. Adding or removing a project member changes who can see the
-  project (the "Project detail" rule above depends on `project_members`
-  membership), so per guard 6's principle (§5: "permission-relevant ...
-  change writes an `is_audit` activity event") this always records
+- Project member management (add/remove, set `role_on_project`) — route:
+  `Permission.PROJECT_MEMBER_WRITE` (**new**, `MEMBER`-tier — see RBAC.md §2's
+  "Manage members of a project you own" row). Service: `actor.role` has
+  `PROJECT_WRITE` (`MANAGER+`, §2's "Manage members of any project") **or**
+  `project.owner_id == user.id`. This was found missing on the first pass of
+  this decision: it named the service-level rule but not a route-level
+  permission a `MEMBER` project owner actually holds, so `require(...)` — not
+  the intended predicate — would have rejected them before the service ever
+  ran. `role_on_project` (`LEAD | CONTRIBUTOR`) is descriptive only — it
+  carries no permission weight of its own; all authorization here is the
+  organization `Role` plus this rule. Adding or removing a project member
+  changes who can see the project (the "Project detail" rule above depends
+  on `project_members` membership), so per guard 6's principle (§5:
+  "permission-relevant ... change writes an `is_audit` activity event") this
+  always records
   `is_audit=true`, never a feed event — unlike ordinary task/project/comment
   activity, which is feed content.
 - Meeting edit: creator or `MANAGER+`.
