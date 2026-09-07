@@ -77,6 +77,17 @@ Resource rules live in services, not routes, expressed as small predicates:
   `task.created_by == user.id`.
 - Project detail: `MANAGER+` **or** membership in `project_members`.
 - Comment edit/delete: author only (`ADMIN+` may delete).
+- Project member management (add/remove, set `role_on_project`): `MANAGER+`
+  **or** `project.owner_id == user.id` — the same "role threshold or resource
+  ownership" shape as task edit above, not a new mechanism. `role_on_project`
+  (`LEAD | CONTRIBUTOR`) is descriptive only — it carries no permission
+  weight of its own; all authorization here is the organization `Role` plus
+  this rule. Adding or removing a project member changes who can see the
+  project (the "Project detail" rule above depends on `project_members`
+  membership), so per guard 6's principle (§5: "permission-relevant ...
+  change writes an `is_audit` activity event") this always records
+  `is_audit=true`, never a feed event — unlike ordinary task/project/comment
+  activity, which is feed content.
 - Meeting edit: creator or `MANAGER+`.
 
 ## 4. Not-found over forbidden

@@ -134,7 +134,9 @@ module in full, and nothing found in this audit requires changing it:
   service layer: task edit is `MANAGER+` **or** `task.assignee_id == user.id`
   **or** `task.created_by == user.id`; project detail is `MANAGER+` **or**
   membership in `project_members`; comment edit/delete is author-only
-  (`ADMIN+` may delete). `core/authz/permissions.py`'s `Permission` enum
+  (`ADMIN+` may delete); project-member management is `MANAGER+` **or**
+  `project.owner_id == user.id` (added to RBAC.md §3 as part of this
+  planning pass — decision 6 below). `core/authz/permissions.py`'s `Permission` enum
   already has every value this phase needs (`PROJECT_READ`, `TASK_READ`,
   `TASK_WRITE_OWN`, `TASK_WRITE_ANY`, `PROJECT_WRITE`, `PROJECT_DELETE`) —
   built in Stage 6, unused until now.
@@ -161,19 +163,32 @@ module in full, and nothing found in this audit requires changing it:
    in practice.`
 2. **Activity events use the lowercase dotted style Phase 1 already
    established** (`task.created`, `task.status_changed`, `task.completed`,
-   `project.created`, `project.status_changed`, `project_member.added`,
-   `comment.created`), not MASTER_PROMPT §21's illustrative
-   `SCREAMING_SNAKE_CASE` — matching `auth.session.created`,
-   `membership.role_changed`, etc. All `is_audit=false` (ADR-0006: audit is
-   for permission-relevant changes; a task moving columns is ordinary
-   business activity, the first real feed content Phase 1 built infrastructure
-   for but never had data to populate).
-3. **Kanban board loads unpaginated; every other list view follows ADR-0005's
-   standard `{items, total}` + `limit`/`offset`.** A single project's task
-   board is bounded by what one team works on at once — nowhere near the
-   ~50k-row threshold the technical debt ledger already sets for switching
-   away from offset pagination. `GET /projects`, `GET /tasks` (cross-project,
-   e.g. "My Work") paginate normally.
+   `project.created`, `project.status_changed`, `comment.created`), not
+   MASTER_PROMPT §21's illustrative `SCREAMING_SNAKE_CASE` — matching
+   `auth.session.created`, `membership.role_changed`, etc. These are ordinary
+   business activity, `is_audit=false`, the first real feed content Phase 1
+   built infrastructure for but never had data to populate.
+
+   `project_member.added`/`project_member.removed` are **not** in that list —
+   see [RBAC.md §3](docs/architecture/RBAC.md#3-enforcement)'s new resource
+   rule (added alongside this planning pass): adding or removing a project
+   member changes who can see the project, which is exactly guard 6's
+   "permission-relevant ... change" (RBAC.md §5), so those two always record
+   `is_audit=true` and get covered by an activity-writer-style test, the same
+   pattern `test_activity_writer.py` already established in Stage 7 — not
+   folded into the ordinary feed-event list above.
+3. **Kanban board loads unpaginated but capped, not truly unlimited; every
+   other list view follows ADR-0005's standard `{items, total}` +
+   `limit`/`offset`.** A single project's task board is bounded by what one
+   team works on at once — but "bounded in practice" isn't the same as
+   "bounded by the API," so the board endpoint enforces a hard cap of 500
+   tasks per project in one response (returned unordered-by-page, since a
+   Kanban view can't sensibly paginate mid-column). `ponytail: 500 is a
+   guess, not a measurement; if a real project ever approaches it, that's a
+   virtualized-board or true-pagination problem to solve then, not a
+   hypothetical one now` — logged in the technical debt ledger below.
+   `GET /projects`, `GET /tasks` (cross-project, e.g. "My Work") paginate
+   normally.
 4. **Seed script gets two realistic projects, not MASTER_PROMPT §36's full
    list.** §36 also asks for 3–5 clients, which is a Phase 3/CRM concept —
    `projects.client_id` is nullable, so `scripts/seed.py` adds "TrinolIT
@@ -182,29 +197,61 @@ module in full, and nothing found in this audit requires changing it:
    and dashboard tiles realistically without inventing CRM data this phase
    doesn't own. Full richness (client-linked projects, 20+ tasks, leads)
    completes once Phase 3 exists.
-5. **"My Work" (MASTER_PROMPT §7) goes live this phase**, not later — it's
-   just `GET /tasks?assignee_id=me` with no new backend concept, and Stage
-   10's sidebar already has it as a disabled placeholder waiting for exactly
-   this.
+5. **"My Work" is the real `/tasks/my` frontend route MASTER_PROMPT §9
+   specifies** (`/tasks`, `/tasks/my`, `/tasks/[id]` are page routes, not a
+   query-string variant that replaces one of them), backed by the same
+   backend task-list endpoint the plain `/tasks` page uses. The backend
+   resolves "mine" from the caller's own session (`get_current_membership`),
+   not a client-supplied sentinel like `assignee_id=me` — the endpoint's
+   general `assignee_id` filter (useful on its own, e.g. a manager reviewing
+   someone else's load) stays a real membership id, never a magic string.
+   Stage 10's sidebar already has "My Work" as a disabled placeholder waiting
+   for exactly this page.
+6. **Project member management is `MANAGER+` or the project's own owner, not
+   a new permission.** Formalized in
+   [RBAC.md §3](docs/architecture/RBAC.md#3-enforcement) (added alongside
+   this planning pass) rather than left to ROADMAP.md alone, since it's a
+   permanent authorization rule, not a one-off implementation note: adding,
+   removing, or changing `role_on_project` requires `PROJECT_WRITE`
+   (`MANAGER+`, the same permission "create/edit projects" already uses — no
+   new `Permission` value) **or** `project.owner_id == user.id`, mirroring
+   task edit's existing "role threshold or resource ownership" shape rather
+   than inventing a different one. `role_on_project` is a closed enum
+   (`LEAD | CONTRIBUTOR`) with **no permission weight of its own** — purely
+   descriptive, so RBAC stays exactly as simple as already designed (one
+   organization `Role` plus this one resource rule); introducing a second,
+   project-scoped authorization dimension isn't asked for anywhere in the
+   spec. Covered in the authz and isolation matrices like every other
+   permission-gated route.
 
 ### Checklist (stage numbers assigned once implementation planning is approved)
 
 - [ ] `work` module: `models.py` (Project, ProjectMember, Milestone, Task,
       TaskComment, TaskChecklistItem, TaskAttachment) + migration
-- [ ] Project CRUD + `project_members` management
+- [ ] Project CRUD + `project_members` management (decision 6 above: `MANAGER+`
+      or `project.owner_id == user.id`; `role_on_project` is `LEAD | CONTRIBUTOR`,
+      no permission weight)
 - [ ] Task CRUD, status/priority transitions, milestone linking
-- [ ] Kanban: board-position field, drag reorder (decision 1 above)
+- [ ] Kanban: board-position field, drag reorder (decision 1 above), board
+      endpoint's 500-task cap (decision 3 above)
 - [ ] Task comments + checklist items
-- [ ] `platform.FileObject` + `FileStorage` protocol (`LocalFileStorage` at minimum; `S3FileStorage` per [ADR-0008](docs/adr/0008-file-storage.md) if time allows) — **new infrastructure, not a reuse**: `file_objects` doesn't exist in any migration yet (`organizations.logo_file_id` was deferred in Stage 1/3 for exactly this reason). Task attachments are its first consumer.
+- [ ] `platform.FileObject` + `FileStorage` protocol: **both** `LocalFileStorage` and `S3FileStorage` — ADR-0008 decided both ("one interface, two implementations, no speculative third"), and MASTER_PROMPT §24 requires S3-compatible storage in production specifically; "S3 if time allows" would silently trim an already-accepted requirement, not defer an undecided one. **New infrastructure, not a reuse**: `file_objects` doesn't exist in any migration yet (`organizations.logo_file_id` was deferred in Stage 1/3 for exactly this reason). Task attachments are its first consumer.
 - [ ] Activity feed events wired for task/project changes (decision 2 above);
       first real exercise of `platform.activity.list_feed` (built Stage 7,
-      never called by a route until now)
+      never called by a route until now). `project_member.added`/`removed`
+      write `is_audit=true` instead (decision 2 above, RBAC.md §3) — covered
+      by an activity-writer-style test, not the feed test.
+- [ ] `/tasks/my` page + backend support (decision 5 above) — a real route,
+      not a query-param substitute
 - [ ] Dashboard tiles: replace Stage 10's "Open tasks"/"Active projects"
-      placeholders with real counts; enable "My Work" nav (decision 5 above)
+      placeholders with real counts; enable "My Work" nav
 - [ ] `scripts/seed.py` extended (decision 4 above)
 - [ ] Security matrices extended: Stage 11's authz-matrix meta-assertion
       already fails the suite if any new Project/Task route has no row, so
-      this is enforced structurally, not by discipline alone
+      this is enforced structurally, not by discipline alone. Explicitly
+      includes project-member-management rows (decision 6) — `MANAGER`/`OWNER`/
+      the project's own `MEMBER`-role owner allowed, everyone else 403 — and
+      the isolation-matrix row for it (org B's member against org A's project).
 - [ ] E2E foundation (Playwright) — first real page with content to click
       through; TESTING.md §5 already scopes this to main/release-candidate
       runs, not every PR
@@ -281,6 +328,7 @@ not mean "never".
 | No persistent email outbox | ADR-0010 | Phase 5 invoice delivery |
 | Fractional board positions | DATABASE.md | precision exhausted; add a rebalance job |
 | Kanban drag reorder has no collision handling for two simultaneous drags on the same task | Phase 2 plan, ROADMAP.md decision 1 | observed in practice; add optimistic locking or a dedicated reorder endpoint |
+| Kanban board endpoint caps at 500 tasks per project, unpaginated, in one response — a guessed ceiling, not a measured one | Phase 2 plan, ROADMAP.md decision 3 | a real project approaches the cap; add a virtualized board or true pagination |
 | Single activity table | ADR-0006 | ~50M rows; partition by month |
 | Proxied uploads | ADR-0008 | files over ~25 MiB or API host saturates |
 | App-layer org scoping, not RLS | ADR-0003 | V4 multi-tenant SaaS |
