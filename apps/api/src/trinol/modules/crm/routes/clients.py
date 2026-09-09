@@ -28,7 +28,7 @@ from trinol.modules.identity.models import Membership
 router = APIRouter(prefix="/api/v1/clients", tags=["crm"])
 
 
-def _client_to_response(client: Client) -> ClientResponse:
+def client_to_response(client: Client) -> ClientResponse:
     return ClientResponse(
         id=client.id,
         name=client.name,
@@ -71,7 +71,7 @@ async def create_client_route(
         status=payload.status,
         owner_id=payload.owner_id,
     )
-    return _client_to_response(client)
+    return client_to_response(client)
 
 
 @router.get(
@@ -87,7 +87,7 @@ async def list_clients_route(
         db, organization_id=membership.organization_id, actor=membership, limit=limit, offset=offset
     )
     return ClientListResponse(
-        items=[_client_to_response(c) for c in result.items], total=result.total
+        items=[client_to_response(c) for c in result.items], total=result.total
     )
 
 
@@ -104,7 +104,7 @@ async def get_client_route(
     client = await get_client(
         db, organization_id=membership.organization_id, actor=membership, client_id=client_id
     )
-    return _client_to_response(client)
+    return client_to_response(client)
 
 
 @router.patch(
@@ -126,7 +126,7 @@ async def update_client_route(
         client_id=client_id,
         updates=updates,
     )
-    return _client_to_response(client)
+    return client_to_response(client)
 
 
 @router.delete(
@@ -142,4 +142,4 @@ async def archive_client_route(
     client = await archive_client(
         db, organization_id=membership.organization_id, actor=membership, client_id=client_id
     )
-    return _client_to_response(client)
+    return client_to_response(client)

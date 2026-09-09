@@ -9,6 +9,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, Field, WithJsonSchema, model_validator
 
+from trinol.modules.crm.schemas import ClientResponse, LeadResponse
 from trinol.modules.work.models import (
     ProjectHealth,
     ProjectStatus,
@@ -173,6 +174,7 @@ class ProjectResponse(BaseModel):
     project_code: str
     name: str
     description: str | None
+    client_id: uuid.UUID | None
     status: ProjectStatus
     health: ProjectHealth
     owner_id: uuid.UUID
@@ -194,6 +196,15 @@ class ProjectListResponse(BaseModel):
 
     items: list[ProjectResponse]
     total: int
+
+
+class LeadConversionResponse(BaseModel):
+    """work may import crm (ARCHITECTURE.md §3), so the cross-module
+    conversion response lives here rather than in crm/schemas.py."""
+
+    lead: LeadResponse
+    client: ClientResponse
+    project: ProjectResponse
 
 
 class ProjectMemberAddRequest(BaseModel):

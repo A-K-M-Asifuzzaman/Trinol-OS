@@ -493,6 +493,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/leads/{lead_id}/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Convert Lead Route */
+        post: operations["convert_lead_route_api_v1_leads__lead_id__convert_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -737,6 +754,16 @@ export interface components {
             expires_at: string;
             /** Accepted At */
             accepted_at: string | null;
+        };
+        /**
+         * LeadConversionResponse
+         * @description work may import crm (ARCHITECTURE.md §3), so the cross-module
+         *     conversion response lives here rather than in crm/schemas.py.
+         */
+        LeadConversionResponse: {
+            lead: components["schemas"]["LeadResponse"];
+            client: components["schemas"]["ClientResponse"];
+            project: components["schemas"]["ProjectResponse"];
         };
         /** LeadCreateRequest */
         LeadCreateRequest: {
@@ -1120,6 +1147,8 @@ export interface components {
             name: string;
             /** Description */
             description: string | null;
+            /** Client Id */
+            client_id: string | null;
             status: components["schemas"]["ProjectStatus"];
             health: components["schemas"]["ProjectHealth"];
             /**
@@ -3146,6 +3175,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PipelineBoardResponse"];
+                };
+            };
+        };
+    };
+    convert_lead_route_api_v1_leads__lead_id__convert_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadConversionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

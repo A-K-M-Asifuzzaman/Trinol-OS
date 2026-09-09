@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-4 complete.**
-Stage 5 (Lead conversion) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-5 complete.**
+Stage 6 (Public contact endpoint) is next.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1305,6 +1305,89 @@ checks; dashboard sales tiles show real counts.
 
       614 tests passing (was 600). `make openapi` regenerated for the
       new pipeline operation. `make check` green end to end.
+- [x] Stage 5 — Lead conversion (the one genuinely cross-module stage).
+
+      **A real error in this plan's own Stage 5 text, caught before writing
+      any code, not after.** The plan said the new route "lives in `crm`
+      ... delegates entirely to `work.services.lead_conversion_service.
+      convert_lead`" — but re-reading ARCHITECTURE.md §3 directly (rather
+      than trusting the plan's own paraphrase of it, the same discipline
+      Stage 3's self-contradiction taught) shows the rule is one-way: "`crm`
+      must not import from `work`", `work → crm` is the one explicitly
+      allowed direction. A route *file* living in `modules/crm/routes/`
+      that imports a `work` service function would itself be a `crm →
+      work` import — exactly the violation the rule forbids. So the route
+      is NOT in `crm`: `modules/work/routes/lead_conversion.py` owns `POST
+      /api/v1/leads/{lead_id}/convert` (the URL is leads-shaped; the
+      owning module isn't — nothing requires the two to match), registered
+      in `main.py` alongside `work`'s other routers. `modules/work/
+      services/lead_conversion_service.py` imports `Lead`/`Client` and
+      `lead_service.change_lead_stage`/`ensure_actor_in_org`/
+      `get_lead_in_org` from `crm` — the one direction the rule allows —
+      and builds the `Client`+`Project` rows directly (not by calling
+      `create_client`/`create_project`, which each commit their own
+      transaction — Stage 5's proof requires one transaction for
+      everything, so only their row-construction shape is reused, not the
+      self-committing functions themselves). `LeadConversionResponse`
+      (`{lead, client, project}`) lives in `work/schemas.py` for the same
+      reason, importing `crm.schemas.LeadResponse`/`ClientResponse`.
+
+      No project_code generator exists anywhere in the codebase to "reuse"
+      (`create_project` takes a client-supplied code, confirmed directly —
+      the plan's assumption that one existed was wrong too) — added a
+      small `_project_code_from_lead` (name slug + random suffix) local to
+      the new service, `ponytail:`-flagged: a real collision surfaces as a
+      409 rather than a retry loop, upgrade if it ever actually fires.
+
+      Hit the exact `org_session.py` guard trap Phase 2 hit twice, this
+      time via a new path: the lead is *updated* (not inserted) in this
+      transaction, so its `updated_at` (`server_onupdate=FetchedValue()`)
+      comes back expired after commit, and a bare lazy-reload on next
+      access has no `organization_id` predicate. `update_lead` already
+      works around this by re-fetching org-scoped after its own commit —
+      applied the identical fix here for `lead` only; `client`/`project`
+      are fresh inserts whose defaults were already captured via
+      `RETURNING` at flush time, so they don't need it.
+
+      Caught two more naming-convention slips before they shipped, same
+      class of fix as Stage 4's `lead_to_response` rename: `routes/
+      clients.py`'s `_client_to_response` and `routes/projects.py`'s
+      `_project_to_response` both needed to lose their leading underscore
+      once `lead_conversion.py` needed to import them to build the
+      combined response — renamed both (6 and 5 call sites respectively).
+      Also extended `ProjectResponse`/`project_to_response` with
+      `client_id` (present on the model since Stage 1, never surfaced
+      until now).
+
+      `convert_lead`: loads the lead (404 cross-org/missing via the
+      existing `get_lead_in_org`), 409s if already archived or already
+      converted, creates the `Client` (`owner_id = actor` — the lead's own
+      `assigned_to` may be unset) and `Project` (`client_id` set,
+      `owner_id = actor`, added as a `project_members` LEAD row, mirroring
+      `create_project`'s own invariant), stamps `converted_client_id`/
+      `converted_at`, transitions `stage` to `WON` via the same
+      `change_lead_stage` helper from Stage 3 — unconditionally, even if
+      the lead happened to already be at `WON`, since conversion is itself
+      a significant event worth recording, not a no-op to skip — and
+      records `client.created`/`project.created` (ordinary feed) plus
+      `lead.converted` (`is_audit=true`, MASTER_PROMPT §28), all in the one
+      transaction the Proof section requires.
+
+      Added the new route's authz-matrix row (`LEAD_CONVERT`, the existing
+      `{lead_id}` resolution branch already covers it generically — no new
+      branch needed). `tests/integration/test_lead_conversion.py`: a
+      single conversion creates exactly one `Client`/`Project` with
+      `project.client_id` correctly set, stamps the lead's conversion
+      fields, writes exactly one `lead_stage_events` row and all three
+      activity rows with correct `is_audit` flags; MEMBER 403s; a second
+      conversion attempt and converting an archived lead both 409; cross-
+      org 404.
+
+      624 tests passing (was 614). `make openapi` regenerated for the new
+      convert operation and `ProjectResponse.client_id`. `make check`
+      green end to end. A `grep -rL "from trinol.modules.work"
+      apps/api/src/trinol/modules/crm` confirms `crm` still never imports
+      `work`, even after this stage.
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings

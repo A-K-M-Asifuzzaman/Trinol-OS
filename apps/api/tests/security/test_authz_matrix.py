@@ -254,6 +254,12 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # Phase 3 Stage 4: pipeline is org-wide with no parent resource, so no
     # placeholder to resolve — same LEAD_READ role-threshold-only shape.
     ("GET", "/api/v1/pipeline", Permission.LEAD_READ, None),
+    # Phase 3 Stage 5: the route lives in modules/work/routes/lead_
+    # conversion.py (ARCHITECTURE.md §3 — crm must not import work, so the
+    # one cross-module write lives in work), but LEAD_CONVERT is still the
+    # RBAC-facing permission and the {lead_id} resolution branch above
+    # already covers this row generically.
+    ("POST", "/api/v1/leads/{lead_id}/convert", Permission.LEAD_CONVERT, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

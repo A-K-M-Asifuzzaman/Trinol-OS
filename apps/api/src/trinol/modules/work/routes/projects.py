@@ -46,12 +46,13 @@ from trinol.modules.work.services.project_service import (
 router = APIRouter(prefix="/api/v1/projects", tags=["work"])
 
 
-def _project_to_response(project: Project) -> ProjectResponse:
+def project_to_response(project: Project) -> ProjectResponse:
     return ProjectResponse(
         id=project.id,
         project_code=project.project_code,
         name=project.name,
         description=project.description,
+        client_id=project.client_id,
         status=project.status,
         health=project.health,
         owner_id=project.owner_id,
@@ -107,7 +108,7 @@ async def create_project_route(
         production_url=payload.production_url,
         staging_url=payload.staging_url,
     )
-    return _project_to_response(project)
+    return project_to_response(project)
 
 
 @router.get(
@@ -123,7 +124,7 @@ async def list_projects_route(
         db, organization_id=membership.organization_id, actor=membership, limit=limit, offset=offset
     )
     return ProjectListResponse(
-        items=[_project_to_response(p) for p in result.items], total=result.total
+        items=[project_to_response(p) for p in result.items], total=result.total
     )
 
 
@@ -140,7 +141,7 @@ async def get_project_route(
     project = await get_project(
         db, organization_id=membership.organization_id, actor=membership, project_id=project_id
     )
-    return _project_to_response(project)
+    return project_to_response(project)
 
 
 @router.patch(
@@ -162,7 +163,7 @@ async def update_project_route(
         project_id=project_id,
         updates=updates,
     )
-    return _project_to_response(project)
+    return project_to_response(project)
 
 
 @router.delete(
@@ -178,7 +179,7 @@ async def archive_project_route(
     project = await archive_project(
         db, organization_id=membership.organization_id, actor=membership, project_id=project_id
     )
-    return _project_to_response(project)
+    return project_to_response(project)
 
 
 @router.post(
