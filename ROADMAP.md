@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-9 complete.**
-Stage 10 (Seed script extended) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-10 complete.**
+Stage 11 (E2E extension) is next — the final stage of this phase.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1840,6 +1840,80 @@ checks; dashboard sales tiles show real counts.
 
       671 tests passing (was 647). `make check` green end to end (no
       OpenAPI diff — test-only change).
+- [x] Stage 10 — Seed script extended. `scripts/seed.py`: `_get_or_create_
+      client`/`_get_or_create_lead`, matched on natural keys (client name,
+      lead email) — no `ON CONFLICT` SQL, matching every existing helper.
+      4 clients (MASTER_PROMPT §36's "3-5") and 10 leads ("10+"), spread
+      across all 7 `LeadSource` values and all 7 `LeadStage` values (not
+      just "at least one of each" by accident — verified directly by
+      querying `distinct source`/`distinct stage` after a real `make seed`
+      run). One `WON` lead (Farah Nasser) carries a real
+      `converted_client_id`; one `LOST` lead (Grace Liu) carries a real
+      `lost_reason`. `_SeedProject` gained an optional `client_name`
+      field; `_get_or_create_project` now backfills `client_id` on an
+      already-existing project (idempotent — only ever sets an unset
+      link, never overwrites one) so the one Phase 2 project seeded
+      before clients existed still ends up linked. "TrinolIT Website" is
+      linked to "Acme Corp" — the same client Farah Nasser's WON lead
+      converts to, a deliberately coherent story rather than three
+      unrelated facts.
+
+      **A real gap this stage's own plan text didn't anticipate, found by
+      actually running the new code against `test_seed_idempotent.py`
+      before assuming it would pass:** that file's `_isolated_seed`
+      fixture monkeypatches `_SEED_USERS`/`_SEED_PROJECTS` to uniquely-
+      suffixed shadow data so its tests can run `seed_module.seed()` for
+      real without ever colliding with a developer's own already-seeded
+      `trinolit` org — but it had no equivalent for the two new tables.
+      Running the suite immediately surfaced a `KeyError` (the new client/
+      lead loops looked up owners by the *unsuffixed* real email, which
+      the isolated user list no longer contained) — confirmed empirically,
+      not just reasoned about. Extended `_isolated_seed` to also produce
+      suffixed shadow `_SEED_CLIENTS`/`_SEED_LEADS` (translating every
+      `owner_email`/`assigned_to_email`/`converted_client_name` through
+      the same translation tables the existing project-shadowing already
+      built), and extended `_SeedSnapshot`/`_snapshot`/
+      `_cleanup_rows_created_since` to track and clean up clients and
+      leads the identical per-entity, existed-before-this-run way every
+      other entity already works. FK order matters here in a way it
+      didn't before: leads and projects (both may reference a client) are
+      now deleted before clients, and clients (which reference a
+      membership via `owner_id`) before memberships — the same class of
+      ordering bug this file's own history already document for
+      projects/memberships, now extended to the two new entities.
+      Verified empirically: reran the extended idempotency tests five
+      times back to back and confirmed real row counts (queried directly
+      via `asyncpg`, not just the test's own assertions) were bit-for-bit
+      identical before and after.
+
+      **A real, unrelated finding surfaced while doing that verification,
+      fixed here rather than left for a later stage to stumble on:**
+      Stage 8's manual Playwright walkthrough had left real rows behind
+      in this same local dev database — leads/clients/projects named
+      "Playwright Lead ...", "Drag Check ...", "Kanban Check ..." — never
+      cleaned up after that session's browser-based verification. Found
+      by comparing an actual `make seed` run's row counts against what
+      Stage 10's own seed data should produce and noticing a mismatch,
+      not by inspection alone. Removed those specific rows (matched by
+      exact name, in FK-safe order: `activity_events` via the migrator
+      role first, since `trinol_app` has no delete grant there, then
+      `lead_stage_events`/`tasks`/`project_members`, then `projects`/
+      `leads`, then `clients`) — confirmed via direct query that the
+      `trinolit` org's data now exactly matches what this stage's own
+      seed script produces, nothing extra, nothing missing.
+
+      Manually verified against the real dev database, not just the test
+      suite: ran `make seed` twice — row counts (clients/leads/projects/
+      tasks/memberships/project_members) identical after the second run;
+      queried `distinct source`/`distinct stage` directly, confirming all
+      7 values of each are present; confirmed the WON lead's
+      `converted_client_id` and the linked project's `client_id` both
+      resolve to the same "Acme Corp" client row.
+
+      671 tests passing (unchanged — this stage extends existing seed-
+      idempotency tests rather than adding new ones to the count). `make
+      check` green end to end (no OpenAPI diff — no route/schema changes
+      this stage).
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import trinol.scripts.seed as seed_module
 from trinol.core.db.engine import get_session_factory
 from trinol.core.ids import uuid7
+from trinol.modules.crm.models import Client, Lead
 from trinol.modules.identity.models import (
     AuthProvider,
     Membership,
@@ -59,9 +60,10 @@ from trinol.modules.work.models import Project, ProjectMember, Task
 @pytest.fixture
 def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every seed()-derived identifier this file's tests touch is unique to
-    this test run: the org slug, every seed user's email, and every project
-    code — so a real, already-seeded "trinolit" org in the same database
-    (from a developer's own `make seed`) can never collide with it."""
+    this test run: the org slug, every seed user's email, every project
+    code, every client's name, and every lead's email — so a real,
+    already-seeded "trinolit" org in the same database (from a developer's
+    own `make seed`) can never collide with it."""
     suffix = uuid.uuid4().hex[:8]
     users = tuple(
         seed_module._SeedUser(
@@ -74,12 +76,29 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
     email_for = {
         old.email: new.email for old, new in zip(seed_module._SEED_USERS, users, strict=True)
     }
+    clients = tuple(
+        seed_module._SeedClient(
+            name=f"{client.name} {suffix}",
+            company=client.company,
+            email=client.email,
+            phone=client.phone,
+            owner_email=email_for[client.owner_email],
+            status=client.status,
+        )
+        for client in seed_module._SEED_CLIENTS
+    )
+    client_name_for = {
+        old.name: new.name for old, new in zip(seed_module._SEED_CLIENTS, clients, strict=True)
+    }
     projects = tuple(
         seed_module._SeedProject(
             project_code=f"{project.project_code}-{suffix}",
             name=project.name,
             owner_email=email_for[project.owner_email],
             member_emails=tuple(email_for[email] for email in project.member_emails),
+            client_name=(
+                client_name_for[project.client_name] if project.client_name is not None else None
+            ),
             tasks=tuple(
                 seed_module._SeedTask(
                     title=task.title,
@@ -92,10 +111,32 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         for project in seed_module._SEED_PROJECTS
     )
+    leads = tuple(
+        seed_module._SeedLead(
+            name=lead.name,
+            email=f"seed-test-{suffix}-{lead.email}",
+            phone=lead.phone,
+            source=lead.source,
+            stage=lead.stage,
+            assigned_to_email=email_for[lead.assigned_to_email],
+            estimated_value=lead.estimated_value,
+            next_follow_up=lead.next_follow_up,
+            notes=lead.notes,
+            lost_reason=lead.lost_reason,
+            converted_client_name=(
+                client_name_for[lead.converted_client_name]
+                if lead.converted_client_name is not None
+                else None
+            ),
+        )
+        for lead in seed_module._SEED_LEADS
+    )
 
     monkeypatch.setattr(seed_module, "_ORG_SLUG", f"trinolit-seed-test-{suffix}")
     monkeypatch.setattr(seed_module, "_SEED_USERS", users)
+    monkeypatch.setattr(seed_module, "_SEED_CLIENTS", clients)
     monkeypatch.setattr(seed_module, "_SEED_PROJECTS", projects)
+    monkeypatch.setattr(seed_module, "_SEED_LEADS", leads)
 
 
 @dataclass
@@ -106,6 +147,8 @@ class _SeedSnapshot:
     project_existed: dict[str, bool] = field(default_factory=dict)
     project_member_existed: dict[tuple[str, str], bool] = field(default_factory=dict)
     task_existed: dict[tuple[str, str], bool] = field(default_factory=dict)
+    client_existed: dict[str, bool] = field(default_factory=dict)
+    lead_existed: dict[str, bool] = field(default_factory=dict)
 
 
 async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
@@ -186,6 +229,33 @@ async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
             ).scalar_one_or_none()
             task_existed[key] = task is not None
 
+    client_existed: dict[str, bool] = {}
+    for client_entry in seed_module._SEED_CLIENTS:
+        client = None
+        if organization is not None:
+            client = (
+                await db.execute(
+                    select(Client).where(
+                        Client.organization_id == organization.id,
+                        Client.name == client_entry.name,
+                    )
+                )
+            ).scalar_one_or_none()
+        client_existed[client_entry.name] = client is not None
+
+    lead_existed: dict[str, bool] = {}
+    for lead_entry in seed_module._SEED_LEADS:
+        lead = None
+        if organization is not None:
+            lead = (
+                await db.execute(
+                    select(Lead).where(
+                        Lead.organization_id == organization.id, Lead.email == lead_entry.email
+                    )
+                )
+            ).scalar_one_or_none()
+        lead_existed[lead_entry.email] = lead is not None
+
     return _SeedSnapshot(
         organization_existed=organization is not None,
         user_existed=user_existed,
@@ -193,17 +263,24 @@ async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
         project_existed=project_existed,
         project_member_existed=project_member_existed,
         task_existed=task_existed,
+        client_existed=client_existed,
+        lead_existed=lead_existed,
     )
 
 
 async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot) -> None:
     """Removes only what didn't exist in `snapshot` — a pre-existing
-    organization, user, membership, project, project member, or task is
-    never touched, regardless of what else this run of seed() created
-    alongside it. Tasks and project members are removed before their
-    project (FK dependency order), and projects before the memberships
-    their owner_id references (`fk_projects_org_owner_memberships`) — the
-    exact constraint a naive org-then-membership-only cleanup violates."""
+    organization, user, membership, project, project member, task, client,
+    or lead is never touched, regardless of what else this run of seed()
+    created alongside it. Tasks and project members are removed before
+    their project (FK dependency order), and projects before the
+    memberships their owner_id references
+    (`fk_projects_org_owner_memberships`) — the exact constraint a naive
+    org-then-membership-only cleanup violates. Leads and projects (which
+    may reference a client via `converted_client_id`/`client_id`) are
+    removed before clients, and clients before memberships (`clients.
+    owner_id` references one) — the same class of ordering bug Stage 10
+    would otherwise reintroduce for the two new entities."""
     organization = (
         await db.execute(select(Organization).where(Organization.slug == seed_module._ORG_SLUG))
     ).scalar_one_or_none()
@@ -255,6 +332,24 @@ async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot)
                         Project.organization_id == organization.id, Project.id == project.id
                     )
                 )
+
+        for lead_entry in seed_module._SEED_LEADS:
+            if snapshot.lead_existed.get(lead_entry.email):
+                continue
+            await db.execute(
+                delete(Lead).where(
+                    Lead.organization_id == organization.id, Lead.email == lead_entry.email
+                )
+            )
+
+        for client_entry in seed_module._SEED_CLIENTS:
+            if snapshot.client_existed.get(client_entry.name):
+                continue
+            await db.execute(
+                delete(Client).where(
+                    Client.organization_id == organization.id, Client.name == client_entry.name
+                )
+            )
 
         for entry in seed_module._SEED_USERS:
             if snapshot.membership_existed.get(entry.email):
@@ -344,6 +439,34 @@ async def test_seed_is_idempotent(_isolated_seed: None) -> None:
                 assert {task.title for task in tasks} == {
                     task_entry.title for task_entry in project_entry.tasks
                 }
+                if project_entry.client_name is not None:
+                    assert project.client_id is not None, (
+                        f"{project_entry.project_code}: re-running must keep its client link"
+                    )
+
+            client_result = await db.execute(
+                select(Client).where(Client.organization_id == organization.id)
+            )
+            clients_by_name = {client.name: client for client in client_result.scalars()}
+            assert set(clients_by_name) == {entry.name for entry in seed_module._SEED_CLIENTS}, (
+                "re-running must not duplicate or lose a client"
+            )
+
+            lead_result = await db.execute(
+                select(Lead).where(Lead.organization_id == organization.id)
+            )
+            leads_by_email = {lead.email: lead for lead in lead_result.scalars()}
+            assert set(leads_by_email) == {entry.email for entry in seed_module._SEED_LEADS}, (
+                "re-running must not duplicate or lose a lead"
+            )
+            for lead_entry in seed_module._SEED_LEADS:
+                if lead_entry.converted_client_name is None:
+                    continue
+                lead = leads_by_email[lead_entry.email]
+                expected_client = clients_by_name[lead_entry.converted_client_name]
+                assert lead.converted_client_id == expected_client.id, (
+                    f"{lead_entry.email}: re-running must keep its converted_client_id"
+                )
     finally:
         async with session_factory() as db:
             await _cleanup_rows_created_since(db, snapshot)
