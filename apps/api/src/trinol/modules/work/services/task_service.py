@@ -20,6 +20,7 @@ from trinol.modules.work.services.project_service import (
     get_active_membership_by_user,
     get_project_in_org,
 )
+from trinol.platform.activity import record
 
 _MANAGER_UP = (Role.MANAGER, Role.ADMIN, Role.OWNER)
 
@@ -236,10 +237,24 @@ async def delete_task(
     db: AsyncSession, *, organization_id: uuid.UUID, actor: Membership, task_id: uuid.UUID
 ) -> None:
     """ADR-0011: tasks are hard-deleted, cascading to comments/checklist
-    items (Stage 1's CASCADE FKs)."""
+    items (Stage 1's CASCADE FKs). "The audit event keeps the record of
+    who did it and when" — the row is gone after this, so the event is the
+    only remaining record; it must be written in the same transaction, not
+    deferred to Stage 7's ordinary feed-event wiring."""
     ensure_actor_in_org(actor, organization_id)
     task = await get_task_in_org(db, organization_id=organization_id, task_id=task_id)
     if not can_write_task(actor, task):
         raise ForbiddenError("Insufficient permission to delete this task")
+    task_id_for_event = task.id
+    await record(
+        db,
+        organization_id=organization_id,
+        event="task.deleted",
+        entity_type="task",
+        entity_id=task_id_for_event,
+        actor_id=actor.user_id,
+        metadata={"title": task.title},
+        audit=True,
+    )
     await db.delete(task)
     await db.commit()

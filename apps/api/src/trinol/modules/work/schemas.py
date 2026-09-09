@@ -242,9 +242,12 @@ class TaskUpdateRequest(BaseModel):
     (routes/tasks.py uses `model_dump(exclude_unset=True)`). `created_by`
     is absent — authorship is set at creation only, never reassignable."""
 
-    project_id: Annotated[
-        uuid.UUID | None, WithJsonSchema({"type": "string", "format": "uuid"}, mode="validation")
-    ] = None
+    # No WithJsonSchema override here, unlike title/status/priority below:
+    # this field genuinely accepts an explicit null (unprojecting a task,
+    # like assignee_id/milestone_id) — it isn't in
+    # _required_fields_not_null's rejection list, so hiding "null" from the
+    # generated schema would misdocument what the API actually accepts.
+    project_id: uuid.UUID | None = None
     title: Annotated[
         str | None,
         WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 300}, mode="validation"),

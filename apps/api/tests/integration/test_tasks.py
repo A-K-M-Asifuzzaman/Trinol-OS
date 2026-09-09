@@ -13,6 +13,7 @@ from tests.factories import (
 )
 from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import Role
+from trinol.platform.activity import list_audit
 
 pytestmark = pytest.mark.usefixtures("db_session")
 
@@ -302,6 +303,58 @@ async def test_delete_task_removes_it(client: AsyncClient, fake_verifier, db_ses
 
     get_response = await client.get(f"/api/v1/tasks/{task_id}")
     assert get_response.status_code == 404
+
+
+async def test_delete_task_records_an_audit_event(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    """ADR-0011: "Deleting a task... really deletes it. The audit event
+    keeps the record of who did it and when" — the row is gone afterward,
+    so this is the only place that history survives."""
+    actor = await login_as(client, fake_verifier, db_session, role=Role.MEMBER)
+    create_response = await client.post(
+        "/api/v1/tasks",
+        json={"title": "Audit me"},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    task_id = create_response.json()["id"]
+
+    response = await client.delete(
+        f"/api/v1/tasks/{task_id}", headers={"X-CSRF-Token": actor.csrf_token}
+    )
+    assert response.status_code == 204
+
+    audit_rows = await list_audit(db_session, organization_id=actor.organization.id)
+    deleted_events = [row for row in audit_rows if row.event == "task.deleted"]
+    assert len(deleted_events) == 1
+    assert str(deleted_events[0].entity_id) == task_id
+    assert deleted_events[0].actor_id == actor.membership.user_id
+
+
+async def test_patch_can_clear_project_id_to_unproject_a_task(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    project = await make_project(
+        db_session, organization=actor.organization, owner=actor.membership
+    )
+    await db_session.commit()
+
+    create_response = await client.post(
+        "/api/v1/tasks",
+        json={"title": "Projected", "project_id": str(project.id)},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    task_id = create_response.json()["id"]
+    assert create_response.json()["project_id"] == str(project.id)
+
+    response = await client.patch(
+        f"/api/v1/tasks/{task_id}",
+        json={"project_id": None},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 200
+    assert response.json()["project_id"] is None
 
 
 async def test_unrelated_member_cannot_delete_task(

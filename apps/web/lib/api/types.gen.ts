@@ -751,11 +751,8 @@ export interface components {
          *     is absent — authorship is set at creation only, never reassignable.
          */
         TaskUpdateRequest: {
-            /**
-             * Project Id
-             * Format: uuid
-             */
-            project_id?: string;
+            /** Project Id */
+            project_id?: string | null;
             /** Title */
             title?: string;
             /** Description */

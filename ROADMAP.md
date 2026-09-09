@@ -393,6 +393,25 @@ module in full, and nothing found in this audit requires changing it:
       `apps/web/lib/api/types.gen.ts` regenerated, no drift. Full suite
       (302 tests), ruff, mypy, frontend lint/typecheck/test/build all
       green.
+
+      **Codex review:** two P1s, both fixed. P1 — `delete_task` hard-
+      deleted and committed with no activity event, despite ADR-0011's
+      "Deleting a task... really deletes it. The audit event keeps the
+      record of who did it and when" — after a hard delete the row is
+      gone, so unlike ordinary task lifecycle events (correctly deferred
+      to Stage 7), this one event can't be added retroactively. Now calls
+      `platform.activity.record(..., audit=True)` (`task.deleted`) in the
+      same transaction as the delete, with a test asserting exactly one
+      such row via `list_audit`. P1 — `TaskUpdateRequest.project_id` had a
+      runtime/OpenAPI mismatch: it genuinely accepts an explicit `null` to
+      unproject a task (like `assignee_id`/`milestone_id`), but a copy-
+      pasted `WithJsonSchema` override (meant for `title`/`status`/
+      `priority`, which really do reject null) hid that from the generated
+      schema, so `types.gen.ts` declared `project_id?: string` instead of
+      `string | null`. Removed the override; regenerated types now show
+      `project_id?: string | null` correctly, with a test covering the
+      clear-to-null round trip. Re-verified: full suite (304 tests), ruff,
+      mypy, frontend lint/typecheck/test/build, OpenAPI diff all green.
 - [ ] Stage 4 — Kanban: board endpoint (500-task cap, decision 3), drag
       reorder via the existing task `PATCH` (decision 1)
 - [ ] Stage 5 — Task comments + checklist items
