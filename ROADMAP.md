@@ -1070,15 +1070,97 @@ module in full, and nothing found in this audit requires changing it:
 - [x] Resolve P0/P1 findings — every finding raised across all 11 stages was resolved and re-verified; none remain open. Codex's final Phase 2 audit: "approved... no P0/P1/P2 findings," independently re-verifying the E2E verifier's production gate, CSRF rehydration, project-linked task creation, and the full test suite (510 backend, 22 frontend) plus `make check` end to end.
 
 ## Phase 3 — CRM
-- [ ] Leads
-- [ ] Pipeline
-- [ ] Clients
-- [ ] Follow-ups
-- [ ] Lead conversion
-- [ ] Website contact endpoint
-- [ ] Email notifications
-- [ ] Codex audit
-- [ ] Resolve P0/P1 findings
+
+Status: **Implementation plan approved (11 stages). Stage 1 complete.**
+Stage 2 (Client CRUD) is next.
+
+Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
+invent one new permission mid-plan), Phase 3 needed zero new architecture
+decisions and zero new `Permission` enum values — `DATABASE.md` §3,
+`RBAC.md` §2, `SECURITY.md` §5, `EMAIL.md` §5, and `ARCHITECTURE.md` §3
+already fully specified the `crm` module's tables, permission matrix, the
+public contact endpoint's security envelope, the email flow, and the exact
+cross-module boundary (lead conversion lives in `work.services.
+convert_lead`, `crm` must never import `work`). `LEAD_READ`/`CLIENT_READ`/
+`LEAD_WRITE`/`CLIENT_WRITE`/`LEAD_CONVERT` were already sitting in the
+`Permission` enum, correctly tiered, since Phase 1 Stage 6.
+
+One open question, flagged rather than silently resolved during planning:
+RBAC.md §2 has no per-resource ownership-split row for leads/clients
+(unlike Phase 2's task-edit/project-detail/project-member-write rules) —
+the matrix is role-threshold only. Decision: no ownership-split rule this
+phase — `assigned_to`/`owner_id` are visibility/audit fields only, not an
+authorization escape hatch. A second stated assumption: archive reuses
+`LEAD_WRITE`/`CLIENT_WRITE` (no distinct delete permission exists in
+RBAC.md, unlike `PROJECT_DELETE`).
+
+Exit criteria: a MANAGER+ can create a lead, walk it through every
+pipeline stage via drag-and-drop, and convert it to a client + project in
+one action; any MEMBER can view leads/clients/pipeline read-only; the
+public contact form creates a lead end-to-end with rate limiting and spam
+checks; dashboard sales tiles show real counts.
+
+- [x] Stage 1 — `crm` module schema. `modules/crm/models.py`: `Client`,
+      `Lead`, `LeadStageEvent`, `ContactSubmission` — exact columns/
+      constraints from DATABASE.md §3 (crm section), composite FKs to
+      `memberships(organization_id, user_id)` for `clients.owner_id`/
+      `leads.assigned_to` (§5.1), `ON DELETE RESTRICT` throughout (§5.2 —
+      deactivation, not deletion, is the supported path). `Client`/`Lead`
+      get `archived_at` (ADR-0011); `LeadStageEvent`/`ContactSubmission`
+      don't (history/raw-record tables, never archived).
+      `modules/work/models.py`: added the one deferred column now that
+      `clients` exists — `Project.client_id`, composite FK to
+      `clients(organization_id, id)`, `RESTRICT` (a client is soft-deleted
+      only; an unexpected hard delete under a linked project should fail
+      loudly, same reasoning Phase 2 used for `milestones.project_id`).
+      `migrations/versions/0005_crm_schema.py`: new tables + the
+      `projects.client_id` column/FK/index in one migration, hand-written
+      raw SQL matching `0003`/`0004`'s exact style (native enums,
+      `CREATE TRIGGER ... set_updated_at()`, composite FK comments). No
+      `Permission` enum change needed — confirmed directly, already
+      present and correctly tiered since Phase 1 Stage 6.
+
+      **A real, if narrow, finding surfaced while verifying this stage,
+      not assumed from the plan.** `tests/security/test_schema_integrity.
+      py`'s generic composite-FK checks derive which tables to check from
+      `Base.registry.mappers` filtered by `OrgScoped` — but that set only
+      reflects a module if something has actually imported it. The file
+      itself only ever imported `identity`/`platform` models directly;
+      `work` was checked only *by accident*, because `tests/factories.py`
+      (loaded by every test session via `conftest.py`) already imports it
+      for `make_project`/`make_task`. `crm` has no such accidental import
+      yet (that lands in a later stage, alongside `make_client`/
+      `make_lead`), so without a fix, `_ORG_SCOPED_TABLES` silently
+      excluded `clients`/`leads`/`lead_stage_events`/`contact_submissions`
+      entirely — both composite-FK tests passed on my new tables, but
+      vacuously: they never actually looked at them. The exact *shape* of
+      bug Phase 2 Stage 6 already found once for a different reason (that
+      time a Postgres privilege-visibility issue; this time a Python
+      import-completeness gap). Fixed by explicitly importing `work` and
+      `crm` models directly in the test file itself (mirroring
+      `migrations/env.py`'s own explicit-import discipline), rather than
+      relying on incidental transitive imports from other test modules.
+      Verified empirically, not just reasoned about: confirmed via a
+      direct Python check that `clients`/`leads` were absent from
+      `_ORG_SCOPED_TABLES` before the fix and present after; deliberately
+      added a real single-column FK (`leads.scratch_client_ref -> clients.
+      id`) via `psql` and confirmed the fixed test now genuinely fails on
+      it, then reverted — matching the exact verification discipline
+      Phase 2 Stage 6 established for its own version of this bug class.
+
+      A second, smaller finding from a manual audit against DATABASE.md
+      §1's "every FK has a supporting index" rule (no automated test
+      covers this — Phase 2 Stage 1's own version of this gap was only
+      ever caught by manual Codex review, not a test): `fk_leads_org_
+      converted_client_clients` had no supporting index. Added
+      `ix_leads_org_converted_client`.
+
+      Full suite (510 tests, unchanged count — no new tests added this
+      stage beyond the schema-integrity fix, which strengthens existing
+      assertions rather than adding new ones), ruff, mypy, `alembic
+      upgrade`/`downgrade -1`/`upgrade`/`check` (run twice, after the
+      index fix too) all clean, `make check` end to end (backend +
+      frontend + OpenAPI diff, unaffected this stage) green.
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings

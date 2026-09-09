@@ -5,7 +5,27 @@ from sqlalchemy import text
 
 from trinol.core.db.base import Base
 from trinol.core.db.org_scoped import OrgScoped
+
+# Imported for their side effect of registering tables on Base.metadata, same
+# reasoning as migrations/env.py — _ORG_SCOPED_TABLES below is derived from
+# whatever's actually in Base.registry, which only reflects a module if
+# something has imported it. Before this fix, `work` and `crm` were never
+# imported directly here at all: `work` happened to get registered anyway
+# because tests/factories.py (loaded by every test session via conftest.py)
+# already imports it for make_project/make_task — a coincidence, not a
+# guarantee. `crm` has no such accidental import yet (tests/factories.py
+# gains make_client/make_lead in a later Phase 3 stage), so without this fix
+# _ORG_SCOPED_TABLES silently excluded clients/leads/lead_stage_events/
+# contact_submissions entirely — both composite-FK tests below passed
+# vacuously on them, the same *shape* of "checks nothing, reports success"
+# bug Stage 6 of Phase 2 already found once for a different reason (that
+# time it was a Postgres privilege-visibility issue, not a Python import
+# gap). Confirmed empirically: before this fix, a direct check of
+# Base.registry.mappers with only identity/platform imported did not
+# contain "clients"/"leads" at all.
+from trinol.modules.crm import models as crm_models  # noqa: F401
 from trinol.modules.identity import models as identity_models  # noqa: F401
+from trinol.modules.work import models as work_models  # noqa: F401
 from trinol.platform import models as platform_models  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("db_session")

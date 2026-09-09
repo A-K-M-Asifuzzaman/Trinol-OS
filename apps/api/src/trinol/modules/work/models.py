@@ -64,9 +64,8 @@ class TaskPriority(StrEnum):
 
 
 class Project(OrgScoped, Base):
-    """DATABASE.md §3 (work). `client_id` is omitted until Phase 3 (CRM)
-    defines `clients` — nothing to reference yet. `progress` is deliberately
-    not a column (ADR-0012): derived on read from task counts."""
+    """DATABASE.md §3 (work). `progress` is deliberately not a column
+    (ADR-0012): derived on read from task counts."""
 
     __tablename__ = "projects"
 
@@ -74,6 +73,11 @@ class Project(OrgScoped, Base):
     project_code: Mapped[str] = mapped_column(sa.Text, nullable=False)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     description: Mapped[str | None] = mapped_column(sa.Text, default=None)
+    # Phase 3 (CRM): nullable — not every project has a client (internal
+    # products, dogfooding). Set at creation or via lead conversion
+    # (work.services.lead_conversion_service.convert_lead); never changed
+    # afterward by any other flow in this phase.
+    client_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
     status: Mapped[ProjectStatus] = mapped_column(
         PgEnum(
             ProjectStatus, name="project_status", values_callable=lambda e: [m.value for m in e]
@@ -121,14 +125,24 @@ class Project(OrgScoped, Base):
             name="fk_projects_org_owner_memberships",
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            ["organization_id", "client_id"],
+            ["clients.organization_id", "clients.id"],
+            name="fk_projects_org_client_clients",
+            # Nullable; clients are soft-deleted only (ADR-0011) — an
+            # unexpected hard delete under a linked project should fail
+            # loudly rather than silently unlink real deliverable history.
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             "deadline IS NULL OR start_date IS NULL OR deadline >= start_date",
             name="ck_project_dates",
         ),
         # DATABASE.md §1: every FK has an index unless it is already the
         # left prefix of a composite one. fk_projects_org_owner_memberships
-        # isn't, so it needs its own.
+        # isn't, so it needs its own; same for fk_projects_org_client_clients.
         Index("ix_projects_org_owner", "organization_id", "owner_id"),
+        Index("ix_projects_org_client", "organization_id", "client_id"),
     )
 
 
