@@ -1071,10 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). All 11 stages
-complete, awaiting the final phase-level audit** (same two-step closure
-Phase 2 used: every stage independently reviewed as it landed, then one
-final audit once all stages are done).
+Status: **APPROVED by Codex.** All 11 stages complete and independently
+reviewed; the final Phase 3 audit found no P0/P1 findings.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
