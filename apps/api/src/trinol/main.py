@@ -16,6 +16,7 @@ from trinol.core.deps import get_settings
 from trinol.core.errors import register_exception_handlers
 from trinol.core.logging import configure_logging
 from trinol.core.request_id import RequestIDMiddleware
+from trinol.core.security.body_size_cap import BodySizeCapMiddleware
 from trinol.core.security.origin_check import OriginCheckMiddleware
 from trinol.modules.crm.routes.clients import router as clients_router
 from trinol.modules.crm.routes.leads import router as leads_router
@@ -51,7 +52,10 @@ def create_app() -> FastAPI:
     # add_middleware: the *last* one added ends up outermost. RequestIDMiddleware
     # must wrap OriginCheckMiddleware (not the reverse) so get_request_id()
     # is already set by the time a rejection response is built — verified
-    # empirically, not assumed; this ordering is load-bearing.
+    # empirically, not assumed; this ordering is load-bearing. BodySizeCapMiddleware
+    # is added first (innermost, closest to the app) so an origin-mismatched
+    # request is rejected without ever touching the body at all.
+    app.add_middleware(BodySizeCapMiddleware)
     app.add_middleware(OriginCheckMiddleware)
     app.add_middleware(RequestIDMiddleware)
     register_exception_handlers(app)

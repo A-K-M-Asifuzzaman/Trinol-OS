@@ -153,11 +153,33 @@ async def test_too_fast_submission_is_treated_as_spam(
     assert fake_email_sender.sent == []
 
 
-async def test_oversized_body_is_rejected_before_parsing(client: AsyncClient, contact_org) -> None:
+async def test_oversized_well_formed_body_is_rejected_before_parsing(
+    client: AsyncClient, contact_org
+) -> None:
     response = await client.post(
         "/api/public/contact",
         json=_payload(message="x" * 9000),
         headers=_contact_origin_header(),
+    )
+    assert response.status_code == 413
+
+
+async def test_oversized_malformed_body_is_rejected_before_parsing(
+    client: AsyncClient, contact_org
+) -> None:
+    """Codex P1: a route-level Depends(...) body-size check runs too late —
+    FastAPI reads and JSON-decodes the body as part of resolving the
+    endpoint's own body parameter, and a *malformed* body's decode failure
+    short-circuits to 422 before any dependency (route-level or not) ever
+    runs at all, so a well-formed-oversized test alone doesn't prove
+    anything about this case. Enforcement moved to BodySizeCapMiddleware
+    (pure ASGI, runs before FastAPI's routing/dependency machinery even
+    starts) specifically to catch this — garbage bytes that are neither
+    valid JSON nor within the cap must still 413, never reach a parser."""
+    response = await client.post(
+        "/api/public/contact",
+        content=b"{not valid json" + b"x" * 9000,
+        headers={**_contact_origin_header(), "Content-Type": "application/json"},
     )
     assert response.status_code == 413
 

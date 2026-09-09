@@ -53,11 +53,6 @@ class UnprocessableEntityError(AppError):
     code = "VALIDATION_ERROR"
 
 
-class PayloadTooLargeError(AppError):
-    status_code = status.HTTP_413_CONTENT_TOO_LARGE
-    code = "PAYLOAD_TOO_LARGE"
-
-
 class RateLimitedError(AppError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "RATE_LIMITED"

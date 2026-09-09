@@ -1554,6 +1554,39 @@ checks; dashboard sales tiles show real counts.
       633 tests passing (was 625). `make openapi` regenerated for the new
       contact operation. `make check` green end to end.
 
+      **Codex P1 (real, fixed): the 8 KiB cap wasn't actually enforced
+      before parsing.** `_enforce_body_size_cap` was a route-level
+      `Depends(...)` — proven directly (not just per Codex's word) that
+      this runs too late: FastAPI reads and JSON-decodes the request body
+      as part of resolving the endpoint's own body parameter, and for a
+      *malformed* body that decode failure short-circuits straight to 422
+      before any dependency, route-level or not, ever runs at all (a
+      minimal repro confirmed the dependency's own call list stayed empty
+      for a malformed+oversized body). The existing test only sent a
+      well-formed oversized JSON body, which happened to let the
+      dependency run — passing for the wrong reason, and never exercising
+      the case that actually mattered. Fixed by moving enforcement to
+      `core/security/body_size_cap.py`'s `BodySizeCapMiddleware` — pure
+      ASGI, mirroring `origin_check.py`'s existing shape, registered
+      *inside* `OriginCheckMiddleware` (added before it, so it ends up
+      innermost) so an origin-mismatched request is rejected without ever
+      touching the body. Buffers up to the cap while checking cumulative
+      size per chunk (rejecting before buffering unboundedly past it), then
+      replays the buffered bytes to the inner app via a synthetic
+      `receive` so FastAPI's own body reading downstream is unaffected.
+      Removed the now-dead route-level dependency and the `PayloadTooLargeError`
+      class it was the only caller of (the middleware builds its own
+      envelope directly, same as `origin_check.py` already does — pure ASGI
+      middleware runs before FastAPI's exception-handler machinery is even
+      reachable, so `core/errors.py`'s `AppError` path was never usable
+      here in the first place). Added the malformed-oversized-body
+      regression test Codex asked for, and verified directly that a
+      mismatched-origin request still 403s before ever reaching the new
+      middleware's body check (confirming the registration order).
+
+      634 tests passing (was 633). `make check` green end to end (no
+      OpenAPI diff — internal-only, no API shape change).
+
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings
 - [ ] Notes

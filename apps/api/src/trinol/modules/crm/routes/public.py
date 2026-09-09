@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trinol.core.authz.require import public
 from trinol.core.db.engine import get_db_session
 from trinol.core.deps import get_settings
-from trinol.core.errors import PayloadTooLargeError
 from trinol.modules.crm.schemas import ContactSubmitRequest, ContactSubmitResponse
 from trinol.modules.crm.services.contact_service import submit_contact
 from trinol.modules.identity.models import Organization
@@ -21,7 +20,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
-_MAX_BODY_BYTES = 8 * 1024
+# SECURITY.md §5's 8 KiB body cap is enforced in core/security/
+# body_size_cap.py (ASGI middleware, registered in main.py), not here — a
+# route-level Depends(...) runs after FastAPI has already read and
+# JSON-decoded the body (proven directly: a malformed oversized body never
+# even reaches a route dependency, short-circuiting to 422 first).
 
 _organization_id_cache: uuid.UUID | None = None
 
@@ -67,21 +70,6 @@ async def get_public_contact_organization_id(
     return organization_id
 
 
-async def _enforce_body_size_cap(request: Request) -> None:
-    """SECURITY.md §5: 8 KiB body cap, ahead of Pydantic parsing. No
-    existing global body-size limit exists anywhere in the app to reuse
-    (confirmed directly — there isn't one) — this route is the one that
-    needs it, since it is the one write anybody on the internet can call
-    with no authentication at all. Reads the real bytes rather than
-    trusting Content-Length (a client can omit or lie about that header);
-    Starlette caches the body after this call, so FastAPI's own
-    Pydantic-parsing dependency downstream reads the same cached bytes,
-    never the stream twice."""
-    body = await request.body()
-    if len(body) > _MAX_BODY_BYTES:
-        raise PayloadTooLargeError("Request body exceeds the 8 KiB limit")
-
-
 def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
@@ -109,7 +97,6 @@ async def _send_and_log_failures(sender: EmailSender, message: EmailMessage) -> 
     "/contact",
     response_model=ContactSubmitResponse,
     status_code=202,
-    dependencies=[Depends(_enforce_body_size_cap)],
 )
 @public
 async def submit_contact_route(
