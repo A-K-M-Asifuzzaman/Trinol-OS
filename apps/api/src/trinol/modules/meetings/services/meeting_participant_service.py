@@ -94,9 +94,21 @@ async def add_participant(
     """RBAC.md §3 'Meeting edit' rule applies to roster management too —
     same reasoning project_member_service.add_project_member already uses
     for its own can_manage_members gate (creator/MANAGER+ implies
-    visibility, no separate check needed)."""
+    visibility, no separate check needed).
+
+    Codex P1: the duplicate-participant check was a bare check-then-insert
+    with no lock and no matching DB uniqueness constraint (unlike
+    ProjectMember's real `UniqueConstraint("project_id", "user_id")`), so
+    two concurrent adds for the same user_id/external_email could both
+    pass it. `for_update=True` takes a row lock on the meeting first — the
+    second request blocks until the first commits, then sees the
+    just-inserted row and 409s instead of racing (same shape and reason as
+    lead_conversion_service.convert_lead's own fix for the identical bug
+    class)."""
     ensure_actor_in_org(actor, organization_id)
-    meeting = await get_meeting_in_org(db, organization_id=organization_id, meeting_id=meeting_id)
+    meeting = await get_meeting_in_org(
+        db, organization_id=organization_id, meeting_id=meeting_id, for_update=True
+    )
     if not can_write_meeting(actor, meeting):
         raise ForbiddenError("Insufficient permission to manage this meeting's participants")
 

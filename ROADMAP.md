@@ -2207,6 +2207,44 @@ four soft-deleted entities) with a same-transaction audit event.
       58 new backend tests (736 → 794); ruff, ruff format, mypy, `make
       openapi` all green (frontend unaffected — no changes this stage).
 
+      **Codex P1: `add_participant`'s duplicate check was a bare
+      check-then-insert with no lock and no matching DB uniqueness
+      constraint** (unlike `ProjectMember`'s real
+      `UniqueConstraint("project_id", "user_id")`) — two concurrent adds
+      for the same `user_id`/`external_email` could both pass the "no
+      existing participant" check and both insert, since
+      `meeting_participants` has no partial unique index for either
+      identity path and the meeting row wasn't locked. Fixed by giving
+      `get_meeting_in_org` the same `for_update: bool = False` parameter
+      `lead_service.get_lead_in_org` already has, and calling it with
+      `for_update=True` in `add_participant` — the second concurrent
+      request blocks on the meeting row's lock until the first commits,
+      then its own duplicate check sees the just-inserted row and 409s,
+      same shape and reasoning as `lead_conversion_service.convert_lead`'s
+      own fix for the identical bug class (Phase 3 Stage 5). Chose the
+      row-lock fix over a DB-level partial unique index (Codex's other
+      suggested option) since this codebase already has an established,
+      reviewed idiom for exactly this race shape and a schema change would
+      mean a new migration for an already-closed Stage 1 table; no new
+      migration needed.
+
+      Two new regression tests in `test_meeting_participants.py`
+      (`test_concurrent_add_by_user_id_only_one_succeeds`,
+      `test_concurrent_add_by_external_email_only_one_succeeds` — both
+      identity paths, since the duplicate check queries a different
+      column for each), mirroring `test_lead_conversion.py`'s own
+      concurrent-conversion test exactly: two independent DB sessions,
+      `asyncio.gather`, real commits outside the test-fixture rollback
+      boundary. Verified the fix is real, not vacuous: reverted
+      `for_update=True` temporarily and confirmed both new tests fail
+      consistently (3/3 runs, both duplicate rows actually created each
+      time), then restored the fix and confirmed both pass consistently
+      (3/3 runs) before treating it as done.
+
+      796 backend tests (794 → 796, +2 race tests); ruff, ruff format,
+      mypy, `make openapi` (no diff — service-layer fix only, no
+      route/schema change) all green.
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses

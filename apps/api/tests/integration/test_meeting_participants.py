@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
+from dotenv import dotenv_values
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.factories import (
     make_meeting,
@@ -12,7 +17,14 @@ from tests.factories import (
 )
 from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import Role
+from trinol.core.config import _ENV_FILE
+from trinol.core.db.engine import get_session_factory
+from trinol.core.errors import ConflictError
+from trinol.modules.identity.models import Membership
+from trinol.modules.meetings.models import MeetingParticipant
+from trinol.modules.meetings.services.meeting_participant_service import add_participant
 from trinol.platform.activity import list_audit, list_feed
+from trinol.platform.models import ActivityEvent
 
 # RBAC.md §3 'Meeting edit' governs add/remove (creator or MANAGER+, no new
 # permission needed — MEETING_WRITE_OWN is already MEMBER-tier reachability).
@@ -447,3 +459,202 @@ async def test_get_participant_in_another_org_meeting_is_404(
     await login_as(client, fake_verifier, db_session, role=Role.ADMIN)
     response = await client.get(f"/api/v1/meetings/{other_meeting.id}/participants")
     assert response.status_code == 404
+
+
+async def _cleanup_activity_events(organization_id) -> None:
+    """See test_lead_conversion.py's matching cleanup: trinol_app is
+    REVOKEd from UPDATE/DELETE on activity_events (ADR-0006), so the
+    winning add_participant call's audit row needs the migrator role to
+    clean up."""
+    migration_url = dotenv_values(_ENV_FILE)["DATABASE_MIGRATION_URL"]
+    assert migration_url is not None
+    migrator_engine = create_async_engine(migration_url)
+    try:
+        async with migrator_engine.begin() as conn:
+            await conn.execute(
+                ActivityEvent.__table__.delete().where(
+                    ActivityEvent.organization_id == organization_id
+                )
+            )
+    finally:
+        await migrator_engine.dispose()
+
+
+async def test_concurrent_add_by_user_id_only_one_succeeds() -> None:
+    """Codex P1: add_participant's duplicate check was a bare
+    check-then-insert with no lock and no matching DB uniqueness
+    constraint, so two concurrent adds for the same user_id could both
+    pass it. Needs two genuinely independent DB connections, not two
+    SAVEPOINTs sharing one transaction — the point is Postgres actually
+    serializing the two via the meeting row's own FOR UPDATE lock
+    (meeting_service.get_meeting_in_org's for_update=True), same approach
+    as test_lead_conversion.py's convert_lead race test. Real commits, no
+    test fixtures — cleaned up explicitly at the end."""
+    session_factory = get_session_factory()
+
+    setup_session = session_factory()
+    try:
+        org = await make_organization(setup_session)
+        creator_user = await make_user(setup_session, email=f"race-creator-{org.id}@x.com")
+        creator = await make_membership(
+            setup_session, organization=org, user=creator_user, role=Role.MEMBER
+        )
+        meeting = await make_meeting(setup_session, organization=org, created_by=creator)
+        invitee_user = await make_user(setup_session, email=f"race-invitee-{org.id}@x.com")
+        await make_membership(setup_session, organization=org, user=invitee_user, role=Role.MEMBER)
+        await setup_session.commit()
+        org_id, creator_id, meeting_id, invitee_user_id = (
+            org.id,
+            creator.id,
+            meeting.id,
+            invitee_user.id,
+        )
+    finally:
+        await setup_session.close()
+
+    session_1 = session_factory()
+    session_2 = session_factory()
+    try:
+        actor_1 = (
+            await session_1.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == creator_id
+                )
+            )
+        ).scalar_one()
+        actor_2 = (
+            await session_2.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == creator_id
+                )
+            )
+        ).scalar_one()
+
+        results = await asyncio.gather(
+            add_participant(
+                session_1,
+                organization_id=org_id,
+                actor=actor_1,
+                meeting_id=meeting_id,
+                user_id=invitee_user_id,
+                external_email=None,
+            ),
+            add_participant(
+                session_2,
+                organization_id=org_id,
+                actor=actor_2,
+                meeting_id=meeting_id,
+                user_id=invitee_user_id,
+                external_email=None,
+            ),
+            return_exceptions=True,
+        )
+
+        successes = [r for r in results if not isinstance(r, Exception)]
+        failures = [r for r in results if isinstance(r, Exception)]
+        assert len(successes) == 1, f"expected exactly one success, got: {results}"
+        assert len(failures) == 1
+        assert isinstance(failures[0], ConflictError)
+
+        remaining = (
+            (
+                await session_1.execute(
+                    select(MeetingParticipant).where(
+                        MeetingParticipant.organization_id == org_id,
+                        MeetingParticipant.meeting_id == meeting_id,
+                        MeetingParticipant.user_id == invitee_user_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(remaining) == 1, "the race must never produce two participant rows"
+    finally:
+        await session_1.close()
+        await session_2.close()
+        await _cleanup_activity_events(org_id)
+
+
+async def test_concurrent_add_by_external_email_only_one_succeeds() -> None:
+    """Same race, other identity path (external_email instead of
+    user_id) — the fix is the same meeting-row lock either way, but the
+    duplicate check queries a different column, so it's worth proving
+    both paths are actually covered, not just one."""
+    session_factory = get_session_factory()
+
+    setup_session = session_factory()
+    try:
+        org = await make_organization(setup_session)
+        creator_user = await make_user(setup_session, email=f"race-email-creator-{org.id}@x.com")
+        creator = await make_membership(
+            setup_session, organization=org, user=creator_user, role=Role.MEMBER
+        )
+        meeting = await make_meeting(setup_session, organization=org, created_by=creator)
+        await setup_session.commit()
+        org_id, creator_id, meeting_id = org.id, creator.id, meeting.id
+    finally:
+        await setup_session.close()
+
+    session_1 = session_factory()
+    session_2 = session_factory()
+    try:
+        actor_1 = (
+            await session_1.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == creator_id
+                )
+            )
+        ).scalar_one()
+        actor_2 = (
+            await session_2.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == creator_id
+                )
+            )
+        ).scalar_one()
+
+        results = await asyncio.gather(
+            add_participant(
+                session_1,
+                organization_id=org_id,
+                actor=actor_1,
+                meeting_id=meeting_id,
+                user_id=None,
+                external_email="race-guest@example.test",
+            ),
+            add_participant(
+                session_2,
+                organization_id=org_id,
+                actor=actor_2,
+                meeting_id=meeting_id,
+                user_id=None,
+                external_email="race-guest@example.test",
+            ),
+            return_exceptions=True,
+        )
+
+        successes = [r for r in results if not isinstance(r, Exception)]
+        failures = [r for r in results if isinstance(r, Exception)]
+        assert len(successes) == 1, f"expected exactly one success, got: {results}"
+        assert len(failures) == 1
+        assert isinstance(failures[0], ConflictError)
+
+        remaining = (
+            (
+                await session_1.execute(
+                    select(MeetingParticipant).where(
+                        MeetingParticipant.organization_id == org_id,
+                        MeetingParticipant.meeting_id == meeting_id,
+                        MeetingParticipant.external_email == "race-guest@example.test",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(remaining) == 1, "the race must never produce two participant rows"
+    finally:
+        await session_1.close()
+        await session_2.close()
+        await _cleanup_activity_events(org_id)

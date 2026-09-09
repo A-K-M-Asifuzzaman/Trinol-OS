@@ -34,15 +34,27 @@ def ensure_actor_in_org(actor: Membership, organization_id: uuid.UUID) -> None:
 
 
 async def get_meeting_in_org(
-    db: AsyncSession, *, organization_id: uuid.UUID, meeting_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    meeting_id: uuid.UUID,
+    for_update: bool = False,
 ) -> Meeting:
     """Org-scoped lookup — 404s a cross-org id exactly like a missing one
-    (RBAC.md §4), same pattern as get_project_in_org/get_client_in_org."""
-    result = await db.execute(
+    (RBAC.md §4), same pattern as get_project_in_org/get_client_in_org.
+    `for_update`: takes a row lock so a caller's own check-then-write
+    against this meeting's children (meeting_participant_service.
+    add_participant's duplicate check) serializes against a concurrent one
+    instead of racing — same reason and shape as lead_service.
+    get_lead_in_org's own `for_update` param."""
+    stmt = (
         select(Meeting)
         .where(Meeting.organization_id == organization_id, Meeting.id == meeting_id)
         .execution_options(populate_existing=True)
     )
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
     meeting = result.scalar_one_or_none()
     if meeting is None:
         raise NotFoundError("Meeting not found")
