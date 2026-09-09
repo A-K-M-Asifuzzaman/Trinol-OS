@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
@@ -25,6 +26,12 @@ _LEAD_CONTACT_CONSTRAINT = "ck_lead_contact"
 class LeadList:
     items: list[Lead]
     total: int
+
+
+@dataclass(frozen=True, slots=True)
+class LeadStats:
+    pipeline_value: Decimal | None
+    follow_ups_due: int
 
 
 def _violates_constraint(exc: IntegrityError, name: str) -> bool:
@@ -184,6 +191,46 @@ async def list_leads(
         .offset(offset)
     )
     return LeadList(items=list(result.scalars().all()), total=total)
+
+
+async def get_lead_stats(
+    db: AsyncSession, *, organization_id: uuid.UUID, actor: Membership
+) -> LeadStats:
+    """ROADMAP.md Phase 3 Stage 8 decision: the dashboard's "Pipeline Value"
+    and "Follow-ups due" tiles need a real aggregate, not a client-side sum
+    over the (capped) pipeline board response — a small service-side query
+    each, mirroring the `getCount` pattern the dashboard already uses for
+    plain `{total}` counts. RBAC.md §2: view is open to every role, same as
+    `list_leads`.
+
+    ponytail: sums `estimated_value` across every open lead regardless of
+    `currency` — every lead defaults to USD and nothing in this org's real
+    usage mixes currencies today; a true multi-currency aggregate needs a
+    per-currency breakdown or a conversion step, add it if that ever
+    stops being true."""
+    ensure_actor_in_org(actor, organization_id)
+    open_stage_filters = [
+        Lead.organization_id == organization_id,
+        Lead.archived_at.is_(None),
+        Lead.stage.not_in([LeadStage.WON, LeadStage.LOST]),
+    ]
+    pipeline_value_result = await db.execute(
+        select(func.sum(Lead.estimated_value)).where(*open_stage_filters)
+    )
+    pipeline_value = pipeline_value_result.scalar_one_or_none()
+
+    follow_ups_result = await db.execute(
+        select(func.count())
+        .select_from(Lead)
+        .where(
+            Lead.organization_id == organization_id,
+            Lead.archived_at.is_(None),
+            Lead.next_follow_up.is_not(None),
+            Lead.next_follow_up <= date.today(),
+        )
+    )
+    follow_ups_due = follow_ups_result.scalar_one()
+    return LeadStats(pipeline_value=pipeline_value, follow_ups_due=follow_ups_due)
 
 
 async def get_lead(

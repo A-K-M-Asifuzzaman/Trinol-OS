@@ -25,4 +25,20 @@ describe("Sidebar", () => {
     render(<Sidebar role="MEMBER" />);
     expect(screen.getByRole("link", { name: "Team" })).toBeInTheDocument();
   });
+
+  it("shows Leads/Clients/Pipeline as real links (Phase 3 Stage 8)", () => {
+    render(<Sidebar role="MEMBER" />);
+    expect(screen.getByRole("link", { name: "Leads" })).toHaveAttribute(
+      "href",
+      "/leads",
+    );
+    expect(screen.getByRole("link", { name: "Clients" })).toHaveAttribute(
+      "href",
+      "/clients",
+    );
+    expect(screen.getByRole("link", { name: "Pipeline" })).toHaveAttribute(
+      "href",
+      "/pipeline",
+    );
+  });
 });

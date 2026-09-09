@@ -260,6 +260,9 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # RBAC-facing permission and the {lead_id} resolution branch above
     # already covers this row generically.
     ("POST", "/api/v1/leads/{lead_id}/convert", Permission.LEAD_CONVERT, None),
+    # Phase 3 Stage 8: a static path, registered before /{lead_id} in
+    # routes/leads.py — no placeholder to resolve, same LEAD_READ shape.
+    ("GET", "/api/v1/leads/stats", Permission.LEAD_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

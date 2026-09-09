@@ -13,12 +13,14 @@ from trinol.modules.crm.schemas import (
     LeadCreateRequest,
     LeadListResponse,
     LeadResponse,
+    LeadStatsResponse,
     LeadUpdateRequest,
 )
 from trinol.modules.crm.services.lead_service import (
     archive_lead,
     create_lead,
     get_lead,
+    get_lead_stats,
     list_leads,
     update_lead,
 )
@@ -106,6 +108,23 @@ async def list_leads_route(
     )
     return LeadListResponse(
         items=[lead_to_response(lead) for lead in result.items], total=result.total
+    )
+
+
+@router.get(
+    "/stats",
+    response_model=LeadStatsResponse,
+    dependencies=[Depends(require(Permission.LEAD_READ))],
+)
+async def get_lead_stats_route(
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> LeadStatsResponse:
+    # Registered before /{lead_id} — a static path must be matched first,
+    # or FastAPI would try to parse "stats" as a lead_id UUID path param.
+    stats = await get_lead_stats(db, organization_id=membership.organization_id, actor=membership)
+    return LeadStatsResponse(
+        pipeline_value=stats.pipeline_value, follow_ups_due=stats.follow_ups_due
     )
 
 

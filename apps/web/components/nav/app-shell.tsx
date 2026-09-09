@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/nav/sidebar";
 import { setCsrfToken } from "@/lib/api/client";
+import { RoleProvider } from "@/lib/role-context";
 
 // MASTER_PROMPT §32 / AGENTS.md's "a feature is not done until ... responsive
 // behavior works": the sidebar can't permanently reserve a fixed-width
@@ -28,26 +29,28 @@ export function AppShell({
   }, [csrfToken]);
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      <header className="flex items-center justify-between border-b border-border p-4 md:hidden">
-        <span className="text-sm font-semibold">Trinol OS</span>
-        <Button
-          type="button"
-          variant="outline"
-          aria-expanded={mobileNavOpen}
-          aria-controls="app-sidebar"
-          onClick={() => setMobileNavOpen((open) => !open)}
+    <RoleProvider role={role}>
+      <div className="flex min-h-screen flex-col md:flex-row">
+        <header className="flex items-center justify-between border-b border-border p-4 md:hidden">
+          <span className="text-sm font-semibold">Trinol OS</span>
+          <Button
+            type="button"
+            variant="outline"
+            aria-expanded={mobileNavOpen}
+            aria-controls="app-sidebar"
+            onClick={() => setMobileNavOpen((open) => !open)}
+          >
+            {mobileNavOpen ? "Close menu" : "Menu"}
+          </Button>
+        </header>
+        <div
+          id="app-sidebar"
+          className={mobileNavOpen ? "block" : "hidden md:block"}
         >
-          {mobileNavOpen ? "Close menu" : "Menu"}
-        </Button>
-      </header>
-      <div
-        id="app-sidebar"
-        className={mobileNavOpen ? "block" : "hidden md:block"}
-      >
-        <Sidebar role={role} />
+          <Sidebar role={role} />
+        </div>
+        <main className="flex-1 p-6">{children}</main>
       </div>
-      <main className="flex-1 p-6">{children}</main>
-    </div>
+    </RoleProvider>
   );
 }

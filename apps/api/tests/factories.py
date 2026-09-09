@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -177,6 +177,8 @@ async def make_lead(
     stage: LeadStage = LeadStage.NEW,
     assigned_to: Membership | None = None,
     board_position: Decimal | None = None,
+    estimated_value: Decimal | None = None,
+    next_follow_up: date | None = None,
 ) -> Lead:
     lead = Lead(
         id=uuid7(),
@@ -188,6 +190,8 @@ async def make_lead(
         currency="USD",
         stage=stage,
         assigned_to=assigned_to.user_id if assigned_to is not None else None,
+        estimated_value=estimated_value,
+        next_follow_up=next_follow_up,
         **({"board_position": board_position} if board_position is not None else {}),
     )
     db.add(lead)

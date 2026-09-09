@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-7 complete.**
-Stage 8 (Frontend: Leads, Clients, Pipeline, dashboard, nav) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-8 complete.**
+Stage 9 (Security matrices extended) is next.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1634,6 +1634,128 @@ checks; dashboard sales tiles show real counts.
 
       638 tests passing (was 634). `make check` green end to end (no
       OpenAPI diff — no route/schema changes this stage).
+- [x] Stage 8 — Frontend: Leads, Clients, Pipeline, dashboard, nav. The
+      first frontend work in Phase 3 — every prior stage was backend-only.
+
+      **One small backend addition, explicitly called for by this stage's
+      own plan text, not scope creep:** the dashboard's "Pipeline Value"
+      tile needed "a small service-side aggregate, not a client-side sum
+      over a capped list" (the plan's own words, correctly followed rather
+      than taking the easier client-side-sum shortcut). Added `GET
+      /api/v1/leads/stats` (registered before `/leads/{lead_id}` — a
+      static path must be matched first): `lead_service.get_lead_stats`
+      sums `estimated_value` across non-archived, non-WON/LOST leads and
+      counts leads with `next_follow_up <= today`. `ponytail`-flagged: sums
+      across every lead's `estimated_value` regardless of `currency` — no
+      org in real use today mixes currencies; a true multi-currency
+      aggregate needs a per-currency breakdown, add it if that ever stops
+      being true. New authz-matrix row (`LEAD_READ`, static path, same
+      shape as Stage 4's `/pipeline`); `tests/integration/test_lead_
+      stats.py` covers the sum/count logic and cross-org isolation
+      directly (the matrix only proves role gating, not aggregate
+      correctness).
+
+      **A real, new frontend requirement this phase's own exit criteria
+      states explicitly, unlike anything Phase 2 needed:** "Any MEMBER can
+      view leads/clients/pipeline read-only — no create/edit/convert
+      controls in the UI." Phase 2's Projects/Tasks pages never hid
+      create/edit controls by role at all (confirmed by reading them
+      directly) — because their real authorization rule is resource-
+      specific (ownership/project-membership), a bare role check there
+      would have been *wrong*. CRM's RBAC.md §2 rule is genuinely simpler
+      (role-threshold only), so a plain role check is the whole story
+      here, but nothing existing exposed the viewer's role to page content
+      — `AppShell` only ever passed it to `Sidebar`. Added `lib/role-
+      context.tsx` (`RoleProvider`/`useRole`/`useCanManageCrm`), wrapping
+      `AppShell`'s children; every new page/component reads it to hide
+      create/edit/convert buttons and, on the pipeline board, disable drag
+      entirely (`draggable={false}`, not just a guarded network call) for
+      a MEMBER.
+
+      `lib/api/client.ts`: `fetchLeads`/`fetchLead`/`createLead`/
+      `updateLead`/`archiveLead`/`convertLead`/`fetchLeadStats`,
+      `fetchClients`/`fetchClient`/`createClient`/`updateClient`/
+      `archiveClient`, `fetchPipeline` — mirroring `fetchProjects`/
+      `fetchTasks`'s existing shape exactly. `app/(app)/leads/page.tsx`,
+      `leads/[id]/page.tsx`, `clients/page.tsx`, `clients/[id]/page.tsx`
+      (tabs: Overview + Projects real; Invoices/Payments/Meetings/
+      Documents/Activity present but empty-state-only — Phase 4/5
+      entities), `pipeline/page.tsx` — same client-rendered/four-state
+      pattern Phase 2 Stage 8 established for Projects/Tasks/Team (a
+      deliberate departure from ARCHITECTURE.md §5's server-rendered
+      default, so every state is unit-testable against MSW).
+
+      `components/board/pipeline-board.tsx`: a parallel component, not a
+      generalized `<Board>` — the plan's own sanctioned fallback ("a
+      parallel pipeline-board.tsx reusing the same drag logic is an
+      acceptable fallback if full generalization proves awkward"), since
+      `kanban-board.tsx` is tightly coupled to `TaskStatus`/task fields/
+      `/tasks/{id}` and generalizing would need render-prop slots for two
+      call sites. `computeBoardPosition` is duplicated, not shared,
+      matching this codebase's own established precedent for a function
+      this small (`crm/schemas.py`'s duplicated decimal validators, Stage
+      4's own reasoning). `components/nav/sidebar.tsx`: SALES items flip
+      from `aria-disabled` placeholders to real links.
+      `app/(app)/dashboard/page.tsx`: "Open leads" placeholder replaced
+      with a real "Total leads" count (same honesty-in-labeling fix
+      Codex's Phase 2 Stage 8 review already made for tasks/projects), new
+      "Pipeline value"/"Follow-ups due" tiles, and "New lead"/"New client"
+      quick actions (MASTER_PROMPT §8) — not role-gated on the dashboard
+      itself, since the destination pages already hide their own create
+      controls from MEMBER.
+
+      `ProjectsTab` (client detail) has no server-side `client_id` filter
+      to call — `GET /api/v1/projects` never needed one before this stage
+      — so it fetches a generously-capped list (`limit: 200`) and filters
+      client-side, the same bounded-list-for-a-picker shape
+      `task-list.tsx`'s own project picker already uses (`ponytail`-
+      flagged in the code; add a real query param if a client's real
+      project count ever approaches the cap).
+
+      `tests/leads.test.tsx`, `lead-detail.test.tsx`, `clients.test.tsx`,
+      `client-detail.test.tsx`, `pipeline-board.test.tsx`,
+      `pipeline.test.tsx`: four-state coverage per list/detail page, MSW
+      error-message-on-failure coverage mirroring `project-detail.test.
+      tsx`'s pattern, and MEMBER-vs-MANAGER role-gating coverage (a new
+      test dimension this stage introduces, since it's the first UI with a
+      real role-based hiding rule). `sidebar.test.tsx` extended to confirm
+      the three SALES items are now real links. Backend: 647 tests (was
+      638 before this stage's stats-endpoint addition). Frontend: 46
+      tests across 14 files (was 22 across 8 files before this stage).
+
+      **Manually verified end to end**, not just unit-tested (this
+      session's own CLAUDE.md instruction for UI work): ran the app
+      directly (host-side `uv run uvicorn` + `pnpm dev` against the same
+      Postgres the test suite uses, `E2E_TEST_MODE`/seeded `founder@
+      trinolit.com` login, since Docker wasn't available in this
+      environment) and drove a full Playwright script through login →
+      create lead → view on pipeline → drag it to WON → convert to
+      client+project → client detail's Projects tab shows the new project
+      → dashboard tiles reflect the new counts.
+
+      Two real environment findings surfaced during that walkthrough, both
+      resolved without touching product code:
+      - This machine had an unrelated, pre-existing process (a sibling
+        "Trinol Payment" project's own uvicorn) already bound to
+        `127.0.0.1:8000`, silently intercepting `localhost:8000` traffic
+        while this project's own uvicorn sat bound to `0.0.0.0:8000`
+        alongside it — confirmed via `lsof`, not assumed. Every automated
+        test in this repo was unaffected (the whole suite drives the
+        FastAPI app in-process via `ASGITransport`, never a real socket)
+        — only this one manual, real-network walkthrough needed a
+        different port to avoid it.
+      - The pipeline board's drag-to-WON step initially appeared to fail
+        silently in the default 1280px-wide headless viewport — the WON
+        column (6th of 7) was laid out far outside that width, off the
+        edge of what a synthetic drag can reach. Confirmed by checking the
+        column's actual bounding box (`x: 1608`, past the 1280px
+        viewport), then re-ran at a wider viewport where it worked
+        correctly — the component logic was already correct; a real user
+        on a narrow screen would need to scroll the board first, the same
+        pre-existing limitation the Kanban task board already has at 5
+        columns, just more noticeable at 7 (not a new problem introduced
+        here, not fixed here — auto-scroll-on-drag-near-edge is a real
+        enhancement but outside what Phase 2's own board ever built).
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings

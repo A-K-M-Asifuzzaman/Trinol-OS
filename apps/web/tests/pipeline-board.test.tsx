@@ -1,0 +1,83 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { PipelineBoard } from "@/components/board/pipeline-board";
+import type { PipelineColumn } from "@/lib/api/client";
+
+function makeLead(id: string, name: string, boardPosition: string) {
+  return {
+    id,
+    name,
+    company: null,
+    email: `${id}@x.com`,
+    phone: null,
+    source: "WEBSITE" as const,
+    service: null,
+    estimated_value: null,
+    currency: "USD",
+    stage: "NEW" as const,
+    assigned_to: null,
+    next_follow_up: null,
+    notes: null,
+    converted_client_id: null,
+    converted_at: null,
+    lost_reason: null,
+    board_position: boardPosition,
+    archived_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+}
+
+describe("PipelineBoard", () => {
+  it("drops a lead into an empty column at position 0", () => {
+    const onMoveLead = vi.fn();
+    const columns: PipelineColumn[] = [
+      { stage: "NEW", leads: [makeLead("lead-a", "Lead A", "0")] },
+      { stage: "WON", leads: [] },
+    ];
+    render(<PipelineBoard columns={columns} onMoveLead={onMoveLead} />);
+
+    fireEvent.dragStart(screen.getByTestId("pipeline-lead-lead-a"));
+    fireEvent.drop(screen.getByTestId("pipeline-column-WON"));
+
+    expect(onMoveLead).toHaveBeenCalledWith("lead-a", "WON", "0");
+  });
+
+  it("drops a lead before an existing card, computing the midpoint position", () => {
+    const onMoveLead = vi.fn();
+    const columns: PipelineColumn[] = [
+      {
+        stage: "NEW",
+        leads: [
+          makeLead("lead-a", "Lead A", "0"),
+          makeLead("lead-b", "Lead B", "10"),
+        ],
+      },
+    ];
+    render(<PipelineBoard columns={columns} onMoveLead={onMoveLead} />);
+
+    fireEvent.dragStart(screen.getByTestId("pipeline-lead-lead-b"));
+    fireEvent.drop(screen.getByTestId("pipeline-lead-lead-a"));
+
+    expect(onMoveLead).toHaveBeenCalledWith("lead-b", "NEW", "-1");
+  });
+
+  it("ignores drag/drop entirely when read-only (MEMBER, RBAC.md §2)", () => {
+    const onMoveLead = vi.fn();
+    const columns: PipelineColumn[] = [
+      { stage: "NEW", leads: [makeLead("lead-a", "Lead A", "0")] },
+      { stage: "WON", leads: [] },
+    ];
+    render(
+      <PipelineBoard columns={columns} onMoveLead={onMoveLead} readOnly />,
+    );
+
+    const card = screen.getByTestId("pipeline-lead-lead-a");
+    expect(card).toHaveAttribute("draggable", "false");
+
+    fireEvent.dragStart(card);
+    fireEvent.drop(screen.getByTestId("pipeline-column-WON"));
+
+    expect(onMoveLead).not.toHaveBeenCalled();
+  });
+});

@@ -249,6 +249,14 @@ class LeadListResponse(BaseModel):
     total: int
 
 
+class LeadStatsResponse(BaseModel):
+    """Stage 8: backs the dashboard's "Pipeline Value"/"Follow-ups due"
+    tiles — a real aggregate, not a client-side sum over a capped list."""
+
+    pipeline_value: Decimal | None
+    follow_ups_due: int
+
+
 class PipelineColumn(BaseModel):
     stage: LeadStage
     leads: list[LeadResponse]

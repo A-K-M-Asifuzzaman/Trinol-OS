@@ -457,6 +457,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/leads/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Lead Stats Route */
+        get: operations["get_lead_stats_route_api_v1_leads_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/leads/{lead_id}": {
         parameters: {
             query?: never;
@@ -923,6 +940,17 @@ export interface components {
          * @enum {string}
          */
         LeadStage: "NEW" | "CONTACTED" | "MEETING" | "PROPOSAL" | "NEGOTIATION" | "WON" | "LOST";
+        /**
+         * LeadStatsResponse
+         * @description Stage 8: backs the dashboard's "Pipeline Value"/"Follow-ups due"
+         *     tiles — a real aggregate, not a client-side sum over a capped list.
+         */
+        LeadStatsResponse: {
+            /** Pipeline Value */
+            pipeline_value: string | null;
+            /** Follow Ups Due */
+            follow_ups_due: number;
+        };
         /**
          * LeadUpdateRequest
          * @description Partial update: only fields present in the request body are applied
@@ -3116,6 +3144,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_lead_stats_route_api_v1_leads_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadStatsResponse"];
                 };
             };
         };

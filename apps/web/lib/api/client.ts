@@ -243,3 +243,113 @@ export async function updateTask(
 export async function deleteTask(taskId: string): Promise<void> {
   return apiFetch<void>(`/api/v1/tasks/${taskId}`, { method: "DELETE" });
 }
+
+export type Lead = components["schemas"]["LeadResponse"];
+export type LeadList = components["schemas"]["LeadListResponse"];
+export type LeadCreateRequest = components["schemas"]["LeadCreateRequest"];
+export type LeadUpdateRequest = components["schemas"]["LeadUpdateRequest"];
+export type LeadStage = components["schemas"]["LeadStage"];
+export type LeadSource = components["schemas"]["LeadSource"];
+export type LeadStats = components["schemas"]["LeadStatsResponse"];
+export type LeadConversion = components["schemas"]["LeadConversionResponse"];
+export type Client = components["schemas"]["ClientResponse"];
+export type ClientList = components["schemas"]["ClientListResponse"];
+export type ClientCreateRequest = components["schemas"]["ClientCreateRequest"];
+export type ClientUpdateRequest = components["schemas"]["ClientUpdateRequest"];
+export type PipelineBoard = components["schemas"]["PipelineBoardResponse"];
+export type PipelineColumn = components["schemas"]["PipelineColumn"];
+
+export async function fetchLeads(
+  options: {
+    stage?: LeadStage;
+    assignedTo?: string;
+    limit?: number;
+    offset?: number;
+    cookie?: string;
+  } = {},
+): Promise<LeadList> {
+  const params = new URLSearchParams();
+  if (options.stage) params.set("stage", options.stage);
+  if (options.assignedTo) params.set("assigned_to", options.assignedTo);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<LeadList>(`/api/v1/leads${query ? `?${query}` : ""}`, {
+    cookie: options.cookie,
+  });
+}
+
+export async function fetchLeadStats(cookie?: string): Promise<LeadStats> {
+  return apiFetch<LeadStats>("/api/v1/leads/stats", { cookie });
+}
+
+export async function fetchLead(
+  leadId: string,
+  cookie?: string,
+): Promise<Lead> {
+  return apiFetch<Lead>(`/api/v1/leads/${leadId}`, { cookie });
+}
+
+export async function createLead(body: LeadCreateRequest): Promise<Lead> {
+  return apiFetch<Lead>("/api/v1/leads", { method: "POST", body });
+}
+
+export async function updateLead(
+  leadId: string,
+  body: LeadUpdateRequest,
+): Promise<Lead> {
+  return apiFetch<Lead>(`/api/v1/leads/${leadId}`, { method: "PATCH", body });
+}
+
+export async function archiveLead(leadId: string): Promise<Lead> {
+  return apiFetch<Lead>(`/api/v1/leads/${leadId}`, { method: "DELETE" });
+}
+
+export async function convertLead(leadId: string): Promise<LeadConversion> {
+  return apiFetch<LeadConversion>(`/api/v1/leads/${leadId}/convert`, {
+    method: "POST",
+  });
+}
+
+export async function fetchClients(
+  options: { limit?: number; offset?: number; cookie?: string } = {},
+): Promise<ClientList> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<ClientList>(`/api/v1/clients${query ? `?${query}` : ""}`, {
+    cookie: options.cookie,
+  });
+}
+
+export async function fetchClient(
+  clientId: string,
+  cookie?: string,
+): Promise<Client> {
+  return apiFetch<Client>(`/api/v1/clients/${clientId}`, { cookie });
+}
+
+export async function createClient(body: ClientCreateRequest): Promise<Client> {
+  return apiFetch<Client>("/api/v1/clients", { method: "POST", body });
+}
+
+export async function updateClient(
+  clientId: string,
+  body: ClientUpdateRequest,
+): Promise<Client> {
+  return apiFetch<Client>(`/api/v1/clients/${clientId}`, {
+    method: "PATCH",
+    body,
+  });
+}
+
+export async function archiveClient(clientId: string): Promise<Client> {
+  return apiFetch<Client>(`/api/v1/clients/${clientId}`, { method: "DELETE" });
+}
+
+export async function fetchPipeline(cookie?: string): Promise<PipelineBoard> {
+  return apiFetch<PipelineBoard>("/api/v1/pipeline", { cookie });
+}
