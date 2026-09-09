@@ -28,7 +28,7 @@ from trinol.modules.work.services.task_service import (
 router = APIRouter(prefix="/api/v1/tasks", tags=["work"])
 
 
-def _task_to_response(task: Task) -> TaskResponse:
+def task_to_response(task: Task) -> TaskResponse:
     return TaskResponse(
         id=task.id,
         project_id=task.project_id,
@@ -79,7 +79,7 @@ async def create_task_route(
         actual_hours=payload.actual_hours,
         tags=payload.tags,
     )
-    return _task_to_response(task)
+    return task_to_response(task)
 
 
 @router.get(
@@ -104,7 +104,7 @@ async def list_tasks_route(
         limit=limit,
         offset=offset,
     )
-    return TaskListResponse(items=[_task_to_response(t) for t in result.items], total=result.total)
+    return TaskListResponse(items=[task_to_response(t) for t in result.items], total=result.total)
 
 
 @router.get(
@@ -120,7 +120,7 @@ async def get_task_route(
     task = await get_task(
         db, organization_id=membership.organization_id, actor=membership, task_id=task_id
     )
-    return _task_to_response(task)
+    return task_to_response(task)
 
 
 @router.patch(
@@ -142,7 +142,7 @@ async def update_task_route(
         task_id=task_id,
         updates=updates,
     )
-    return _task_to_response(task)
+    return task_to_response(task)
 
 
 @router.delete(

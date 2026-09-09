@@ -217,6 +217,9 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     # (MEMBER-tier), service is ensure_project_visible (MANAGER+ or project
     # membership).
     ("GET", "/api/v1/projects/{project_id}/milestones"),
+    # Same shape again: the Kanban board is just another view of the
+    # project's own data (ROADMAP.md Stage 4).
+    ("GET", "/api/v1/projects/{project_id}/board"),
     # RBAC.md §3 "Task edit": route is TASK_WRITE_OWN (MEMBER-tier), service
     # is TASK_WRITE_ANY (MANAGER+) or assignee or creator. Delete follows
     # the same rule (task_service.can_write_task's docstring, ROADMAP.md
@@ -384,16 +387,18 @@ async def test_task_write_routes_enforce_ownership_split(
     assert response.status_code == (success_status if expected_status is None else expected_status)
 
 
+@pytest.mark.parametrize("suffix", ["milestones", "board"])
 @pytest.mark.parametrize(
     ("access", "expected_status"),
     [("manager", 200), ("member", 200), ("outsider", 403), ("cross_org", 404)],
 )
-async def test_project_milestones_list_enforces_project_visibility(
-    client: AsyncClient, fake_verifier, db_session, access: str, expected_status: int
+async def test_project_subresource_reads_enforce_project_visibility(
+    client: AsyncClient, fake_verifier, db_session, access: str, expected_status: int, suffix: str
 ) -> None:
     """Same shape as 'Project detail' (RBAC.md §3): route is PROJECT_READ
     (MEMBER-tier), service is ensure_project_visible (MANAGER+ or project
-    membership)."""
+    membership) — the Kanban board (Stage 4) is just another read view of
+    the project, same rule as milestones (Stage 3)."""
     org = await make_organization(db_session)
     owner_user = await make_user(db_session, email=f"milestone-owner-{org.id}@x.com")
     owner = await make_membership(db_session, organization=org, user=owner_user, role=Role.OWNER)
@@ -433,7 +438,7 @@ async def test_project_milestones_list_enforces_project_visibility(
         membership=actor_membership,
         organization=actor_org,
     )
-    response = await client.get(f"/api/v1/projects/{project.id}/milestones")
+    response = await client.get(f"/api/v1/projects/{project.id}/{suffix}")
     assert response.status_code == expected_status
 
 

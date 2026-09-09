@@ -98,9 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-3 complete.**
-Stage 4 (Kanban board + drag reorder) is next. See the audit and decisions
-below for the reasoning each stage builds
+Status: **Implementation plan approved (11 stages). Stages 1-4 complete.**
+Stage 5 (Task comments + checklist items) is next. See the audit and
+decisions below for the reasoning each stage builds
 on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
@@ -412,8 +412,45 @@ module in full, and nothing found in this audit requires changing it:
       `project_id?: string | null` correctly, with a test covering the
       clear-to-null round trip. Re-verified: full suite (304 tests), ruff,
       mypy, frontend lint/typecheck/test/build, OpenAPI diff all green.
-- [ ] Stage 4 — Kanban: board endpoint (500-task cap, decision 3), drag
-      reorder via the existing task `PATCH` (decision 1)
+- [x] Stage 4 — Kanban: board endpoint (500-task cap, decision 3), drag
+      reorder via the existing task `PATCH` (decision 1).
+      `modules/work/services/board_service.py` +
+      `GET /projects/{id}/board` on `routes/projects.py`. Groups a
+      project's tasks by status (`{columns, total, truncated}`), capped at
+      500 tasks ordered by `board_position`, ascending, tie-broken by `id`
+      — `truncated` tells the caller honestly whether the cap actually
+      excluded anything, rather than silently returning a partial board
+      with no signal. Route/service-split, same shape as "Project detail"
+      (`PROJECT_READ` route, `ensure_project_visible` service) — folded
+      into the existing milestone-visibility matrix test
+      (`test_project_subresource_reads_enforce_project_visibility`,
+      parametrized over both routes, since they share the identical rule)
+      rather than duplicating it.
+
+      `board_position` added to `TaskUpdateRequest` — no dedicated reorder
+      endpoint (decision 1); a new `BoardPositionDecimal` schema type
+      accepts any syntactically valid, finite decimal string (rejects
+      `NaN`/`Infinity`/non-numeric input with a 422) and, unlike
+      `Budget`/`HoursDecimal`, applies no digit-count bound, since the
+      column itself (`sa.Numeric`, no declared precision/scale) is
+      genuinely unbounded — fractional-indexing midpoints over many
+      reorders can need arbitrary precision. `board_position` is `NOT
+      NULL`, so it joins `title`/`status`/`priority` in
+      `_required_fields_not_null` (with the matching `WithJsonSchema`
+      override that correctly hides `null`, this time for a field that
+      really does reject it — see Stage 3's `project_id` fix for the
+      opposite mistake). Renamed `routes/tasks.py`'s `_task_to_response`
+      to public `task_to_response` so the board route (in
+      `routes/projects.py`) can reuse it rather than duplicating the
+      mapping.
+
+      Both technical-debt-ledger rows for this stage (drag-reorder
+      collision handling; the 500-task cap being a guessed ceiling) were
+      already logged during Phase 2 planning — nothing new to add.
+
+      `apps/web/lib/api/types.gen.ts` regenerated, no drift. Full suite
+      (320 tests), ruff, mypy, frontend lint/typecheck/test/build all
+      green.
 - [ ] Stage 5 — Task comments + checklist items
 - [ ] Stage 6 — `platform.FileObject` + `FileStorage` protocol: **both**
       `LocalFileStorage` and `S3FileStorage` — ADR-0008 decided both ("one

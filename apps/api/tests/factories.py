@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -187,6 +188,7 @@ async def make_task(
     title: str = "Test Task",
     status: TaskStatus = TaskStatus.TODO,
     priority: TaskPriority = TaskPriority.MEDIUM,
+    board_position: Decimal | None = None,
 ) -> Task:
     task = Task(
         id=uuid7(),
@@ -198,6 +200,7 @@ async def make_task(
         assignee_id=assignee.user_id if assignee is not None else None,
         created_by=created_by.user_id,
         completed_at=datetime.now(UTC) if status == TaskStatus.DONE else None,
+        **({"board_position": board_position} if board_position is not None else {}),
     )
     db.add(task)
     await db.flush()

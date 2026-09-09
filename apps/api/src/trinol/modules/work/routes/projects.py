@@ -10,11 +10,14 @@ from trinol.core.authz.require import require
 from trinol.core.db.engine import get_db_session
 from trinol.modules.identity.deps import get_current_membership
 from trinol.modules.identity.models import Membership
-from trinol.modules.work.models import Milestone, Project, ProjectMember
+from trinol.modules.work.models import Milestone, Project, ProjectMember, TaskStatus
+from trinol.modules.work.routes.tasks import task_to_response
 from trinol.modules.work.schemas import (
+    BoardColumn,
     MilestoneCreateRequest,
     MilestoneListResponse,
     MilestoneResponse,
+    ProjectBoardResponse,
     ProjectCreateRequest,
     ProjectListResponse,
     ProjectMemberAddRequest,
@@ -24,6 +27,7 @@ from trinol.modules.work.schemas import (
     ProjectResponse,
     ProjectUpdateRequest,
 )
+from trinol.modules.work.services.board_service import get_project_board
 from trinol.modules.work.services.milestone_service import create_milestone, list_milestones
 from trinol.modules.work.services.project_member_service import (
     add_project_member,
@@ -327,4 +331,27 @@ async def list_milestones_route(
     )
     return MilestoneListResponse(
         items=[_milestone_to_response(m) for m in result.items], total=result.total
+    )
+
+
+@router.get(
+    "/{project_id}/board",
+    response_model=ProjectBoardResponse,
+    dependencies=[Depends(require(Permission.PROJECT_READ))],
+)
+async def get_project_board_route(
+    project_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> ProjectBoardResponse:
+    board = await get_project_board(
+        db, organization_id=membership.organization_id, actor=membership, project_id=project_id
+    )
+    return ProjectBoardResponse(
+        columns=[
+            BoardColumn(status=status, tasks=[task_to_response(t) for t in board.columns[status]])
+            for status in TaskStatus
+        ],
+        total=board.total,
+        truncated=board.truncated,
     )

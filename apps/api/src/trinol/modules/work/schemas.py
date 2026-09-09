@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from functools import partial
 from typing import Annotated, Any
 
@@ -60,6 +60,32 @@ HoursDecimal = Annotated[
         )
     ),
     WithJsonSchema({"type": "string", "pattern": _HOURS_PATTERN}, mode="validation"),
+]
+
+
+def _validate_finite_decimal_string(value: Any) -> Any:
+    """`board_position` (Stage 4 decision 1) is a plain, unbounded
+    `Numeric` — no fixed precision/scale to anchor a digit-count pattern
+    like Budget/HoursDecimal above, since fractional indexing can produce
+    arbitrarily precise midpoints over many reorders. The one thing that
+    must be rejected regardless: Postgres `NUMERIC` has no `Infinity`, and
+    a `NaN` would break Kanban column ordering outright — "numeric and
+    finite, nothing more" (ROADMAP.md Stage 4 decision)."""
+    if not isinstance(value, str):
+        raise ValueError("board_position must be a decimal string")
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation:
+        raise ValueError("board_position must be a valid decimal string") from None
+    if not parsed.is_finite():
+        raise ValueError("board_position must be a finite number")
+    return value
+
+
+BoardPositionDecimal = Annotated[
+    Decimal,
+    BeforeValidator(_validate_finite_decimal_string),
+    WithJsonSchema({"type": "string"}, mode="validation"),
 ]
 
 
@@ -273,13 +299,22 @@ class TaskUpdateRequest(BaseModel):
     estimated_hours: HoursDecimal | None = None
     actual_hours: HoursDecimal | None = None
     tags: list[str] | None = Field(default=None, max_length=20)
+    # Stage 4 decision 1: the client computes the midpoint of two neighbors
+    # on drag and PATCHes it as an ordinary field — no dedicated reorder
+    # endpoint. `ponytail: no server-side collision handling for two
+    # simultaneous drags on the same task.`
+    board_position: Annotated[
+        BoardPositionDecimal | None, WithJsonSchema({"type": "string"}, mode="validation")
+    ] = None
 
     @model_validator(mode="after")
     def _required_fields_not_null(self) -> TaskUpdateRequest:
         # Same reasoning as ProjectUpdateRequest: exclude_unset means a
         # field can be *present* and explicitly null, which would try to
         # null a NOT NULL column — reject that with a clean 422 up front.
-        for field in ("title", "status", "priority"):
+        # board_position is NOT NULL too (unlike project_id above), so it
+        # belongs in this rejection list, not the null-accepting group.
+        for field in ("title", "status", "priority", "board_position"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} may not be null")
         return self
@@ -309,3 +344,19 @@ class TaskResponse(BaseModel):
 class TaskListResponse(BaseModel):
     items: list[TaskResponse]
     total: int
+
+
+class BoardColumn(BaseModel):
+    status: TaskStatus
+    tasks: list[TaskResponse]
+
+
+class ProjectBoardResponse(BaseModel):
+    """Stage 4 decision 3: unpaginated but capped, not truly unlimited —
+    `total` is the real count and `truncated` tells the caller honestly
+    whether the 500-task cap actually excluded anything, rather than
+    silently returning a partial board with no signal."""
+
+    columns: list[BoardColumn]
+    total: int
+    truncated: bool
