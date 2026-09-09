@@ -1757,6 +1757,45 @@ checks; dashboard sales tiles show real counts.
         here, not fixed here — auto-scroll-on-drag-near-edge is a real
         enhancement but outside what Phase 2's own board ever built).
 
+      **Codex P1 (real, fixed): `dropBeforeIndex` computed drag-and-drop
+      neighbors from `column.leads` while it still contained the dragged
+      lead at its old index.** Dragging a card past others downward could
+      then pick the dragged card itself as a neighbor (sharpest when
+      dropping onto the card immediately following the dragged one — that
+      successor's "predecessor" resolved to the dragged card, still
+      sitting in the array). Traced exhaustively before touching code:
+      several "drag earlier card later" scenarios happened to produce a
+      visually-correct final order anyway (removing an item before a
+      lookup window shifts both ends equally, cancelling out) — but the
+      immediate-successor case is different in kind, using the dragged
+      card's own stale position as a stand-in for a real neighbor rather
+      than computing from the cards actually surrounding the drop.
+      Confirmed the discrepancy empirically (a throwaway RTL repro against
+      the running component, not just arithmetic on paper) before
+      committing to the fix.
+
+      Replaced index-based `dropBeforeIndex(column, beforeIndex)` with
+      `dropBeforeLead(column, targetLeadId)`: filters the dragged lead out
+      of `column.leads` first, then locates the target by id in that
+      filtered list — every neighbor lookup only ever sees cards other
+      than the one being moved, removing the index arithmetic that made
+      this possible to get wrong at all, rather than special-casing the
+      one input where it showed up. `kanban-board.tsx` (Phase 2, already
+      closed) shares the identical index-based pattern and the same
+      theoretical exposure — out of scope for this fix (not part of this
+      stage's review, and Phase 2 is closed), noted here rather than
+      silently left for someone to rediscover.
+
+      Added two regression tests: the general "first card dragged past
+      others" case (pinning the still-correct 15, matching prior
+      behavior) and the sharp immediate-successor case (pinning 9, where
+      the old code would have computed 5 from the dragged card's own
+      stale position — verified by reverting locally and confirming the
+      old value before writing the fix, not assumed).
+
+      Frontend: 48 tests across 14 files (was 46). `make check` green end
+      to end (no OpenAPI diff — frontend-only change).
+
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings
 - [ ] Notes

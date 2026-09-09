@@ -47,13 +47,31 @@ export function PipelineBoard({
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  function dropBeforeIndex(column: PipelineColumn, beforeIndex: number) {
+  // Codex P1: column.leads still contains the dragged lead at its old
+  // position, so computing neighbors by raw index against that array can
+  // pick the dragged lead itself as a neighbor (or shift the target's
+  // effective position) once it's reordered downward past other cards.
+  // Filtering the dragged lead out first, then locating the target by id
+  // in that filtered list, removes the index arithmetic that made this
+  // possible to get wrong — every neighbor lookup below only ever sees
+  // cards other than the one being moved.
+  function dropBeforeLead(column: PipelineColumn, targetLeadId: string | null) {
     if (!draggingId) return;
+    const remaining = column.leads.filter((lead) => lead.id !== draggingId);
+    const targetIndex =
+      targetLeadId === null
+        ? remaining.length
+        : remaining.findIndex((lead) => lead.id === targetLeadId);
+    if (targetIndex === -1) {
+      // Dropped onto its own card (targetLeadId === draggingId) — no-op.
+      setDraggingId(null);
+      return;
+    }
     const before =
-      beforeIndex > 0 ? column.leads[beforeIndex - 1].board_position : null;
+      targetIndex > 0 ? remaining[targetIndex - 1].board_position : null;
     const after =
-      beforeIndex < column.leads.length
-        ? column.leads[beforeIndex].board_position
+      targetIndex < remaining.length
+        ? remaining[targetIndex].board_position
         : null;
     onMoveLead(draggingId, column.stage, computeBoardPosition(before, after));
     setDraggingId(null);
@@ -69,14 +87,14 @@ export function PipelineBoard({
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
-            if (!readOnly) dropBeforeIndex(column, column.leads.length);
+            if (!readOnly) dropBeforeLead(column, null);
           }}
         >
           <p className="mb-2 px-1 text-xs font-semibold uppercase text-muted-foreground">
             {STAGE_LABELS[column.stage]} ({column.leads.length})
           </p>
           <div className="space-y-2">
-            {column.leads.map((lead, index) => (
+            {column.leads.map((lead) => (
               <div
                 key={lead.id}
                 draggable={!readOnly}
@@ -87,7 +105,7 @@ export function PipelineBoard({
                 onDrop={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (!readOnly) dropBeforeIndex(column, index);
+                  if (!readOnly) dropBeforeLead(column, lead.id);
                 }}
                 className={`rounded border border-border bg-background p-2 text-sm shadow-sm ${readOnly ? "" : "cursor-move"}`}
               >

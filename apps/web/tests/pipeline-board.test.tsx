@@ -62,6 +62,62 @@ describe("PipelineBoard", () => {
     expect(onMoveLead).toHaveBeenCalledWith("lead-b", "NEW", "-1");
   });
 
+  it("moving the first card past others computes neighbors excluding itself", () => {
+    // Codex P1: dropBeforeIndex used to compute neighbors from
+    // column.leads while it still contained the dragged lead at its old
+    // (earlier) position — dragging the first card forward could then
+    // pick the dragged card itself as a neighbor instead of the two
+    // cards actually surrounding the drop target. [A, B, C]: dragging A
+    // onto C must use B/C as neighbors (A is gone from consideration),
+    // not A/C.
+    const onMoveLead = vi.fn();
+    const columns: PipelineColumn[] = [
+      {
+        stage: "NEW",
+        leads: [
+          makeLead("lead-a", "Lead A", "0"),
+          makeLead("lead-b", "Lead B", "10"),
+          makeLead("lead-c", "Lead C", "20"),
+        ],
+      },
+    ];
+    render(<PipelineBoard columns={columns} onMoveLead={onMoveLead} />);
+
+    fireEvent.dragStart(screen.getByTestId("pipeline-lead-lead-a"));
+    fireEvent.drop(screen.getByTestId("pipeline-lead-lead-c"));
+
+    // Midpoint of B (10) and C (20) — never a value computed from A's own
+    // old position.
+    expect(onMoveLead).toHaveBeenCalledWith("lead-a", "NEW", "15");
+  });
+
+  it("moving the first card onto its immediate successor never uses the dragged card as a neighbor", () => {
+    // The sharpest case: dropping onto the card immediately after the
+    // dragged one used to make that successor's *predecessor* resolve to
+    // the dragged card itself (still sitting in column.leads at its old
+    // index). Once removed from consideration, B has no predecessor left
+    // in [A, B, C] minus A, so "before" must be null, not lead A's own
+    // position.
+    const onMoveLead = vi.fn();
+    const columns: PipelineColumn[] = [
+      {
+        stage: "NEW",
+        leads: [
+          makeLead("lead-a", "Lead A", "0"),
+          makeLead("lead-b", "Lead B", "10"),
+          makeLead("lead-c", "Lead C", "20"),
+        ],
+      },
+    ];
+    render(<PipelineBoard columns={columns} onMoveLead={onMoveLead} />);
+
+    fireEvent.dragStart(screen.getByTestId("pipeline-lead-lead-a"));
+    fireEvent.drop(screen.getByTestId("pipeline-lead-lead-b"));
+
+    // One less than B's position (10) — computeBoardPosition(null, 10).
+    expect(onMoveLead).toHaveBeenCalledWith("lead-a", "NEW", "9");
+  });
+
   it("ignores drag/drop entirely when read-only (MEMBER, RBAC.md §2)", () => {
     const onMoveLead = vi.fn();
     const columns: PipelineColumn[] = [
