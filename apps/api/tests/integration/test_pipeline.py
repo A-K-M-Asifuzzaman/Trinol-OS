@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from tests.factories import make_lead
+from tests.factories import make_lead, make_membership, make_organization, make_user
 from tests.helpers import login_as
 from trinol.core.authz.permissions import Role
 from trinol.modules.crm.models import LeadStage, LeadStageEvent
@@ -94,6 +94,42 @@ async def test_every_role_can_view_the_pipeline(
     await login_as(client, fake_verifier, db_session, role=role)
     response = await client.get("/api/v1/pipeline")
     assert response.status_code == 200
+
+
+async def test_pipeline_is_org_scoped(client: AsyncClient, fake_verifier, db_session) -> None:
+    """Phase 3 Stage 9: /pipeline is org-wide (no parent resource, no per-
+    lead 404 concept), so its isolation property is "never leaks another
+    org's data," not a per-resource 404 — the same shape
+    test_activity_feed.py's test_activity_feed_is_org_scoped already
+    covers for GET /api/v1/activity. get_pipeline_board already queries
+    through OrgSession (which would crash rather than silently leak per
+    org_session.py's own runtime guard), so this proves the property
+    empirically rather than trusting that alone."""
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    await make_lead(
+        db_session, organization=actor.organization, name="Own Org Lead", email="own@x.com"
+    )
+
+    other_org = await make_organization(db_session)
+    other_user = await make_user(db_session, email=f"other-{other_org.id}@x.com")
+    other_actor = await make_membership(
+        db_session, organization=other_org, user=other_user, role=Role.OWNER
+    )
+    await make_lead(
+        db_session,
+        organization=other_org,
+        assigned_to=other_actor,
+        name="Other Org Lead",
+        email=f"other-{other_org.id}@x.com",
+    )
+    await db_session.commit()
+
+    response = await client.get("/api/v1/pipeline")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    names = [lead["name"] for column in body["columns"] for lead in column["leads"]]
+    assert names == ["Own Org Lead"]
 
 
 async def test_drag_across_columns_via_patch_writes_one_stage_event(

@@ -6,6 +6,8 @@ from httpx import AsyncClient
 from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
+    make_client,
+    make_lead,
     make_membership,
     make_organization,
     make_project,
@@ -300,3 +302,111 @@ async def test_attachment_routes_isolated_across_orgs(
         )
     finally:
         app.dependency_overrides.pop(get_file_storage, None)
+
+
+# Phase 3 Stage 9. CLIENT_READ/LEAD_READ are MEMBER-tier (RBAC.md §2:
+# role-threshold only, no ownership-split for CRM this phase) — every role
+# reaches the service layer's org-scoped lookup, so every role's cross-org
+# attempt must 404, the same generic property _WORK_ISOLATION_ROUTES proves
+# for work-module routes above.
+_CRM_READ_ISOLATION_ROUTES: list[str] = [
+    "/api/v1/clients/{client_id}",
+    "/api/v1/leads/{lead_id}",
+]
+
+
+@pytest.mark.parametrize("path_template", _CRM_READ_ISOLATION_ROUTES)
+@pytest.mark.parametrize("role", list(Role))
+async def test_crm_read_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    path_template: str,
+    role: Role,
+) -> None:
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"crm-iso-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=org_a, owner=owner)
+    lead = await make_lead(
+        db_session, organization=org_a, assigned_to=owner, email=f"crm-iso-{org_a.id}@x.com"
+    )
+    await db_session.commit()
+
+    org_b = await make_organization(db_session)
+    actor_user = await make_user(db_session, email=f"crm-iso-actor-{org_b.id}-{role.value}@x.com")
+    actor_membership = await make_membership(
+        db_session, organization=org_b, user=actor_user, role=role
+    )
+    await db_session.commit()
+    await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=org_b,
+    )
+
+    path = path_template.format(client_id=client_row.id, lead_id=lead.id)
+    response = await client.get(path)
+    assert response.status_code == 404, f"GET {path} as {role} in org B got {response.status_code}"
+
+
+# PATCH/DELETE /clients/{id}, PATCH/DELETE /leads/{id}, and POST /leads/
+# {id}/convert are deliberately absent from the generic table above: unlike
+# work-module routes, CLIENT_WRITE/LEAD_WRITE/LEAD_CONVERT have no
+# MEMBER-reachable path at all (RBAC.md §2's role-threshold-only design,
+# Phase 3 Context decision — no ownership-split rule for CRM). Testing
+# MEMBER here would only prove MEMBER lacks the permission, not prove
+# isolation — same reasoning test_project_write_routes_isolated_across_orgs
+# already established for PROJECT_DELETE.
+_CRM_WRITE_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] = [
+    ("PATCH", "/api/v1/clients/{client_id}", {"name": "Hijacked"}),
+    ("DELETE", "/api/v1/clients/{client_id}", None),
+    ("PATCH", "/api/v1/leads/{lead_id}", {"notes": "Hijacked"}),
+    ("DELETE", "/api/v1/leads/{lead_id}", None),
+    ("POST", "/api/v1/leads/{lead_id}/convert", None),
+]
+
+
+@pytest.mark.parametrize("method,path_template,body", _CRM_WRITE_ISOLATION_ROUTES)
+@pytest.mark.parametrize("role", [Role.MANAGER, Role.ADMIN, Role.OWNER])
+async def test_crm_write_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_template: str,
+    body: dict[str, str] | None,
+    role: Role,
+) -> None:
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"crm-iso-w-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=org_a, owner=owner)
+    lead = await make_lead(
+        db_session, organization=org_a, assigned_to=owner, email=f"crm-iso-w-{org_a.id}@x.com"
+    )
+    await db_session.commit()
+
+    org_b = await make_organization(db_session)
+    actor_user = await make_user(db_session, email=f"crm-iso-w-actor-{org_b.id}-{role.value}@x.com")
+    actor_membership = await make_membership(
+        db_session, organization=org_b, user=actor_user, role=role
+    )
+    await db_session.commit()
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=org_b,
+    )
+
+    path = path_template.format(client_id=client_row.id, lead_id=lead.id)
+    response = await client.request(
+        method, path, json=body, headers={"X-CSRF-Token": actor.csrf_token}
+    )
+    assert response.status_code == 404, (
+        f"{method} {path} as {role} in org B got {response.status_code}"
+    )

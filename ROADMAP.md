@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-8 complete.**
-Stage 9 (Security matrices extended) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-9 complete.**
+Stage 10 (Seed script extended) is next.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1795,6 +1795,51 @@ checks; dashboard sales tiles show real counts.
 
       Frontend: 48 tests across 14 files (was 46). `make check` green end
       to end (no OpenAPI diff — frontend-only change).
+- [x] Stage 9 — Security matrices extended.
+
+      **Verified against actual code before doing any work, per this
+      session's established discipline, rather than trusting the plan's
+      own Stage 9 text at face value** — and most of what it describes was
+      already done: `make_client`/`make_lead` factories existed since
+      Stages 2-3, and `test_authz_matrix.py` already had a row for every
+      CRM route (added incrementally in each stage that introduced one,
+      the pattern Stage 2 discovered and every later stage followed —
+      confirmed directly via `grep`, not assumed from memory). The one
+      real gap: `test_isolation_matrix.py` had zero CRM rows at all.
+
+      Added `test_crm_read_routes_isolated_across_orgs`
+      (`/clients/{id}`, `/leads/{id}`, all four roles — `CLIENT_READ`/
+      `LEAD_READ` are MEMBER-tier, so every role reaches the service
+      layer's org-scoped lookup) and `test_crm_write_routes_isolated_
+      across_orgs` (`PATCH`/`DELETE /clients/{id}`, `PATCH`/`DELETE
+      /leads/{id}`, `POST /leads/{id}/convert` — MANAGER+ roles only).
+      The write routes are deliberately split from the read ones, same
+      reasoning `test_project_write_routes_isolated_across_orgs` already
+      established for `PROJECT_DELETE`: `CLIENT_WRITE`/`LEAD_WRITE`/
+      `LEAD_CONVERT` have no MEMBER-reachable path at all (RBAC.md §2's
+      role-threshold-only design, no ownership-split this phase), so
+      testing MEMBER there would only prove MEMBER lacks the permission,
+      not prove isolation. Both mirror `_WORK_ISOLATION_ROUTES`'s exact
+      shape: a fresh org pair per parametrized case, never a shared
+      fixture.
+
+      Also closed a gap the plan's own Stage 9 text didn't mention
+      (written before Stage 4/8 existed): neither `GET /api/v1/pipeline`
+      nor `GET /api/v1/leads/stats` had an explicit org-scoping test.
+      `/leads/stats` already had one from Stage 8
+      (`test_stats_is_org_scoped`); added `test_pipeline_is_org_scoped` to
+      `test_pipeline.py`, mirroring `test_activity_feed.py`'s own
+      `test_activity_feed_is_org_scoped` — both are org-wide aggregates
+      with no per-resource 404 concept, so "never leaks another org's
+      data" is the right property to assert, not a 404 check.
+      `POST /api/public/contact` remains deliberately absent from both
+      matrices (it's `@public`, no membership/role applies — covered by
+      Stage 6's own dedicated tests, same as `/health`/`/ready`). No
+      `_OWNERSHIP_SPLIT_ROUTES` entries added (Context's decision — CRM is
+      role-threshold only, not re-litigated).
+
+      671 tests passing (was 647). `make check` green end to end (no
+      OpenAPI diff — test-only change).
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings
