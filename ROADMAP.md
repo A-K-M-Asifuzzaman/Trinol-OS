@@ -1071,8 +1071,10 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-10 complete.**
-Stage 11 (E2E extension) is next — the final stage of this phase.
+Status: **Implementation plan approved (11 stages). All 11 stages
+complete, awaiting the final phase-level audit** (same two-step closure
+Phase 2 used: every stage independently reviewed as it landed, then one
+final audit once all stages are done).
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1914,6 +1916,63 @@ checks; dashboard sales tiles show real counts.
       idempotency tests rather than adding new ones to the count). `make
       check` green end to end (no OpenAPI diff — no route/schema changes
       this stage).
+- [x] Stage 11 — E2E extension, the final stage of this phase.
+      MASTER_PROMPT §37's eight E2E flows: Phase 2's `smoke.spec.ts`
+      already covers login/create project/create task/move task; this
+      stage adds the three remaining CRM ones — create lead, convert
+      lead, create client (create invoice is Phase 5, not built yet).
+      New `apps/web/e2e/crm.spec.ts` rather than growing
+      `smoke.spec.ts`'s own single test further — CRM is a distinct
+      chapter, and `smoke.spec.ts`'s own docstring already names this
+      split ("a sibling `crm.spec.ts` if the single-spec-file convention
+      gets unwieldy") as the acceptable option, confirmed directly rather
+      than assumed. Two tests: one chains create-lead → convert-lead
+      (converting redirects straight to the new project, the natural next
+      stop and proof the conversion actually created a client + project,
+      not just flipped the lead's stage — mirrors ROADMAP.md's own Phase
+      3 exit criteria); the other creates a client directly via the
+      Clients page's own form, since MASTER_PROMPT lists "create client"
+      as its own flow, not merely an observed side effect of conversion.
+
+      **Manually run against a real stack, not just written and assumed
+      to pass** (TESTING.md §5's own Proof criterion: "`pnpm exec
+      playwright test` green locally against `make dev`'s seeded stack").
+      Docker wasn't available in this environment, so — same approach
+      already used for Stage 8's manual verification and this same
+      stage's own prerequisites — ran the API host-side (`uv run
+      uvicorn`) and the web app via `pnpm dev`, both pointed at the same
+      Postgres the automated suite uses, with `E2E_TEST_MODE`/
+      `NEXT_PUBLIC_E2E_TEST_MODE` set and `make seed` already run. First
+      attempt failed at the very first `expect(page).toHaveURL(/\/
+      dashboard$/)` — traced directly (a `curl` against the session-
+      exchange endpoint) to a real oversight: only the frontend's
+      `NEXT_PUBLIC_E2E_TEST_MODE` had been set this time, not the
+      backend's own `E2E_TEST_MODE` — fixed and reran clean. Both new
+      tests pass, and — run together with the existing `smoke.spec.ts` —
+      all three E2E tests pass as one suite; reran the full three-test
+      suite twice more to rule out flakiness before treating it as done.
+
+      Found, while doing that verification, real leftover rows in the
+      local dev database from these same Playwright runs (multiple
+      "Playwright Lead ..."/"Playwright Client ..."/"Playwright Smoke
+      ..." leads/clients/projects/tasks, from re-running the suite
+      several times while getting the environment right) — cleaned them
+      up immediately in this same turn, FK-safe (`activity_events` via
+      the migrator role first, then `lead_stage_events`/`project_members`/
+      task-children, then projects/leads/clients/tasks themselves),
+      confirmed directly afterward that the `trinolit` org's data was back
+      to exactly this phase's own seed output (4 clients, 10 leads, 2
+      projects, 10 tasks) — applying the lesson Stage 10 itself had to
+      learn the hard way, this time in the same session rather than
+      leaving it for a later one to trip over.
+
+      No CI workflow change — TESTING.md §6 already scopes Playwright to
+      main/release-candidate runs, not every PR, and nothing about that
+      scoping changes for CRM's three additional flows.
+
+      671 backend tests unchanged (frontend-only stage). 3/3 Playwright
+      tests passing locally. `make check` green end to end (no OpenAPI
+      diff — no backend changes this stage).
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings
