@@ -360,3 +360,68 @@ class ProjectBoardResponse(BaseModel):
     columns: list[BoardColumn]
     total: int
     truncated: bool
+
+
+class TaskCommentCreateRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=10000)
+
+
+class TaskCommentUpdateRequest(BaseModel):
+    """A comment has exactly one editable field — no exclude_unset partial-
+    update ambiguity the way Task/Project updates need."""
+
+    body: str = Field(min_length=1, max_length=10000)
+
+
+class TaskCommentResponse(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    author_id: uuid.UUID
+    body: str
+    edited_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskCommentListResponse(BaseModel):
+    items: list[TaskCommentResponse]
+    total: int
+
+
+class TaskChecklistItemCreateRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=500)
+    position: int = Field(default=0, ge=0)
+
+
+class TaskChecklistItemUpdateRequest(BaseModel):
+    """Partial update (exclude_unset), same pattern as Task/Project — all
+    three columns are NOT NULL, so each rejects an explicit null below."""
+
+    label: Annotated[
+        str | None,
+        WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 500}, mode="validation"),
+    ] = Field(default=None, min_length=1, max_length=500)
+    done: Annotated[bool | None, WithJsonSchema({"type": "boolean"}, mode="validation")] = None
+    position: Annotated[
+        int | None, WithJsonSchema({"type": "integer", "minimum": 0}, mode="validation")
+    ] = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _required_fields_not_null(self) -> TaskChecklistItemUpdateRequest:
+        for field in ("label", "done", "position"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} may not be null")
+        return self
+
+
+class TaskChecklistItemResponse(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    label: str
+    done: bool
+    position: int
+
+
+class TaskChecklistItemListResponse(BaseModel):
+    items: list[TaskChecklistItemResponse]
+    total: int

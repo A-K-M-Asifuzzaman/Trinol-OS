@@ -5,11 +5,13 @@ from fastapi.routing import APIRoute
 from httpx import AsyncClient
 
 from tests.factories import (
+    make_checklist_item,
     make_membership,
     make_organization,
     make_project,
     make_project_member,
     make_task,
+    make_task_comment,
     make_user,
 )
 from tests.helpers import login_as, login_as_existing
@@ -194,6 +196,17 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # team-read rows above.
     ("GET", "/api/v1/tasks", Permission.TASK_READ, None),
     ("GET", "/api/v1/tasks/{task_id}", Permission.TASK_READ, None),
+    # RBAC.md §3 documents no restriction on who may comment (ROADMAP.md
+    # Stage 5 decision) — open to every role, same reasoning as task
+    # creation/read above.
+    (
+        "POST",
+        "/api/v1/tasks/{task_id}/comments",
+        Permission.TASK_WRITE_OWN,
+        {"body": "Matrix comment"},
+    ),
+    ("GET", "/api/v1/tasks/{task_id}/comments", Permission.TASK_READ, None),
+    ("GET", "/api/v1/tasks/{task_id}/checklist-items", Permission.TASK_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -226,6 +239,17 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     # Stage 3 decision).
     ("PATCH", "/api/v1/tasks/{task_id}"),
     ("DELETE", "/api/v1/tasks/{task_id}"),
+    # RBAC.md §3 "Comment edit/delete: author only (ADMIN+ may delete)" —
+    # route is TASK_WRITE_OWN (MEMBER-tier), service is author-only for
+    # edit, author-or-ADMIN+ for delete (ROADMAP.md Stage 5).
+    ("PATCH", "/api/v1/tasks/{task_id}/comments/{comment_id}"),
+    ("DELETE", "/api/v1/tasks/{task_id}/comments/{comment_id}"),
+    # Checklist items are task content, not independent discourse like
+    # comments — they follow the same rule as task edit (can_write_task),
+    # not comments' author-only rule (ROADMAP.md Stage 5 decision).
+    ("POST", "/api/v1/tasks/{task_id}/checklist-items"),
+    ("PATCH", "/api/v1/tasks/{task_id}/checklist-items/{item_id}"),
+    ("DELETE", "/api/v1/tasks/{task_id}/checklist-items/{item_id}"),
 }
 
 
@@ -385,6 +409,158 @@ async def test_task_write_routes_enforce_ownership_split(
     headers = {"X-CSRF-Token": actor.csrf_token}
     response = await client.request(method, f"/api/v1/tasks/{task.id}", json=body, headers=headers)
     assert response.status_code == (success_status if expected_status is None else expected_status)
+
+
+@pytest.mark.parametrize(
+    ("method", "path_suffix", "body", "success_status"),
+    [
+        ("POST", "", {"label": "New item"}, 201),
+        ("PATCH", "/{item_id}", {"label": "Renamed"}, 200),
+        ("DELETE", "/{item_id}", None, 204),
+    ],
+)
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("manager", None),
+        ("assignee", None),
+        ("creator", None),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_checklist_item_routes_enforce_ownership_split(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_suffix: str,
+    body: dict[str, str] | None,
+    success_status: int,
+    access: str,
+    expected_status: int | None,
+) -> None:
+    """Checklist items follow the same rule as task edit (can_write_task),
+    not comments' author-only rule (ROADMAP.md Stage 5 decision) — there's
+    no author concept on a checklist item to hang a separate rule on."""
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email=f"checklist-creator-{org.id}@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    assignee_user = await make_user(db_session, email=f"checklist-assignee-{org.id}@x.com")
+    assignee = await make_membership(
+        db_session, organization=org, user=assignee_user, role=Role.MEMBER
+    )
+    task = await make_task(db_session, organization=org, created_by=creator, assignee=assignee)
+    item = await make_checklist_item(db_session, task=task)
+
+    if access == "creator":
+        actor_user, actor_membership, actor_org = creator_user, creator, org
+    elif access == "assignee":
+        actor_user, actor_membership, actor_org = assignee_user, assignee, org
+    elif access in ("manager", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"checklist-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"checklist-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    path = f"/api/v1/tasks/{task.id}/checklist-items" + path_suffix.format(item_id=item.id)
+    headers = {"X-CSRF-Token": actor.csrf_token}
+    response = await client.request(method, path, json=body, headers=headers)
+    assert response.status_code == (success_status if expected_status is None else expected_status)
+
+
+@pytest.mark.parametrize(
+    ("method", "body", "success_status"),
+    [
+        ("PATCH", {"body": "Edited"}, 200),
+        ("DELETE", None, 204),
+    ],
+)
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("author", None),
+        ("admin_non_author", "method_dependent"),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_comment_routes_enforce_author_only_edit_admin_delete(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    body: dict[str, str] | None,
+    success_status: int,
+    access: str,
+    expected_status,
+) -> None:
+    """RBAC.md §3: "Comment edit/delete: author only (ADMIN+ may delete)"
+    — edit has no ADMIN+ override at all (an ADMIN who isn't the author
+    still gets 403 on PATCH), unlike task edit's MANAGER+ escape hatch."""
+    org = await make_organization(db_session)
+    author_user = await make_user(db_session, email=f"comment-author-{org.id}@x.com")
+    author = await make_membership(db_session, organization=org, user=author_user, role=Role.MEMBER)
+    task = await make_task(db_session, organization=org, created_by=author)
+    comment = await make_task_comment(db_session, task=task, author=author_user)
+
+    if access == "author":
+        actor_user, actor_membership, actor_org = author_user, author, org
+    elif access in ("admin_non_author", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"comment-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.ADMIN if access == "admin_non_author" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"comment-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    # admin_non_author is the one case where edit and delete diverge:
+    # ADMIN+ may delete a comment they didn't write, but may not edit it.
+    if expected_status == "method_dependent":
+        resolved_expected = 403 if method == "PATCH" else 204
+    else:
+        resolved_expected = success_status if expected_status is None else expected_status
+    headers = {"X-CSRF-Token": actor.csrf_token}
+    response = await client.request(
+        method, f"/api/v1/tasks/{task.id}/comments/{comment.id}", json=body, headers=headers
+    )
+    assert response.status_code == resolved_expected
 
 
 @pytest.mark.parametrize("suffix", ["milestones", "board"])

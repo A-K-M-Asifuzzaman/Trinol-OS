@@ -22,6 +22,8 @@ from trinol.modules.work.models import (
     ProjectStatus,
     RoleOnProject,
     Task,
+    TaskChecklistItem,
+    TaskComment,
     TaskPriority,
     TaskStatus,
 )
@@ -205,3 +207,33 @@ async def make_task(
     db.add(task)
     await db.flush()
     return task
+
+
+async def make_task_comment(
+    db: AsyncSession, *, task: Task, author: User, body: str = "Test comment"
+) -> TaskComment:
+    comment = TaskComment(
+        id=uuid7(),
+        organization_id=task.organization_id,
+        task_id=task.id,
+        author_id=author.id,
+        body=body,
+    )
+    db.add(comment)
+    await db.flush()
+    return comment
+
+
+async def make_checklist_item(
+    db: AsyncSession, *, task: Task, label: str = "Test item", position: int = 0
+) -> TaskChecklistItem:
+    item = TaskChecklistItem(
+        id=uuid7(),
+        organization_id=task.organization_id,
+        task_id=task.id,
+        label=label,
+        position=position,
+    )
+    db.add(item)
+    await db.flush()
+    return item

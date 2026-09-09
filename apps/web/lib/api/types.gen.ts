@@ -261,6 +261,78 @@ export interface paths {
         patch: operations["update_task_route_api_v1_tasks__task_id__patch"];
         trace?: never;
     };
+    "/api/v1/tasks/{task_id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Comments Route */
+        get: operations["list_comments_route_api_v1_tasks__task_id__comments_get"];
+        put?: never;
+        /** Create Comment Route */
+        post: operations["create_comment_route_api_v1_tasks__task_id__comments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}/comments/{comment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Comment Route */
+        delete: operations["delete_comment_route_api_v1_tasks__task_id__comments__comment_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Comment Route */
+        patch: operations["update_comment_route_api_v1_tasks__task_id__comments__comment_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}/checklist-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Checklist Items Route */
+        get: operations["list_checklist_items_route_api_v1_tasks__task_id__checklist_items_get"];
+        put?: never;
+        /** Create Checklist Item Route */
+        post: operations["create_checklist_item_route_api_v1_tasks__task_id__checklist_items_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}/checklist-items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Checklist Item Route */
+        delete: operations["delete_checklist_item_route_api_v1_tasks__task_id__checklist_items__item_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Checklist Item Route */
+        patch: operations["update_checklist_item_route_api_v1_tasks__task_id__checklist_items__item_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -688,6 +760,108 @@ export interface components {
             role: string;
             /** Csrf Token */
             csrf_token: string;
+        };
+        /** TaskChecklistItemCreateRequest */
+        TaskChecklistItemCreateRequest: {
+            /** Label */
+            label: string;
+            /**
+             * Position
+             * @default 0
+             */
+            position: number;
+        };
+        /** TaskChecklistItemListResponse */
+        TaskChecklistItemListResponse: {
+            /** Items */
+            items: components["schemas"]["TaskChecklistItemResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** TaskChecklistItemResponse */
+        TaskChecklistItemResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /** Label */
+            label: string;
+            /** Done */
+            done: boolean;
+            /** Position */
+            position: number;
+        };
+        /**
+         * TaskChecklistItemUpdateRequest
+         * @description Partial update (exclude_unset), same pattern as Task/Project — all
+         *     three columns are NOT NULL, so each rejects an explicit null below.
+         */
+        TaskChecklistItemUpdateRequest: {
+            /** Label */
+            label?: string;
+            /** Done */
+            done?: boolean;
+            /** Position */
+            position?: number;
+        };
+        /** TaskCommentCreateRequest */
+        TaskCommentCreateRequest: {
+            /** Body */
+            body: string;
+        };
+        /** TaskCommentListResponse */
+        TaskCommentListResponse: {
+            /** Items */
+            items: components["schemas"]["TaskCommentResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** TaskCommentResponse */
+        TaskCommentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /**
+             * Author Id
+             * Format: uuid
+             */
+            author_id: string;
+            /** Body */
+            body: string;
+            /** Edited At */
+            edited_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * TaskCommentUpdateRequest
+         * @description A comment has exactly one editable field — no exclude_unset partial-
+         *     update ambiguity the way Task/Project updates need.
+         */
+        TaskCommentUpdateRequest: {
+            /** Body */
+            body: string;
         };
         /** TaskCreateRequest */
         TaskCreateRequest: {
@@ -1668,6 +1842,276 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_comments_route_api_v1_tasks__task_id__comments_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCommentListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_comment_route_api_v1_tasks__task_id__comments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskCommentCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCommentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_comment_route_api_v1_tasks__task_id__comments__comment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_comment_route_api_v1_tasks__task_id__comments__comment_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                comment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskCommentUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCommentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_checklist_items_route_api_v1_tasks__task_id__checklist_items_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskChecklistItemListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_checklist_item_route_api_v1_tasks__task_id__checklist_items_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskChecklistItemCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskChecklistItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_checklist_item_route_api_v1_tasks__task_id__checklist_items__item_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_checklist_item_route_api_v1_tasks__task_id__checklist_items__item_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskChecklistItemUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskChecklistItemResponse"];
                 };
             };
             /** @description Validation Error */

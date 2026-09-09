@@ -98,8 +98,8 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-4 complete.**
-Stage 5 (Task comments + checklist items) is next. See the audit and
+Status: **Implementation plan approved (11 stages). Stages 1-5 complete.**
+Stage 6 (`platform.FileObject` + `FileStorage`) is next. See the audit and
 decisions below for the reasoning each stage builds
 on.
 
@@ -451,7 +451,46 @@ module in full, and nothing found in this audit requires changing it:
       `apps/web/lib/api/types.gen.ts` regenerated, no drift. Full suite
       (320 tests), ruff, mypy, frontend lint/typecheck/test/build all
       green.
-- [ ] Stage 5 — Task comments + checklist items
+- [x] Stage 5 — Task comments + checklist items.
+      `modules/work/services/{task_comment_service,task_checklist_service}.py`
+      + routes nested under `/tasks/{id}/comments` and
+      `/tasks/{id}/checklist-items` (`routes/tasks.py`). Applied ADR-0011's
+      audit-on-delete requirement correctly from the start this time
+      (`task_comment.deleted`/`task_checklist_item.deleted`,
+      `is_audit=true`) — it names comments and checklist items
+      explicitly alongside tasks, the exact gap a prior Stage 3 review
+      round caught for `delete_task`.
+
+      Two implementation-level decisions, since RBAC.md documents comment
+      edit/delete but nothing about creation or checklist items:
+      1. **Comment creation is open to every role**, no restriction beyond
+         being able to see the task (org-wide, Stage 3 decision) — same
+         reasoning as task creation's own "everyone" rule. RBAC.md §3 only
+         restricts edit/delete, not creation.
+      2. **Checklist items follow the task-edit rule (`can_write_task`:
+         `MANAGER+` or assignee or creator), not comments' author-only
+         rule** — a checklist item has no `author_id` column at all
+         (DATABASE.md §3), so there's no identity to hang an author-only
+         rule on; it's task content, not independent discourse, and
+         inherits the parent task's own write permission instead.
+
+      RBAC.md §3's exact asymmetry implemented precisely: comment **edit**
+      is author-only with **no** `ADMIN+` override at all (unlike task
+      edit's `MANAGER+` escape hatch), while comment **delete** does allow
+      `ADMIN+` — a dedicated test (`test_comment_routes_enforce_author_
+      only_edit_admin_delete`) covers exactly the case where these two
+      diverge (an ADMIN who isn't the author: 403 on PATCH, 204 on
+      DELETE). `edited_at` is derived server-side on every body change,
+      mirroring `completed_at`'s Stage 3 pattern — never client-settable.
+
+      Comment/checklist-item write routes are further split-permission
+      cases (route: `TASK_WRITE_OWN`, MEMBER-tier; service: the real
+      rule), joining `_OWNERSHIP_SPLIT_ROUTES` with dedicated multi-way
+      tests, same pattern as every prior stage's split routes.
+
+      `apps/web/lib/api/types.gen.ts` regenerated, no drift. Full suite
+      (373 tests), ruff, mypy, frontend lint/typecheck/test/build all
+      green.
 - [ ] Stage 6 — `platform.FileObject` + `FileStorage` protocol: **both**
       `LocalFileStorage` and `S3FileStorage` — ADR-0008 decided both ("one
       interface, two implementations, no speculative third"), and
