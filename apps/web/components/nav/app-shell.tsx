@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/nav/sidebar";
+import { setCsrfToken } from "@/lib/api/client";
 
 // MASTER_PROMPT §32 / AGENTS.md's "a feature is not done until ... responsive
 // behavior works": the sidebar can't permanently reserve a fixed-width
@@ -10,12 +11,21 @@ import { Sidebar } from "@/components/nav/sidebar";
 // toggle; at md and above it's always visible, same as before.
 export function AppShell({
   role,
+  csrfToken,
   children,
 }: {
   role: string | null;
+  csrfToken: string | null;
   children: React.ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Rehydrates the in-memory CSRF token (AUTH.md §6) on every fresh page
+  // load of an already-authenticated session — see layout.tsx's own comment
+  // for why this can't just be the login form's job alone.
+  useEffect(() => {
+    if (csrfToken) setCsrfToken(csrfToken);
+  }, [csrfToken]);
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">

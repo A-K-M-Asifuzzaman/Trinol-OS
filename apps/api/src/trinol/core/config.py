@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     # without it. Settings must not fail boot over this.
     firebase_credentials: str | None = None
 
+    # Phase 2 Stage 11 (Playwright E2E): lets get_identity_verifier() (deps.py)
+    # return E2EIdentityVerifier instead of the real Firebase one, so an
+    # externally-running server can authenticate a Playwright browser
+    # without real Firebase credentials. Double-gated at the call site
+    # (never honored when app_env == "production", regardless of this
+    # flag) — same defense-in-depth posture as EMAIL.md §3's dev-only SMTP
+    # allowlist.
+    e2e_test_mode: bool = False
+
     storage_backend: Literal["local", "s3"] = "local"
     # ADR-0008: "a directory outside the repo" — relative paths resolve
     # under whatever the process's cwd is (apps/api locally, /app in

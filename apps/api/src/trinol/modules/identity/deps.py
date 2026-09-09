@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trinol.core.db.engine import get_db_session
 from trinol.core.deps import get_settings
 from trinol.core.errors import UnauthorizedError
+from trinol.modules.identity.e2e_verifier import E2EIdentityVerifier
 from trinol.modules.identity.firebase_verifier import FirebaseIdentityVerifier
 from trinol.modules.identity.identity_verifier import IdentityVerifier
 from trinol.modules.identity.models import Membership, MembershipStatus, Session
@@ -24,10 +25,19 @@ _verifier: IdentityVerifier | None = None
 
 def get_identity_verifier() -> IdentityVerifier:
     """Overridden in tests via `app.dependency_overrides` with a
-    `FakeIdentityVerifier` (ADR-0013: tests must not call Firebase)."""
+    `FakeIdentityVerifier` (ADR-0013: tests must not call Firebase).
+
+    Stage 11 (Playwright E2E): `E2EIdentityVerifier` only when
+    `e2e_test_mode` is on *and* `app_env` isn't production — checked here,
+    not just left to the settings default, so a misconfigured production
+    deployment can never honor the flag even if it's accidentally set."""
     global _verifier
     if _verifier is None:
-        _verifier = FirebaseIdentityVerifier()
+        settings = get_settings()
+        if settings.e2e_test_mode and settings.app_env != "production":
+            _verifier = E2EIdentityVerifier()
+        else:
+            _verifier = FirebaseIdentityVerifier()
     return _verifier
 
 

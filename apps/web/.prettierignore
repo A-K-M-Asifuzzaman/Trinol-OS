@@ -1,3 +1,6 @@
 lib/api/types.gen.ts
 .next/
 node_modules/
+pnpm-lock.yaml
+test-results/
+playwright-report/

@@ -15,6 +15,10 @@ export default defineConfig({
     },
     setupFiles: ["./tests/setup.ts"],
     globals: true,
+    // e2e/ is Playwright's own suite (playwright.config.ts), a different
+    // test runner and global `test` function — vitest's default include
+    // glob would otherwise pick up e2e/*.spec.ts too and fail immediately.
+    exclude: ["**/node_modules/**", "e2e/**"],
   },
   resolve: {
     alias: {

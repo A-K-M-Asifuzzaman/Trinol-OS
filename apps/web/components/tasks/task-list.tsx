@@ -11,7 +11,13 @@ import { Button } from "@/components/ui/button";
 import { ListEmptyState } from "@/components/list/empty-state";
 import { ListErrorState } from "@/components/list/error-state";
 import { ListLoadingState } from "@/components/list/loading-state";
-import { ApiError, createTask, fetchTasks, type Task } from "@/lib/api/client";
+import {
+  ApiError,
+  createTask,
+  fetchProjects,
+  fetchTasks,
+  type Task,
+} from "@/lib/api/client";
 
 // Backs both /tasks (org-wide, showCreateForm) and /tasks/my (decision 5 —
 // assigneeId is resolved server-side from the session by the /tasks/my page
@@ -75,6 +81,7 @@ export function TaskListView({
 
 const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required"),
+  project_id: z.string(),
 });
 type CreateTaskValues = z.infer<typeof createTaskSchema>;
 
@@ -86,6 +93,13 @@ function CreateTaskForm({ onCreated }: { onCreated: () => void }) {
     handleSubmit,
     formState: { errors },
   } = useForm<CreateTaskValues>({ resolver: zodResolver(createTaskSchema) });
+  // A task with no project never appears on any Kanban board (GET
+  // /projects/{id}/board groups strictly by project_id) — this picker is
+  // what makes "create task, move it on the board" possible at all.
+  const projectsQuery = useQuery({
+    queryKey: ["projects-for-task-form"],
+    queryFn: () => fetchProjects({ limit: 200 }),
+  });
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -94,7 +108,12 @@ function CreateTaskForm({ onCreated }: { onCreated: () => void }) {
       // status/priority have server-side defaults (schemas.py), but
       // openapi-typescript still generates them as required fields — pass
       // the same defaults explicitly rather than fighting the generator.
-      await createTask({ ...values, status: "TODO", priority: "MEDIUM" });
+      await createTask({
+        title: values.title,
+        project_id: values.project_id || null,
+        status: "TODO",
+        priority: "MEDIUM",
+      });
       onCreated();
     } catch (err) {
       setFormError(
@@ -125,6 +144,24 @@ function CreateTaskForm({ onCreated }: { onCreated: () => void }) {
             {errors.title.message}
           </p>
         ) : null}
+      </div>
+      <div>
+        <label htmlFor="project_id" className="text-sm font-medium">
+          Project (optional)
+        </label>
+        <select
+          id="project_id"
+          className="mt-1 w-full rounded border border-border px-3 py-2 text-sm"
+          defaultValue=""
+          {...register("project_id")}
+        >
+          <option value="">No project</option>
+          {(projectsQuery.data?.items ?? []).map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
       </div>
       {formError ? (
         <p role="alert" className="text-sm text-destructive">

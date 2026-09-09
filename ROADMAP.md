@@ -98,9 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-10 complete.**
-Stage 11 (Playwright E2E foundation) is next. See the audit and decisions
-below for the reasoning each stage builds on.
+Status: **All 11 stages complete.** Phase 2 implementation is done —
+pending Codex audit and P0/P1 resolution before Phase 2 is approved. See
+the audit and decisions below for the reasoning each stage builds on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -962,9 +962,111 @@ module in full, and nothing found in this audit requires changing it:
       failure now fixed, not merely reasoned about. `make check` also
       re-run end to end immediately after `make seed`, matching the
       documented workflow exactly.
-- [ ] Stage 11 — E2E foundation (Playwright) — first real page with content
+- [x] Stage 11 — E2E foundation (Playwright) — first real page with content
       to click through; TESTING.md §5 already scopes this to
       main/release-candidate runs, not every PR
+
+      **Decision needed first, not inferable from the docs**: TESTING.md
+      §5 lists "login" as one of the eight E2E flows and says Playwright
+      runs "against the docker-compose stack with seeded data," but
+      nowhere specifies *how* an external browser process is supposed to
+      authenticate — the in-process `FakeIdentityVerifier` pytest already
+      uses only works via `app.dependency_overrides`, unreachable from a
+      separately-running server Playwright hits over real HTTP, and there
+      are no real Firebase test credentials in any environment this
+      project has run in so far. Asked the user directly rather than
+      guessing at a security-relevant design point; chose "add a gated
+      test-only auth bypass" over waiting on real credentials or mocking
+      Firebase client-side.
+
+      **Implementation.** `Settings.e2e_test_mode: bool = False`
+      (core/config.py) and a new `E2EIdentityVerifier`
+      (identity/e2e_verifier.py): `verify(id_token)` treats `id_token` as
+      the plain email of a pre-existing user and returns
+      `firebase_uid=f"seed-{email}"`, matching `scripts/seed.py`'s own
+      placeholder scheme exactly (`_resolve_or_provision_user` matches
+      strictly on `firebase_uid`, so this has to line up, not just look
+      plausible) — the seeded Founder/Developer/Designer users resolve
+      correctly with no new account provisioning. `get_identity_verifier()`
+      (identity/deps.py) hands out `E2EIdentityVerifier` only when
+      `e2e_test_mode` is on **and** `app_env != "production"` — checked at
+      the call site, not left to the settings default alone, so a
+      misconfigured production deployment can't honor the flag even if
+      `E2E_TEST_MODE` is accidentally set there (same defense-in-depth
+      posture as EMAIL.md §3's dev-only SMTP allowlist). 4 new unit tests
+      (`test_e2e_identity_verifier.py`) cover the verifier's identity
+      output and all three gating branches directly — a security-relevant
+      gate gets the same direct-test treatment as origin_check/
+      authz_matrix, not just indirect coverage via the E2E spec itself.
+
+      Frontend: `login/page.tsx` renders a second, minimal form only when
+      `NEXT_PUBLIC_E2E_TEST_MODE=true` (unset by default — never in a real
+      deployment) — a plain email field that calls the exact same
+      `completeSignIn()` the real form uses, so CSRF-token handling and
+      the post-login redirect are identical, not a separate code path
+      that could drift. The backend's own gate is the actual security
+      boundary; this is a convenience the backend would refuse anyway if
+      it were somehow reachable in production. Both `.env.example`
+      variables documented, default `false`.
+
+      `playwright.config.ts` (`apps/web`, Chromium only, no `webServer` —
+      runs against a stack the caller already has up, per TESTING.md §5's
+      own wording) and `e2e/smoke.spec.ts`: log in, create a project,
+      create a task assigned to that project, drag it from TODO to DONE
+      on the Kanban board, assert it landed. `vitest.config.ts` excludes
+      `e2e/**` — Playwright's own `test`/`expect` globals collide with
+      vitest's default include glob otherwise.
+
+      **Two real, pre-existing gaps found while actually driving the app
+      end to end, not by reading the code — neither is Stage 11's own
+      new surface, both predate it:**
+
+      1. **A task created via the UI could never appear on any Kanban
+         board.** The Stage 8 create-task form never collected a
+         `project_id` — every task-via-UI landed with `project_id: null`,
+         and `GET /projects/{id}/board` groups strictly by `project_id`.
+         "Create a task, move it on the board" (TESTING.md §5's own
+         flow) was structurally impossible through the app as it stood.
+         Fixed: `CreateTaskForm` (`components/tasks/task-list.tsx`) gained
+         a "Project (optional)" `<select>`, populated from
+         `fetchProjects()`, submitting `project_id` when one's chosen.
+
+      2. **CSRF token never survived a fresh page load of an
+         already-authenticated session.** `lib/api/client.ts`'s
+         `csrfToken` is deliberately in-memory only (AUTH.md §6) and was
+         only ever set once, right after the login form's own
+         `completeSignIn()` — true for a real user's uninterrupted SPA
+         session, but any full navigation (`page.goto()` in Playwright;
+         equally a hard refresh or a new tab for a real user) wipes it
+         with nothing to restore it, so the very next POST/PATCH/DELETE
+         403s with "Invalid or missing CSRF token." Reproduced directly
+         (the smoke spec's own `page.goto("/projects")` after login hit
+         exactly this) before fixing it, not just reasoned about. Fixed
+         by extending `app/(app)/layout.tsx`'s existing server-side
+         `fetchSessionInfo()` call (already resolving `role` for
+         Sidebar) to also read `csrf_token`, passed into `AppShell` (now
+         a required prop) which rehydrates it via `setCsrfToken()` in a
+         `useEffect` — covers every page in the authenticated app on
+         every fresh load, not just the login form's own one-time set.
+
+      **Manual verification, complete this time — not partial.** Ran the
+      full flow for real: `make seed` (already had run in Stage 10),
+      backend started with `E2E_TEST_MODE=true` and `APP_ORIGIN` matching
+      the actual dev-server port, frontend started with
+      `NEXT_PUBLIC_E2E_TEST_MODE=true`, Chromium installed via
+      `pnpm exec playwright install chromium` (works in this environment,
+      unlike the MCP Playwright plugin's own separate Chrome dependency
+      hit in Stage 8). `pnpm exec playwright test` failed twice first —
+      an Origin mismatch (a real dev-server port collision, fixed by
+      matching `APP_ORIGIN` to it) and the CSRF gap above (fixed for
+      real, in the app, not worked around in the test) — then passed
+      clean on the third run. Test-created rows (`E2E<timestamp>`
+      project/task) cleaned up afterward via `psql`; the real seed data
+      from Stage 10 confirmed untouched (still exactly 2 projects, 10
+      tasks). 510 backend tests passing (was 506), 22 frontend tests
+      passing (was 20). `make check` re-verified green end to end
+      afterward — ruff, mypy, ESLint, Prettier, typecheck, Vitest,
+      `next build`, OpenAPI diff.
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 

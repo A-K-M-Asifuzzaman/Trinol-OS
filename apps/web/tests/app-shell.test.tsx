@@ -7,7 +7,11 @@ import { AppShell } from "@/components/nav/app-shell";
 // alternative. Below md it now starts collapsed behind a toggle.
 describe("AppShell", () => {
   it("starts with the mobile nav collapsed and expands it on toggle", () => {
-    render(<AppShell role="OWNER">content</AppShell>);
+    render(
+      <AppShell role="OWNER" csrfToken={null}>
+        content
+      </AppShell>,
+    );
 
     const toggle = screen.getByRole("button", { name: /menu/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");

@@ -72,4 +72,11 @@ describe("LoginPage", () => {
     expect(signInWithEmailPassword).not.toHaveBeenCalled();
     expect(pushMock).not.toHaveBeenCalled();
   });
+
+  // Stage 11: the E2E test-login form must never appear in a real build —
+  // NEXT_PUBLIC_E2E_TEST_MODE is unset here, matching a real deployment.
+  it("never renders the E2E test-login form when NEXT_PUBLIC_E2E_TEST_MODE is unset", () => {
+    render(<LoginPage />);
+    expect(screen.queryByLabelText(/e2e test email/i)).not.toBeInTheDocument();
+  });
 });

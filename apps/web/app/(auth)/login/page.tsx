@@ -23,6 +23,18 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
+const e2eSchema = z.object({
+  email: z.string().email("Enter a valid email address"),
+});
+type E2EFormValues = z.infer<typeof e2eSchema>;
+
+// Stage 11 (Playwright E2E): only rendered when NEXT_PUBLIC_E2E_TEST_MODE is
+// set, which is never true in a real deployment (unset by default — see
+// .env.example). Lets Playwright log in as a seeded user without a real
+// Firebase project; the backend's own E2EIdentityVerifier gate (deps.py) is
+// the actual security boundary, not this UI conditional.
+const E2E_TEST_MODE = process.env.NEXT_PUBLIC_E2E_TEST_MODE === "true";
+
 export default function LoginPage() {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
@@ -32,6 +44,11 @@ export default function LoginPage() {
     handleSubmit,
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
+  const {
+    register: registerE2E,
+    handleSubmit: handleSubmitE2E,
+    formState: { errors: e2eErrors },
+  } = useForm<E2EFormValues>({ resolver: zodResolver(e2eSchema) });
 
   // AUTH.md §5: verify with Firebase, exchange the ID token for our own
   // session, then read the CSRF token GET /auth/session returns so
@@ -77,6 +94,20 @@ export default function LoginPage() {
       setSubmitting(false);
     }
   }
+
+  // E2EIdentityVerifier (deps.py) treats the "id_token" as the plain email
+  // of a pre-existing (seeded) user — no real Firebase round-trip.
+  const onE2ESubmit = handleSubmitE2E(async (values) => {
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      await completeSignIn(values.email);
+    } catch (err) {
+      setFormError(describeError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  });
 
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
@@ -135,6 +166,34 @@ export default function LoginPage() {
         >
           Continue with Google
         </Button>
+        {E2E_TEST_MODE ? (
+          <form onSubmit={onE2ESubmit} className="space-y-3" noValidate>
+            <div>
+              <label htmlFor="e2e-email" className="text-sm font-medium">
+                E2E test email
+              </label>
+              <input
+                id="e2e-email"
+                type="email"
+                className="mt-1 w-full rounded border border-border px-3 py-2 text-sm"
+                {...registerE2E("email")}
+              />
+              {e2eErrors.email ? (
+                <p className="mt-1 text-sm text-destructive">
+                  {e2eErrors.email.message}
+                </p>
+              ) : null}
+            </div>
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={submitting}
+              className="w-full"
+            >
+              E2E test sign in
+            </Button>
+          </form>
+        ) : null}
       </div>
     </main>
   );

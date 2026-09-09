@@ -62,6 +62,34 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
   same per-entity snapshot/cleanup tracking to projects, project members,
   and tasks.
 
+### Added — Phase 2: frontend and E2E foundation
+- Added Projects and Tasks pages, a Kanban board with native HTML5
+  drag-and-drop, `/tasks/my`, and real dashboard task/project counts.
+- Added a Playwright E2E foundation: a gated, non-production test-only
+  `E2EIdentityVerifier` (`E2E_TEST_MODE`, double-checked against `app_env`
+  at the call site) lets an externally-running server authenticate a
+  Playwright browser without real Firebase credentials, and a smoke spec
+  covers login, project creation, task creation, and a Kanban drag/drop.
+
+### Fixed — a UI-created task could never appear on any Kanban board
+- The task-creation form never collected a `project_id`, so every task
+  made through the app landed unassigned — and the board endpoint groups
+  strictly by `project_id`. "Create a task, move it on the board"
+  (TESTING.md §5) was structurally impossible through the UI. Found while
+  actually driving the app end to end for the Playwright smoke spec, not
+  by reading the code. Added a project picker to the create-task form.
+
+### Fixed — CSRF token didn't survive a fresh page load
+- The client's CSRF token (AUTH.md §6) is deliberately in-memory only and
+  was set exactly once, right after the login form's own sign-in call —
+  correct for an uninterrupted SPA session, but any full page load
+  afterward (a hard refresh, a new tab, or a test driver's `page.goto()`)
+  wiped it with nothing to restore it, so the next state-changing request
+  from an already-authenticated session failed with "Invalid or missing
+  CSRF token." Reproduced directly by the Playwright smoke spec before
+  being fixed. The authenticated layout now rehydrates the token from the
+  session-info endpoint on every load, not just the login form's own.
+
 ### Added — Phase 0 (architecture only, no product code)
 - Architecture docs: ARCHITECTURE, DATABASE, AUTH, RBAC, SECURITY, EMAIL,
   TESTING, DEPLOYMENT.
