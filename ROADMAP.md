@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-6 complete.**
-Stage 7 (Activity feed wiring for CRM events) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-7 complete.**
+Stage 8 (Frontend: Leads, Clients, Pipeline, dashboard, nav) is next.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1586,6 +1586,54 @@ checks; dashboard sales tiles show real counts.
 
       634 tests passing (was 633). `make check` green end to end (no
       OpenAPI diff — internal-only, no API shape change).
+- [x] Stage 7 — Activity feed wiring for CRM events. Wired
+      `platform.activity.record(...)` into `client_service.create_client`
+      (`client.created`) and `lead_service.create_lead` (`lead.created`) —
+      both ordinary feed content, `is_audit=false` (ROADMAP.md Phase 2
+      decision 2). No new infrastructure — `list_feed`/`list_audit`
+      already exist and are already exercised by Phase 2's feed route
+      (`test_activity_feed.py` needed no changes, confirmed by running it:
+      it exercises the route generically via project/task events, and
+      already passes with CRM rows now flowing through the same
+      mechanism).
+
+      **A real design deviation from this stage's own plan text, decided
+      before writing code, not after:** the plan said to wire
+      `lead.stage_changed` into `lead_service.change_lead_stage` itself.
+      That function is shared by two callers — `update_lead`'s PATCH path
+      and Stage 5's `work.services.lead_conversion_service.convert_lead`
+      — and recording there unconditionally would make *every* conversion
+      also emit a redundant ordinary-feed `lead.stage_changed` event
+      alongside its own, already-correct `lead.converted` *audit* event
+      for the exact same transition (Stage 5's own design, `is_audit=
+      true`, deliberately distinct from a plain drag-driven stage change).
+      Recorded in `update_lead` instead, right after the `change_lead_
+      stage` call, inside the same `if new_stage is not None and new_stage
+      != lead.stage` guard — fires only for a real PATCH-driven change,
+      never during conversion (which never goes through `update_lead` at
+      all). Strengthened Stage 5's own conversion test with an explicit
+      `assert "lead.stage_changed" not in activity_by_event` to prove this
+      doesn't regress.
+
+      A real, if minor, bug surfaced while running the new tests: two
+      pre-existing Stage 3 tests call `create_lead` directly with a plain
+      string (`source="WEBSITE"`) rather than a real `LeadSource` member,
+      bypassing the schema layer's coercion — `lead.source.value` doesn't
+      exist on a plain `str`. Fixed by dropping `.value` entirely
+      (`LeadSource` is a `StrEnum`; a real member and a matching plain
+      string serialize identically into JSON metadata either way,
+      confirmed directly), rather than tightening what a direct
+      service-level caller may pass.
+
+      `tests/integration/test_activity_writer.py`: `client.created`/
+      `lead.created` feed events (mirroring `test_create_project_writes_a_
+      feed_event`'s exact shape), a lead stage-change feed event with
+      correct `{from, to}` metadata, and an unrelated-field update writing
+      no feed event (mirroring the project trio already established
+      there).
+
+      638 tests passing (was 634). `make check` green end to end (no
+      OpenAPI diff — no route/schema changes this stage).
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings

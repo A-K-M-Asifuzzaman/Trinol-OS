@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from tests.factories import (
     make_invitation,
+    make_lead,
     make_membership,
     make_organization,
     make_project,
@@ -14,6 +15,9 @@ from tests.factories import (
 )
 from trinol.core.authz.permissions import Role
 from trinol.core.ids import uuid7
+from trinol.modules.crm.models import ClientStatus, LeadSource, LeadStage
+from trinol.modules.crm.services.client_service import create_client
+from trinol.modules.crm.services.lead_service import create_lead, update_lead
 from trinol.modules.identity.identity_verifier import VerifiedIdentity
 from trinol.modules.identity.models import MembershipStatus
 from trinol.modules.identity.services.membership_service import change_role, remove_member
@@ -313,6 +317,107 @@ async def test_project_update_without_status_change_writes_no_feed_event(db_sess
         actor=actor,
         project_id=project.id,
         updates={"name": "Renamed"},
+    )
+
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+
+async def test_create_client_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="client-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+
+    client = await create_client(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        name="Feed Client",
+        company=None,
+        email=None,
+        phone=None,
+        website=None,
+        address=None,
+        notes=None,
+        status=ClientStatus.ACTIVE,
+        owner_id=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["client.created"]
+    assert rows[0].entity_type == "client"
+    assert rows[0].entity_id == client.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_create_lead_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="lead-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+
+    lead = await create_lead(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        name="Feed Lead",
+        company=None,
+        email="feed-lead@x.com",
+        phone=None,
+        source=LeadSource.WEBSITE,
+        service=None,
+        estimated_value=None,
+        currency="USD",
+        stage=LeadStage.NEW,
+        assigned_to=None,
+        next_follow_up=None,
+        notes=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["lead.created"]
+    assert rows[0].entity_type == "lead"
+    assert rows[0].entity_id == lead.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_lead_stage_change_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="lead-stage@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+    lead = await make_lead(db_session, organization=org, email="stage-feed@x.com")
+    await db_session.commit()
+
+    await update_lead(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        lead_id=lead.id,
+        updates={"stage": LeadStage.CONTACTED},
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["lead.stage_changed"]
+    assert rows[0].event_metadata == {"from": "NEW", "to": "CONTACTED"}
+
+
+async def test_lead_update_without_stage_change_writes_no_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="lead-noop@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+    lead = await make_lead(db_session, organization=org, email="noop-feed@x.com")
+    await db_session.commit()
+
+    await update_lead(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        lead_id=lead.id,
+        updates={"notes": "Renamed"},
     )
 
     assert await list_feed(db_session, organization_id=org.id) == []

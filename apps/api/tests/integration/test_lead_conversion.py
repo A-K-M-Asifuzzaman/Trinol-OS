@@ -87,10 +87,19 @@ async def test_convert_lead_creates_client_and_project_in_one_transaction(
     activity_result = await db_session.execute(
         select(ActivityEvent).where(ActivityEvent.organization_id == actor.organization.id)
     )
-    activity_by_event = {row.event: row for row in activity_result.scalars().all()}
+    activity_rows = activity_result.scalars().all()
+    activity_by_event = {row.event: row for row in activity_rows}
     assert activity_by_event["client.created"].is_audit is False
     assert activity_by_event["project.created"].is_audit is False
     assert activity_by_event["lead.converted"].is_audit is True
+    # Stage 7: lead_service.update_lead records lead.stage_changed itself,
+    # not change_lead_stage (which convert_lead also calls directly) — so
+    # a conversion must never double-fire a redundant feed event alongside
+    # its own lead.converted audit event for the same transition. Not a
+    # bare row-count assertion: login_as's own session creation writes an
+    # unrelated auth.session.created audit row into the same organization,
+    # so the real, precise property is that this specific event is absent.
+    assert "lead.stage_changed" not in activity_by_event
 
 
 async def test_member_cannot_convert_lead(client: AsyncClient, fake_verifier, db_session) -> None:

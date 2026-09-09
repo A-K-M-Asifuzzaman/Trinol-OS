@@ -14,6 +14,7 @@ from trinol.core.errors import AppError, ForbiddenError, NotFoundError
 from trinol.core.ids import uuid7
 from trinol.modules.crm.models import Client, ClientStatus
 from trinol.modules.identity.models import Membership, MembershipStatus
+from trinol.platform.activity import record
 
 _MANAGER_UP = (Role.MANAGER, Role.ADMIN, Role.OWNER)
 
@@ -101,6 +102,16 @@ async def create_client(
         owner_id=owner_id,
     )
     org_session.add(client)
+    # ROADMAP.md Phase 2 decision 2: ordinary feed content, is_audit=false.
+    await record(
+        db,
+        organization_id=organization_id,
+        event="client.created",
+        entity_type="client",
+        entity_id=client.id,
+        actor_id=actor.user_id,
+        metadata={"name": client.name},
+    )
     await db.commit()
     return client
 

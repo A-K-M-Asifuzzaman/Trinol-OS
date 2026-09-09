@@ -15,6 +15,7 @@ from trinol.core.errors import AppError, ForbiddenError, NotFoundError, Unproces
 from trinol.core.ids import uuid7
 from trinol.modules.crm.models import Lead, LeadSource, LeadStage, LeadStageEvent
 from trinol.modules.identity.models import Membership, MembershipStatus
+from trinol.platform.activity import record
 
 _MANAGER_UP = (Role.MANAGER, Role.ADMIN, Role.OWNER)
 _LEAD_CONTACT_CONSTRAINT = "ck_lead_contact"
@@ -127,6 +128,22 @@ async def create_lead(
         notes=notes,
     )
     org_session.add(lead)
+    # ROADMAP.md Phase 2 decision 2: ordinary feed content, is_audit=false.
+    await record(
+        db,
+        organization_id=organization_id,
+        event="lead.created",
+        entity_type="lead",
+        entity_id=lead.id,
+        actor_id=actor.user_id,
+        # lead.source: no .value here — some existing test call sites pass
+        # a plain string directly to this function rather than a real
+        # LeadSource member (bypassing the schema layer's coercion); since
+        # LeadSource is a StrEnum, both serialize identically into JSON
+        # metadata either way, so this stays correct for both without
+        # tightening what a direct service-level caller may pass.
+        metadata={"name": lead.name, "source": lead.source},
+    )
     await db.commit()
     return lead
 
@@ -229,12 +246,29 @@ async def update_lead(
         setattr(lead, field, value)
 
     if new_stage is not None and new_stage != lead.stage:
+        previous_stage = lead.stage
         await change_lead_stage(
             db,
             organization_id=organization_id,
             lead=lead,
             to_stage=new_stage,
             actor_id=actor.user_id,
+        )
+        # ROADMAP.md Phase 2 decision 2: ordinary feed content, is_audit=
+        # false. Recorded here, not inside change_lead_stage itself — that
+        # function is also called directly by work.services.
+        # lead_conversion_service.convert_lead (Stage 5), which already
+        # records its own lead.converted *audit* event for the same
+        # transition; recording here too would double-fire a second,
+        # redundant feed event on every conversion.
+        await record(
+            db,
+            organization_id=organization_id,
+            event="lead.stage_changed",
+            entity_type="lead",
+            entity_id=lead.id,
+            actor_id=actor.user_id,
+            metadata={"from": previous_stage.value, "to": new_stage.value},
         )
 
     try:
