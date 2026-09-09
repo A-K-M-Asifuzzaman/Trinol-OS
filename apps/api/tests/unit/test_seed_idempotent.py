@@ -3,9 +3,11 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import trinol.scripts.seed as seed_module
 from trinol.core.db.engine import get_session_factory
 from trinol.core.ids import uuid7
 from trinol.modules.identity.models import (
@@ -16,7 +18,6 @@ from trinol.modules.identity.models import (
     User,
 )
 from trinol.modules.work.models import Project, ProjectMember, Task
-from trinol.scripts.seed import _ORG_SLUG, _SEED_PROJECTS, _SEED_USERS, seed
 
 # Phase 1 plan, Stage 12 proof criterion: "make seed on a fresh DB produces
 # the expected rows; re-running doesn't duplicate or error." seed() manages
@@ -41,6 +42,60 @@ from trinol.scripts.seed import _ORG_SLUG, _SEED_PROJECTS, _SEED_USERS, seed
 # org-delete-only cleanup would hit `fk_projects_org_owner_memberships`
 # (a project still referencing the membership being deleted), reproduced
 # and fixed here the same way, not just reasoned about.
+#
+# Codex review (Stage 10, round 2): these tests assumed the real "trinolit"
+# org/emails never pre-exist — true in CI's always-fresh DB, but false the
+# moment a developer actually runs `make seed` against their persistent
+# local Postgres (exactly the workflow ROADMAP.md documents: "make seed"
+# then "make check"). `_isolated_seed` below monkeypatches seed.py's own
+# module-level constants (`_ORG_SLUG`/`_SEED_USERS`/`_SEED_PROJECTS`) to a
+# uniquely-suffixed shadow dataset for the duration of each test, so these
+# tests exercise the exact same seed() code path against data that can
+# never collide with a real, already-seeded "trinolit" org — reproduced by
+# running `make seed` for real, then this suite, both before and after the
+# fix, confirming the failure and then its absence.
+
+
+@pytest.fixture
+def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every seed()-derived identifier this file's tests touch is unique to
+    this test run: the org slug, every seed user's email, and every project
+    code — so a real, already-seeded "trinolit" org in the same database
+    (from a developer's own `make seed`) can never collide with it."""
+    suffix = uuid.uuid4().hex[:8]
+    users = tuple(
+        seed_module._SeedUser(
+            full_name=entry.full_name,
+            email=f"seed-test-{suffix}-{entry.full_name.lower()}@trinolit.com",
+            role=entry.role,
+        )
+        for entry in seed_module._SEED_USERS
+    )
+    email_for = {
+        old.email: new.email for old, new in zip(seed_module._SEED_USERS, users, strict=True)
+    }
+    projects = tuple(
+        seed_module._SeedProject(
+            project_code=f"{project.project_code}-{suffix}",
+            name=project.name,
+            owner_email=email_for[project.owner_email],
+            member_emails=tuple(email_for[email] for email in project.member_emails),
+            tasks=tuple(
+                seed_module._SeedTask(
+                    title=task.title,
+                    status=task.status,
+                    priority=task.priority,
+                    assignee_email=email_for[task.assignee_email],
+                )
+                for task in project.tasks
+            ),
+        )
+        for project in seed_module._SEED_PROJECTS
+    )
+
+    monkeypatch.setattr(seed_module, "_ORG_SLUG", f"trinolit-seed-test-{suffix}")
+    monkeypatch.setattr(seed_module, "_SEED_USERS", users)
+    monkeypatch.setattr(seed_module, "_SEED_PROJECTS", projects)
 
 
 @dataclass
@@ -55,12 +110,12 @@ class _SeedSnapshot:
 
 async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
     organization = (
-        await db.execute(select(Organization).where(Organization.slug == _ORG_SLUG))
+        await db.execute(select(Organization).where(Organization.slug == seed_module._ORG_SLUG))
     ).scalar_one_or_none()
 
     user_existed: dict[str, bool] = {}
     user_ids: dict[str, uuid.UUID] = {}
-    for entry in _SEED_USERS:
+    for entry in seed_module._SEED_USERS:
         user = (
             await db.execute(select(User).where(User.email == entry.email))
         ).scalar_one_or_none()
@@ -69,7 +124,7 @@ async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
             user_ids[entry.email] = user.id
 
     membership_existed: dict[str, bool] = {}
-    for entry in _SEED_USERS:
+    for entry in seed_module._SEED_USERS:
         if organization is None or entry.email not in user_ids:
             membership_existed[entry.email] = False
             continue
@@ -86,7 +141,7 @@ async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
     project_existed: dict[str, bool] = {}
     project_member_existed: dict[tuple[str, str], bool] = {}
     task_existed: dict[tuple[str, str], bool] = {}
-    for project_entry in _SEED_PROJECTS:
+    for project_entry in seed_module._SEED_PROJECTS:
         project = None
         if organization is not None:
             project = (
@@ -150,11 +205,11 @@ async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot)
     their owner_id references (`fk_projects_org_owner_memberships`) — the
     exact constraint a naive org-then-membership-only cleanup violates."""
     organization = (
-        await db.execute(select(Organization).where(Organization.slug == _ORG_SLUG))
+        await db.execute(select(Organization).where(Organization.slug == seed_module._ORG_SLUG))
     ).scalar_one_or_none()
 
     if organization is not None:
-        for project_entry in _SEED_PROJECTS:
+        for project_entry in seed_module._SEED_PROJECTS:
             project = (
                 await db.execute(
                     select(Project).where(
@@ -201,7 +256,7 @@ async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot)
                     )
                 )
 
-        for entry in _SEED_USERS:
+        for entry in seed_module._SEED_USERS:
             if snapshot.membership_existed.get(entry.email):
                 continue
             user = (
@@ -218,7 +273,7 @@ async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot)
         if not snapshot.organization_existed:
             await db.execute(delete(Organization).where(Organization.id == organization.id))
 
-    for entry in _SEED_USERS:
+    for entry in seed_module._SEED_USERS:
         if snapshot.user_existed.get(entry.email):
             continue
         await db.execute(delete(User).where(User.email == entry.email))
@@ -226,18 +281,18 @@ async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot)
     await db.commit()
 
 
-async def test_seed_is_idempotent() -> None:
+async def test_seed_is_idempotent(_isolated_seed: None) -> None:
     session_factory = get_session_factory()
     async with session_factory() as db:
         snapshot = await _snapshot(db)
 
     try:
-        await seed()
-        await seed()
+        await seed_module.seed()
+        await seed_module.seed()
 
         async with session_factory() as db:
             org_result = await db.execute(
-                select(Organization).where(Organization.slug == _ORG_SLUG)
+                select(Organization).where(Organization.slug == seed_module._ORG_SLUG)
             )
             organizations = org_result.scalars().all()
             assert len(organizations) == 1, "re-running must not duplicate the organization"
@@ -246,22 +301,24 @@ async def test_seed_is_idempotent() -> None:
             membership_result = await db.execute(
                 select(Membership).where(Membership.organization_id == organization.id)
             )
-            assert len(membership_result.scalars().all()) == len(_SEED_USERS)
+            assert len(membership_result.scalars().all()) == len(seed_module._SEED_USERS)
 
             user_result = await db.execute(
-                select(User).where(User.email.in_([entry.email for entry in _SEED_USERS]))
+                select(User).where(
+                    User.email.in_([entry.email for entry in seed_module._SEED_USERS])
+                )
             )
-            assert len(user_result.scalars().all()) == len(_SEED_USERS)
+            assert len(user_result.scalars().all()) == len(seed_module._SEED_USERS)
 
             project_result = await db.execute(
                 select(Project).where(Project.organization_id == organization.id)
             )
             projects = {project.project_code: project for project in project_result.scalars()}
-            assert set(projects) == {entry.project_code for entry in _SEED_PROJECTS}, (
+            assert set(projects) == {entry.project_code for entry in seed_module._SEED_PROJECTS}, (
                 "re-running must not duplicate or lose a project"
             )
 
-            for project_entry in _SEED_PROJECTS:
+            for project_entry in seed_module._SEED_PROJECTS:
                 project = projects[project_entry.project_code]
 
                 member_result = await db.execute(
@@ -292,20 +349,21 @@ async def test_seed_is_idempotent() -> None:
             await _cleanup_rows_created_since(db, snapshot)
 
 
-async def test_seed_fills_in_missing_users_without_touching_a_pre_existing_org() -> None:
+async def test_seed_fills_in_missing_users_without_touching_a_pre_existing_org(
+    _isolated_seed: None,
+) -> None:
     """Partial state: the organization and one seed user/membership already
     exist (as if a previous seed run got that far and stopped); seed() must
     create only what's missing, and cleanup must leave the pre-existing
     organization and membership alone."""
     session_factory = get_session_factory()
-    founder = _SEED_USERS[0]
-    assert founder.email == "founder@trinolit.com"
+    founder = seed_module._SEED_USERS[0]
 
     async with session_factory() as db:
         pre_snapshot = await _snapshot(db)
         assert not pre_snapshot.organization_existed, "test assumes a clean slate"
 
-        organization = Organization(id=uuid7(), name="TrinolIT", slug=_ORG_SLUG)
+        organization = Organization(id=uuid7(), name="TrinolIT", slug=seed_module._ORG_SLUG)
         db.add(organization)
         await db.flush()
         founder_user = User(
@@ -340,26 +398,30 @@ async def test_seed_fills_in_missing_users_without_touching_a_pre_existing_org()
         assert snapshot.user_existed[founder.email]
         assert snapshot.membership_existed[founder.email]
         assert not any(
-            snapshot.user_existed[entry.email] for entry in _SEED_USERS if entry is not founder
+            snapshot.user_existed[entry.email]
+            for entry in seed_module._SEED_USERS
+            if entry is not founder
         )
 
-        await seed()
+        await seed_module.seed()
 
         async with session_factory() as db:
             org_result = await db.execute(
-                select(Organization).where(Organization.slug == _ORG_SLUG)
+                select(Organization).where(Organization.slug == seed_module._ORG_SLUG)
             )
             assert len(org_result.scalars().all()) == 1, "must reuse, not duplicate, the org"
 
             user_result = await db.execute(
-                select(User).where(User.email.in_([entry.email for entry in _SEED_USERS]))
+                select(User).where(
+                    User.email.in_([entry.email for entry in seed_module._SEED_USERS])
+                )
             )
-            assert len(user_result.scalars().all()) == len(_SEED_USERS)
+            assert len(user_result.scalars().all()) == len(seed_module._SEED_USERS)
 
             membership_result = await db.execute(
                 select(Membership).where(Membership.organization_id == organization_id)
             )
-            assert len(membership_result.scalars().all()) == len(_SEED_USERS)
+            assert len(membership_result.scalars().all()) == len(seed_module._SEED_USERS)
 
         async with session_factory() as db:
             await _cleanup_rows_created_since(db, snapshot)
@@ -383,7 +445,9 @@ async def test_seed_fills_in_missing_users_without_touching_a_pre_existing_org()
             ).scalar_one_or_none() is not None
 
             # The two seed users/memberships seed() had to create ARE gone.
-            other_emails = [entry.email for entry in _SEED_USERS if entry is not founder]
+            other_emails = [
+                entry.email for entry in seed_module._SEED_USERS if entry is not founder
+            ]
             remaining_users = (
                 (await db.execute(select(User).where(User.email.in_(other_emails)))).scalars().all()
             )
@@ -398,15 +462,14 @@ async def test_seed_fills_in_missing_users_without_touching_a_pre_existing_org()
             await db.commit()
 
 
-async def test_seed_reuses_a_pre_existing_user_and_never_deletes_it() -> None:
+async def test_seed_reuses_a_pre_existing_user_and_never_deletes_it(_isolated_seed: None) -> None:
     """A seed email already belongs to a real, unrelated user — created
     before the organization ever existed (e.g. they signed up in another
     org first). seed() must reuse that user row rather than erroring or
     duplicating it, and cleanup must never delete a user it didn't create,
     even though it did have to create a fresh membership for them."""
     session_factory = get_session_factory()
-    developer = _SEED_USERS[1]
-    assert developer.email == "developer@trinolit.com"
+    developer = seed_module._SEED_USERS[1]
 
     async with session_factory() as db:
         pre_snapshot = await _snapshot(db)
@@ -430,7 +493,7 @@ async def test_seed_reuses_a_pre_existing_user_and_never_deletes_it() -> None:
         assert snapshot.user_existed[developer.email]
         assert not snapshot.organization_existed
 
-        await seed()
+        await seed_module.seed()
 
         async with session_factory() as db:
             user_result = await db.execute(select(User).where(User.email == developer.email))
@@ -448,7 +511,9 @@ async def test_seed_reuses_a_pre_existing_user_and_never_deletes_it() -> None:
                 await db.execute(select(User).where(User.id == pre_existing_user_id))
             ).scalar_one_or_none() is not None
             assert (
-                await db.execute(select(Organization).where(Organization.slug == _ORG_SLUG))
+                await db.execute(
+                    select(Organization).where(Organization.slug == seed_module._ORG_SLUG)
+                )
             ).scalar_one_or_none() is None
     finally:
         async with session_factory() as db:

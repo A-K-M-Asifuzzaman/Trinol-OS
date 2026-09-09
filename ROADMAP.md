@@ -936,6 +936,32 @@ module in full, and nothing found in this audit requires changing it:
       strengthened with project/task assertions, not new test count),
       ruff, mypy, `make check` end to end (backend + frontend + OpenAPI
       diff) all green.
+
+      **Codex review: `test_seed_idempotent.py`'s tests assumed the real
+      `trinolit` org/emails never pre-exist** — true against CI's always-
+      fresh database, but false the moment a developer actually runs
+      `make seed` against their own persistent local Postgres and then
+      the test suite, exactly the workflow this very stage's own commit
+      message documented running. Reproduced directly: ran `make seed`
+      for real, then `pytest`, and watched both partial-state tests fail
+      immediately on `assert not pre_snapshot.organization_existed`.
+      Fixed with a new `_isolated_seed` fixture that monkeypatches
+      `scripts/seed.py`'s own module-level constants (`_ORG_SLUG`,
+      `_SEED_USERS`, `_SEED_PROJECTS`) to a uniquely-suffixed shadow
+      dataset — a fresh org slug and seed-user emails generated per test
+      run — so every test in this file exercises the exact same `seed()`
+      code path against data that can never collide with a real,
+      already-seeded `trinolit` org, rather than assuming one doesn't
+      exist. All three tests, `_snapshot()`, and `_cleanup_rows_created_
+      since()` now read these constants dynamically off the module
+      object (`seed_module.X`) instead of names imported once at collection
+      time, so the monkeypatch and every helper stay in sync. Re-verified
+      by running `make seed` for real again, confirming the org existed,
+      then running the full suite (506 tests) directly against that
+      state — passes cleanly, the exact reproduction of the reported
+      failure now fixed, not merely reasoned about. `make check` also
+      re-run end to end immediately after `make seed`, matching the
+      documented workflow exactly.
 - [ ] Stage 11 — E2E foundation (Playwright) — first real page with content
       to click through; TESTING.md §5 already scopes this to
       main/release-candidate runs, not every PR
