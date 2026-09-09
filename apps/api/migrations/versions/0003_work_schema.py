@@ -164,8 +164,12 @@ def upgrade() -> None:
             CONSTRAINT uq_tasks_org_id UNIQUE (organization_id, id),
             CONSTRAINT fk_tasks_org_project_projects FOREIGN KEY (organization_id, project_id)
                 REFERENCES projects (organization_id, id) ON DELETE RESTRICT,
+            -- NOT SET NULL: on a composite FK, Postgres nulls every
+            -- referencing column including organization_id, which is NOT
+            -- NULL on tasks -- a milestone delete with linked tasks would
+            -- raise a NOT NULL violation instead of unlinking gracefully.
             CONSTRAINT fk_tasks_org_milestone_milestones FOREIGN KEY (organization_id, milestone_id)
-                REFERENCES milestones (organization_id, id) ON DELETE SET NULL,
+                REFERENCES milestones (organization_id, id) ON DELETE RESTRICT,
             CONSTRAINT fk_tasks_org_assignee_memberships FOREIGN KEY (organization_id, assignee_id)
                 REFERENCES memberships (organization_id, user_id) ON DELETE RESTRICT,
             CONSTRAINT fk_tasks_org_created_by_memberships FOREIGN KEY (organization_id, created_by)
@@ -178,7 +182,13 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX ix_tasks_org_assignee_status ON tasks (organization_id, assignee_id, status)"
     )
+    # DATABASE.md §3 mandates this exact single-column index by name; kept
+    # as-is. It does not by itself satisfy "every FK has an index" for
+    # fk_tasks_org_project_projects (organization_id, project_id) —
+    # project_id alone isn't a left prefix match — so the composite index
+    # below covers that FK properly.
     op.execute("CREATE INDEX ix_tasks_project ON tasks (project_id)")
+    op.execute("CREATE INDEX ix_tasks_org_project ON tasks (organization_id, project_id)")
     # fk_tasks_org_milestone_milestones and fk_tasks_org_created_by_memberships
     # aren't covered by any index above (DATABASE.md §1).
     op.execute("CREATE INDEX ix_tasks_org_milestone ON tasks (organization_id, milestone_id)")
@@ -211,6 +221,11 @@ def upgrade() -> None:
     # Matches fk_task_comments_org_task_tasks's own columns exactly
     # (DATABASE.md §1), not just task_id alone.
     op.execute("CREATE INDEX ix_task_comments_org_task ON task_comments (organization_id, task_id)")
+    # fk_task_comments_org_author_memberships isn't covered by the index
+    # above (DATABASE.md §1).
+    op.execute(
+        "CREATE INDEX ix_task_comments_org_author ON task_comments (organization_id, author_id)"
+    )
     op.execute(
         "CREATE TRIGGER trg_task_comments_updated_at BEFORE UPDATE ON task_comments "
         "FOR EACH ROW EXECUTE FUNCTION set_updated_at()"

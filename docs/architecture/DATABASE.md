@@ -55,7 +55,13 @@ User 1─* Session
 `organization_id` column: its own `id` **is** the tenant key, so the constraint
 is `FOREIGN KEY (id, logo_file_id) REFERENCES file_objects (organization_id, id)`,
 which makes an organization pointing at another organization's file impossible.
-`ON DELETE SET NULL` — a missing logo is cosmetic.
+`ON DELETE RESTRICT`, not `SET NULL`: on a composite FK, Postgres nulls
+*every* referencing column on the cascade action, not just `logo_file_id` —
+here that includes `id`, the primary key, which can never be null. (Found
+during Phase 2 Stage 1 review, same bug shape as `tasks.milestone_id`.) A
+missing logo is still meant to be cosmetic, so the service clears
+`logo_file_id` itself before deleting a `file_objects` row currently in use
+as a logo, rather than relying on the FK to do it.
 
 **users** — `id`, `firebase_uid` (uq), `email` (**citext**, globally unique),
 `auth_provider` (`PASSWORD|GOOGLE`), `full_name`, `avatar_url?`,

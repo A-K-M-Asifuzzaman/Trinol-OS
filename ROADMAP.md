@@ -250,8 +250,8 @@ module in full, and nothing found in this audit requires changing it:
       chosen and documented inline in `models.py`: `project_members.*` and
       `task_comments/task_checklist_items.task_id` CASCADE (child
       meaningless without parent, ADR-0011 confirms tasks/comments are hard
-      -deleted); `tasks.milestone_id` SET NULL (milestone is a lightweight
-      grouping, task must survive it); `milestones.project_id` and
+      -deleted); `tasks.milestone_id` RESTRICT (revised in review round 2
+      below — `SET NULL` on a composite FK is unsafe here); `milestones.project_id` and
       `tasks.project_id` RESTRICT (projects are soft-deleted only per
       ADR-0011, so an unexpected hard delete should fail loudly, not
       cascade away real deliverable history). **Codex review round 1:** one
@@ -276,6 +276,32 @@ module in full, and nothing found in this audit requires changing it:
       nothing outside this local dev DB had applied it yet. Re-verified:
       `alembic downgrade -1`/`upgrade`/`check` clean, full suite
       (160 tests), ruff, mypy all green.
+
+      **Codex review round 2:** one P1, one P2, both fixed. P1 —
+      `fk_tasks_org_milestone_milestones` used `ON DELETE SET NULL`, but
+      it's a **composite** FK (`organization_id`, `milestone_id`); Postgres
+      nulls every referencing column on that cascade action, not just the
+      one that "should" go null — here that includes `organization_id`,
+      which is `NOT NULL` on `tasks`. Deleting a milestone with linked
+      tasks would have raised a NOT NULL violation instead of gracefully
+      unlinking them. Changed to `ON DELETE RESTRICT` (fail loudly; the
+      service unlinks tasks explicitly before deleting a milestone that
+      still has them) — same fix shape as `milestones`/`tasks` →
+      `projects` above. This is a general composite-FK hazard, not
+      specific to this table: found and fixed the identical bug already
+      sitting in DATABASE.md §3's own spec for
+      `organizations.logo_file_id` → `file_objects` (`ON DELETE SET NULL`
+      on `(id, logo_file_id)` would try to null `organizations.id`, a
+      primary key) before Stage 6 could inherit it — see DATABASE.md §3
+      and this checklist's Stage 6 entry above, both corrected. P2 — two
+      more FKs still lacked matching indexes: added
+      `ix_task_comments_org_author` (`fk_task_comments_org_author_memberships`
+      had none) and `ix_tasks_org_project` (the DATABASE.md §3-mandated
+      `ix_tasks_project (project_id)` doesn't itself satisfy
+      `fk_tasks_org_project_projects`'s `(organization_id, project_id)`
+      shape — kept the spec-mandated index as-is, added the composite one
+      alongside it). Re-verified: `alembic downgrade -1`/`upgrade`/`check`
+      clean, full suite, ruff, mypy all green.
 - [ ] Stage 2 — Project CRUD + `project_members` management (decision 6
       above: route gated on the new `PROJECT_MEMBER_WRITE` permission,
       MEMBER-tier; service enforces `PROJECT_WRITE` (MANAGER+) OR
@@ -301,14 +327,18 @@ module in full, and nothing found in this audit requires changing it:
       prerequisite (`file_objects`) now exists in the same migration that
       would add it. `Organization.logo_file_id: uuid.UUID | None` +
       `FOREIGN KEY (id, logo_file_id) REFERENCES file_objects
-      (organization_id, id) ON DELETE SET NULL` (DATABASE.md §3/§5.1's exact
-      spec — `organizations` uses its own `id` as the tenant key here, not an
-      `organization_id` column, since it's the tenant root). Needs a
-      dedicated regression check, not just the generic schema-integrity
-      test: that test walks `information_schema` for org-scoped tables
-      identified by an `organization_id` column, and `organizations` itself
-      has none — so a single-column-FK regression here wouldn't be caught by
-      the existing generic assertion the way it would for any other table.
+      (organization_id, id) ON DELETE RESTRICT` (DATABASE.md §3/§5.1 —
+      `organizations` uses its own `id` as the tenant key here, not an
+      `organization_id` column, since it's the tenant root; `RESTRICT`, not
+      `SET NULL`, because a composite FK's `SET NULL` nulls every
+      referencing column including `id`, the primary key — corrected in
+      DATABASE.md §3 itself during Stage 1 review after Codex caught the
+      identical bug shape on `tasks.milestone_id`). Needs a dedicated
+      regression check, not just the generic schema-integrity test: that
+      test walks `information_schema` for org-scoped tables identified by
+      an `organization_id` column, and `organizations` itself has none — so
+      a single-column-FK regression here wouldn't be caught by the existing
+      generic assertion the way it would for any other table.
 - [ ] Stage 7 — Activity feed events wired for task/project changes
       (decision 2 above); first real exercise of `platform.activity.
       list_feed` (built Stage 7 of Phase 1, never called by a route until

@@ -250,9 +250,14 @@ class Task(OrgScoped, Base):
             ["organization_id", "milestone_id"],
             ["milestones.organization_id", "milestones.id"],
             name="fk_tasks_org_milestone_milestones",
-            # Milestones are a lightweight grouping concept, hard-deleted;
-            # a task must survive its milestone disappearing.
-            ondelete="SET NULL",
+            # NOT "SET NULL": on a composite FK, Postgres nulls every
+            # referencing column, not just milestone_id — that includes
+            # organization_id here, which is NOT NULL on tasks, so a
+            # milestone delete with linked tasks would raise a NOT NULL
+            # violation instead of gracefully unlinking. RESTRICT instead
+            # (fail loudly); the service must unlink tasks explicitly
+            # before deleting a milestone that still has them.
+            ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
             ["organization_id", "assignee_id"],
@@ -273,7 +278,13 @@ class Task(OrgScoped, Base):
         ),
         Index("ix_tasks_org_status_due", "organization_id", "status", "due_date"),
         Index("ix_tasks_org_assignee_status", "organization_id", "assignee_id", "status"),
+        # DATABASE.md §3 mandates this exact single-column index by name;
+        # kept as-is. It does not by itself satisfy "every FK has an index"
+        # for fk_tasks_org_project_projects (organization_id, project_id) —
+        # project_id alone isn't a left prefix match — so ix_tasks_org_project
+        # below covers that FK properly.
         Index("ix_tasks_project", "project_id"),
+        Index("ix_tasks_org_project", "organization_id", "project_id"),
         # fk_tasks_org_milestone_milestones and fk_tasks_org_created_by_memberships
         # aren't covered by any index above (DATABASE.md §1).
         Index("ix_tasks_org_milestone", "organization_id", "milestone_id"),
@@ -312,6 +323,9 @@ class TaskComment(OrgScoped, Base):
         # Matches fk_task_comments_org_task_tasks's own columns exactly
         # (DATABASE.md §1), not just task_id alone.
         Index("ix_task_comments_org_task", "organization_id", "task_id"),
+        # fk_task_comments_org_author_memberships isn't covered by the
+        # index above (DATABASE.md §1).
+        Index("ix_task_comments_org_author", "organization_id", "author_id"),
     )
 
 
