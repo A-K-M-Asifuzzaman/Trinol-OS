@@ -338,6 +338,17 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     ("GET", "/api/v1/meetings/{meeting_id}"),
     ("PATCH", "/api/v1/meetings/{meeting_id}"),
     ("DELETE", "/api/v1/meetings/{meeting_id}"),
+    # Phase 4 Stage 3: participant roster management inherits the meeting's
+    # own visibility (GET) / edit (POST, DELETE) rule — same reasoning as
+    # project-member-write above, MEETING_WRITE_OWN/MEETING_READ are both
+    # MEMBER-tier reachability only.
+    ("POST", "/api/v1/meetings/{meeting_id}/participants"),
+    ("GET", "/api/v1/meetings/{meeting_id}/participants"),
+    ("DELETE", "/api/v1/meetings/{meeting_id}/participants/{participant_id}"),
+    # PATCH is its own three-way split (self, or can_write_meeting) — not
+    # the plain creator/MANAGER+ shape the other three follow, so it gets
+    # its own dedicated test below rather than sharing one with them.
+    ("PATCH", "/api/v1/meetings/{meeting_id}/participants/{participant_id}"),
 }
 
 
@@ -935,6 +946,166 @@ async def test_meeting_routes_enforce_ownership_split(
     else:
         resolved_expected = success_status if expected_status is None else expected_status
     assert response.status_code == resolved_expected
+
+
+@pytest.mark.parametrize(
+    ("method", "path_suffix", "body", "success_status"),
+    [
+        ("POST", "", {"external_email": "matrix-guest@example.test"}, 201),
+        ("GET", "", None, 200),
+        ("DELETE", "/{target_participant_id}", None, 204),
+    ],
+)
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("manager", None),
+        ("creator", None),
+        # A participant can list (ensure_meeting_visible governs GET), but
+        # does not gain roster-management rights merely by being invited
+        # (can_write_meeting governs POST/DELETE) — same asymmetry as the
+        # meeting-level test above.
+        ("participant", "method_dependent"),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_meeting_participant_roster_routes_enforce_ownership_split(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_suffix: str,
+    body: dict[str, str] | None,
+    success_status: int,
+    access: str,
+    expected_status: int | str | None,
+) -> None:
+    """RBAC.md §3: adding/removing a participant follows the meeting's own
+    edit rule (creator or MANAGER+); listing follows the meeting's own
+    visibility rule (creator, participant, or MANAGER+)."""
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email=f"roster-creator-{org.id}-{access}@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    meeting = await make_meeting(db_session, organization=org, created_by=creator)
+    target_user = await make_user(db_session, email=f"roster-target-{org.id}-{access}@x.com")
+    target_membership = await make_membership(
+        db_session, organization=org, user=target_user, role=Role.MEMBER
+    )
+    target_participant = await make_meeting_participant(
+        db_session, meeting=meeting, user=target_membership
+    )
+
+    if access == "creator":
+        actor_user, actor_membership, actor_org = creator_user, creator, org
+    elif access == "participant":
+        actor_user = await make_user(db_session, email=f"roster-participant-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=org, user=actor_user, role=Role.MEMBER
+        )
+        await make_meeting_participant(db_session, meeting=meeting, user=actor_membership)
+        actor_org = org
+    elif access in ("manager", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"roster-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"roster-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    path = f"/api/v1/meetings/{meeting.id}/participants" + path_suffix.format(
+        target_participant_id=target_participant.id
+    )
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(method, path, json=body, headers=headers)
+    if expected_status == "method_dependent":
+        resolved_expected = success_status if method == "GET" else 403
+    else:
+        resolved_expected = success_status if expected_status is None else expected_status
+    assert response.status_code == resolved_expected
+
+
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("manager", 200),
+        ("creator", 200),
+        # The narrow self-service exception: updating your OWN response is
+        # allowed regardless of can_write_meeting.
+        ("self", 200),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_update_participant_response_route_enforces_self_or_ownership_split(
+    client: AsyncClient, fake_verifier, db_session, access: str, expected_status: int
+) -> None:
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email=f"resp-creator-{org.id}-{access}@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    meeting = await make_meeting(db_session, organization=org, created_by=creator)
+    target_user = await make_user(db_session, email=f"resp-target-{org.id}-{access}@x.com")
+    target_membership = await make_membership(
+        db_session, organization=org, user=target_user, role=Role.MEMBER
+    )
+    target_participant = await make_meeting_participant(
+        db_session, meeting=meeting, user=target_membership
+    )
+
+    if access == "creator":
+        actor_user, actor_membership, actor_org = creator_user, creator, org
+    elif access == "self":
+        actor_user, actor_membership, actor_org = target_user, target_membership, org
+    elif access in ("manager", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"resp-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"resp-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    response = await client.patch(
+        f"/api/v1/meetings/{meeting.id}/participants/{target_participant.id}",
+        json={"response": "ACCEPTED"},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == expected_status
 
 
 def _live_permission_gated_routes() -> set[tuple[str, str]]:

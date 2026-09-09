@@ -6,6 +6,14 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, WithJsonSchema, model_validator
 
+# Aliased: models.MeetingParticipantResponse is the RSVP-status enum
+# (PENDING/ACCEPTED/DECLINED/TENTATIVE); this module's own MeetingParticipant
+# Response class below is the API schema for a participant row — same name
+# would collide, so the enum is imported under a name that says what it is.
+from trinol.modules.meetings.models import (
+    MeetingParticipantResponse as ParticipantInviteStatus,
+)
+
 
 class MeetingCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
@@ -88,4 +96,35 @@ class MeetingListResponse(BaseModel):
     array."""
 
     items: list[MeetingResponse]
+    total: int
+
+
+class MeetingParticipantAddRequest(BaseModel):
+    user_id: uuid.UUID | None = None
+    external_email: str | None = Field(default=None, max_length=320)
+
+    @model_validator(mode="after")
+    def _exactly_one_identity(self) -> MeetingParticipantAddRequest:
+        # Mirrors ck_meeting_participant_identity (DATABASE.md §3) — checked
+        # here too so a bad request gets a clean 422 instead of a raw DB
+        # constraint error.
+        if (self.user_id is None) == (self.external_email is None):
+            raise ValueError("exactly one of user_id or external_email is required")
+        return self
+
+
+class MeetingParticipantResponseUpdateRequest(BaseModel):
+    response: ParticipantInviteStatus
+
+
+class MeetingParticipantResponse(BaseModel):
+    id: uuid.UUID
+    meeting_id: uuid.UUID
+    user_id: uuid.UUID | None
+    external_email: str | None
+    response: ParticipantInviteStatus
+
+
+class MeetingParticipantListResponse(BaseModel):
+    items: list[MeetingParticipantResponse]
     total: int

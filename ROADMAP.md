@@ -2144,6 +2144,69 @@ four soft-deleted entities) with a same-transaction audit event.
       all green. Frontend `pnpm typecheck`/`pnpm test`/`pnpm build`
       unaffected (no frontend changes this stage — that's Stage 7).
 
+- [x] Stage 3 — Participants. `modules/meetings/services/
+      meeting_participant_service.py` (own file, mirroring
+      `project_member_service.py`'s file-split precedent): `add_participant`
+      (gated by `can_write_meeting` — creator or MANAGER+, no new
+      permission needed; accepts exactly one of `user_id`/`external_email`,
+      validated in `MeetingParticipantAddRequest` mirroring
+      `ck_meeting_participant_identity`; `user_id` validated against an
+      active membership via `get_active_membership_by_user`; duplicate
+      participant rejected with 409), `list_meeting_participants` (gated
+      by `ensure_meeting_visible` — same rule as the parent meeting's own
+      `GET`), `remove_participant` (`can_write_meeting`),
+      `update_participant_response` (Stage 1's own decision: the
+      participant's own RSVP is theirs to change regardless of
+      `can_write_meeting` — implemented as `participant.user_id ==
+      actor.user_id OR can_write_meeting(actor, meeting)`; no activity
+      event, since changing your own RSVP doesn't change who can see the
+      meeting — not guard 6's `is_audit=true` case, and not ordinary feed
+      content either). `add_participant`/`remove_participant` record
+      `meeting_participant.added`/`removed` with `audit=True` (RBAC.md §3:
+      changes meeting visibility, same reasoning as
+      `project_member.added`/`removed`).
+
+      `modules/meetings/schemas.py`: `MeetingParticipantAddRequest`,
+      `MeetingParticipantResponseUpdateRequest`, `MeetingParticipantResponse`
+      (the API schema — aliased the model's own
+      `MeetingParticipantResponse` enum import to `ParticipantInviteStatus`
+      to avoid a name collision, since that enum name describes an RSVP
+      status, not a response schema, a naming overlap baked in at Stage 1),
+      `MeetingParticipantListResponse`. 4 new routes in
+      `routes/meetings.py` (`POST`/`GET /meetings/{id}/participants`,
+      `PATCH`/`DELETE /meetings/{id}/participants/{participant_id}`).
+
+      `tests/integration/test_meeting_participants.py` (18 tests): both
+      identity paths (`user_id`, `external_email`); the exactly-one-of
+      validation (422 on both or neither); duplicate rejection (409);
+      creator/MANAGER+ can manage the roster, a non-creator MEMBER cannot;
+      adding a participant is proven to actually grant them visibility
+      (`GET` on the meeting itself flips 403→200 after being added, not
+      just that the add call succeeded); a participant can update only
+      their own response, not someone else's; the creator/MANAGER+ can
+      also set a participant's response on their behalf; `is_audit=true`
+      for add, absent from the ordinary feed; cross-org 404.
+
+      `tests/security/test_authz_matrix.py`: all 4 new routes are
+      ownership-split (none is a plain role-threshold row) — added to
+      `_OWNERSHIP_SPLIT_ROUTES` and covered by two new dedicated tests:
+      `test_meeting_participant_roster_routes_enforce_ownership_split`
+      (`POST`/`GET`/`DELETE`, same "participant passes GET only" asymmetry
+      Stage 2's own meeting-level test already established) and
+      `test_update_participant_response_route_enforces_self_or_ownership_split`
+      (`PATCH`'s own three-way split: self, creator, or MANAGER+ — distinct
+      from every other ownership-split shape in this file, since even an
+      "unrelated participant" of the *meeting* is still forbidden here
+      unless they're the specific participant row being updated).
+      `tests/security/test_isolation_matrix.py`: `_MEETING_PARTICIPANT_
+      ISOLATION_ROUTES`/`test_meeting_participant_routes_isolated_across_
+      orgs` — every role, same reasoning Stage 2's own meeting isolation
+      table used (`MEETING_READ`/`MEETING_WRITE_OWN` are both MEMBER-tier
+      reachable, unlike CRM's MANAGER+-only writes).
+
+      58 new backend tests (736 → 794); ruff, ruff format, mypy, `make
+      openapi` all green (frontend unaffected — no changes this stage).
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses

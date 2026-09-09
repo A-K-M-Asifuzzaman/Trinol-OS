@@ -581,6 +581,42 @@ export interface paths {
         patch: operations["update_meeting_route_api_v1_meetings__meeting_id__patch"];
         trace?: never;
     };
+    "/api/v1/meetings/{meeting_id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Meeting Participants Route */
+        get: operations["list_meeting_participants_route_api_v1_meetings__meeting_id__participants_get"];
+        put?: never;
+        /** Add Participant Route */
+        post: operations["add_participant_route_api_v1_meetings__meeting_id__participants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meetings/{meeting_id}/participants/{participant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Participant Route */
+        delete: operations["remove_participant_route_api_v1_meetings__meeting_id__participants__participant_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Participant Response Route */
+        patch: operations["update_participant_response_route_api_v1_meetings__meeting_id__participants__participant_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1070,6 +1106,32 @@ export interface components {
             items: components["schemas"]["MeetingResponse"][];
             /** Total */
             total: number;
+        };
+        /** MeetingParticipantAddRequest */
+        MeetingParticipantAddRequest: {
+            /** User Id */
+            user_id?: string | null;
+            /** External Email */
+            external_email?: string | null;
+        };
+        /** MeetingParticipantListResponse */
+        MeetingParticipantListResponse: {
+            /** Items */
+            items: components["schemas"]["trinol__modules__meetings__schemas__MeetingParticipantResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * MeetingParticipantResponse
+         * @description DATABASE.md §3 leaves `meeting_participants.response` undefined —
+         *     invented this phase, mirroring how every other status enum here is a
+         *     plain StrEnum with no permission weight of its own.
+         * @enum {string}
+         */
+        "MeetingParticipantResponse-Input": "PENDING" | "ACCEPTED" | "DECLINED" | "TENTATIVE";
+        /** MeetingParticipantResponseUpdateRequest */
+        MeetingParticipantResponseUpdateRequest: {
+            response: components["schemas"]["MeetingParticipantResponse-Input"];
         };
         /** MeetingResponse */
         MeetingResponse: {
@@ -1783,6 +1845,32 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * MeetingParticipantResponse
+         * @description DATABASE.md §3 leaves `meeting_participants.response` undefined —
+         *     invented this phase, mirroring how every other status enum here is a
+         *     plain StrEnum with no permission weight of its own.
+         * @enum {string}
+         */
+        trinol__modules__meetings__models__MeetingParticipantResponse: "PENDING" | "ACCEPTED" | "DECLINED" | "TENTATIVE";
+        /** MeetingParticipantResponse */
+        trinol__modules__meetings__schemas__MeetingParticipantResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Meeting Id
+             * Format: uuid
+             */
+            meeting_id: string;
+            /** User Id */
+            user_id: string | null;
+            /** External Email */
+            external_email: string | null;
+            response: components["schemas"]["trinol__modules__meetings__models__MeetingParticipantResponse"];
         };
     };
     responses: never;
@@ -3646,6 +3734,141 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeetingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_meeting_participants_route_api_v1_meetings__meeting_id__participants_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingParticipantListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_participant_route_api_v1_meetings__meeting_id__participants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingParticipantAddRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["trinol__modules__meetings__schemas__MeetingParticipantResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_participant_route_api_v1_meetings__meeting_id__participants__participant_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_participant_response_route_api_v1_meetings__meeting_id__participants__participant_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingParticipantResponseUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["trinol__modules__meetings__schemas__MeetingParticipantResponse"];
                 };
             };
             /** @description Validation Error */
