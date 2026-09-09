@@ -189,6 +189,61 @@ export interface paths {
         patch: operations["update_project_member_route_api_v1_projects__project_id__members__member_id__patch"];
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/milestones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Milestones Route */
+        get: operations["list_milestones_route_api_v1_projects__project_id__milestones_get"];
+        put?: never;
+        /** Create Milestone Route */
+        post: operations["create_milestone_route_api_v1_projects__project_id__milestones_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tasks Route */
+        get: operations["list_tasks_route_api_v1_tasks_get"];
+        put?: never;
+        /** Create Task Route */
+        post: operations["create_task_route_api_v1_tasks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Task Route */
+        get: operations["get_task_route_api_v1_tasks__task_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Task Route */
+        delete: operations["delete_task_route_api_v1_tasks__task_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Task Route */
+        patch: operations["update_task_route_api_v1_tasks__task_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -329,6 +384,50 @@ export interface components {
             role?: components["schemas"]["Role"] | null;
             /** Status */
             status?: "INACTIVE" | null;
+        };
+        /** MilestoneCreateRequest */
+        MilestoneCreateRequest: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+            /**
+             * Position
+             * @default 0
+             */
+            position: number;
+        };
+        /** MilestoneListResponse */
+        MilestoneListResponse: {
+            /** Items */
+            items: components["schemas"]["MilestoneResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** MilestoneResponse */
+        MilestoneResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Due Date */
+            due_date: string | null;
+            /** Completed At */
+            completed_at: string | null;
+            /** Position */
+            position: number;
         };
         /** ProjectCreateRequest */
         ProjectCreateRequest: {
@@ -551,6 +650,134 @@ export interface components {
             role: string;
             /** Csrf Token */
             csrf_token: string;
+        };
+        /** TaskCreateRequest */
+        TaskCreateRequest: {
+            /** Project Id */
+            project_id?: string | null;
+            /** Title */
+            title: string;
+            /** Description */
+            description?: string | null;
+            /** @default TODO */
+            status: components["schemas"]["TaskStatus"];
+            /** @default MEDIUM */
+            priority: components["schemas"]["TaskPriority"];
+            /** Assignee Id */
+            assignee_id?: string | null;
+            /** Milestone Id */
+            milestone_id?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Estimated Hours */
+            estimated_hours?: string | null;
+            /** Actual Hours */
+            actual_hours?: string | null;
+            /** Tags */
+            tags?: string[] | null;
+        };
+        /** TaskListResponse */
+        TaskListResponse: {
+            /** Items */
+            items: components["schemas"]["TaskResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * TaskPriority
+         * @enum {string}
+         */
+        TaskPriority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+        /** TaskResponse */
+        TaskResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Project Id */
+            project_id: string | null;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string | null;
+            status: components["schemas"]["TaskStatus"];
+            priority: components["schemas"]["TaskPriority"];
+            /** Assignee Id */
+            assignee_id: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /** Milestone Id */
+            milestone_id: string | null;
+            /** Due Date */
+            due_date: string | null;
+            /** Start Date */
+            start_date: string | null;
+            /** Estimated Hours */
+            estimated_hours: string | null;
+            /** Actual Hours */
+            actual_hours: string | null;
+            /** Tags */
+            tags: string[] | null;
+            /** Board Position */
+            board_position: string;
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * TaskStatus
+         * @enum {string}
+         */
+        TaskStatus: "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE" | "CANCELLED";
+        /**
+         * TaskUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/tasks.py uses `model_dump(exclude_unset=True)`). `created_by`
+         *     is absent — authorship is set at creation only, never reassignable.
+         */
+        TaskUpdateRequest: {
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id?: string;
+            /** Title */
+            title?: string;
+            /** Description */
+            description?: string | null;
+            /** @enum {string} */
+            status?: "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE" | "CANCELLED";
+            /** @enum {string} */
+            priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+            /** Assignee Id */
+            assignee_id?: string | null;
+            /** Milestone Id */
+            milestone_id?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Estimated Hours */
+            estimated_hours?: string | null;
+            /** Actual Hours */
+            actual_hours?: string | null;
+            /** Tags */
+            tags?: string[] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1141,6 +1368,238 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectMemberResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_milestones_route_api_v1_projects__project_id__milestones_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilestoneListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_milestone_route_api_v1_projects__project_id__milestones_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MilestoneCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilestoneResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tasks_route_api_v1_tasks_get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+                assignee_id?: string | null;
+                status?: components["schemas"]["TaskStatus"] | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_task_route_api_v1_tasks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_task_route_api_v1_tasks__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_task_route_api_v1_tasks__task_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_task_route_api_v1_tasks__task_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
                 };
             };
             /** @description Validation Error */

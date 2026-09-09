@@ -240,7 +240,14 @@ class Task(OrgScoped, Base):
     board_position: Mapped[Decimal] = mapped_column(sa.Numeric, nullable=False, server_default="0")
     completed_at: Mapped[datetime | None] = mapped_column(_TZ, default=None)
     created_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+    # server_onupdate: trg_tasks_updated_at (migration 0003) refreshes this
+    # on every UPDATE — telling SQLAlchemy that here (same fix Codex's Stage
+    # 2 review applied to Project.updated_at) is what lets a post-update
+    # reload actually see the new value instead of the stale one from before
+    # the trigger ran.
+    updated_at: Mapped[datetime] = mapped_column(
+        _TZ, server_default=text("now()"), server_onupdate=FetchedValue()
+    )
 
     __table_args__ = (
         # Required by task_comments/task_checklist_items/task_attachments'
@@ -311,7 +318,10 @@ class TaskComment(OrgScoped, Base):
     body: Mapped[str] = mapped_column(sa.Text, nullable=False)
     edited_at: Mapped[datetime | None] = mapped_column(_TZ, default=None)
     created_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+    # server_onupdate: same trigger-refresh fix as Task.updated_at above.
+    updated_at: Mapped[datetime] = mapped_column(
+        _TZ, server_default=text("now()"), server_onupdate=FetchedValue()
+    )
 
     __table_args__ = (
         ForeignKeyConstraint(

@@ -14,7 +14,16 @@ from trinol.modules.identity.models import (
     Organization,
     User,
 )
-from trinol.modules.work.models import Project, ProjectMember, ProjectStatus, RoleOnProject
+from trinol.modules.work.models import (
+    Milestone,
+    Project,
+    ProjectMember,
+    ProjectStatus,
+    RoleOnProject,
+    Task,
+    TaskPriority,
+    TaskStatus,
+)
 
 # Plain factory functions, not factory_boy (TESTING.md §2): each adds+flushes
 # a row and returns it, so a caller can chain them without repeating
@@ -147,3 +156,49 @@ async def make_project_member(
     db.add(member)
     await db.flush()
     return member
+
+
+async def make_milestone(
+    db: AsyncSession,
+    *,
+    project: Project,
+    name: str = "Test Milestone",
+    position: int = 0,
+) -> Milestone:
+    milestone = Milestone(
+        id=uuid7(),
+        organization_id=project.organization_id,
+        project_id=project.id,
+        name=name,
+        position=position,
+    )
+    db.add(milestone)
+    await db.flush()
+    return milestone
+
+
+async def make_task(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    created_by: Membership,
+    project: Project | None = None,
+    assignee: Membership | None = None,
+    title: str = "Test Task",
+    status: TaskStatus = TaskStatus.TODO,
+    priority: TaskPriority = TaskPriority.MEDIUM,
+) -> Task:
+    task = Task(
+        id=uuid7(),
+        organization_id=organization.id,
+        project_id=project.id if project is not None else None,
+        title=title,
+        status=status,
+        priority=priority,
+        assignee_id=assignee.user_id if assignee is not None else None,
+        created_by=created_by.user_id,
+        completed_at=datetime.now(UTC) if status == TaskStatus.DONE else None,
+    )
+    db.add(task)
+    await db.flush()
+    return task

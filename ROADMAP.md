@@ -98,9 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-2 complete.**
-Stage 3 (Task CRUD, status/priority transitions, milestone linking) is
-next. See the audit and decisions below for the reasoning each stage builds
+Status: **Implementation plan approved (11 stages). Stages 1-3 complete.**
+Stage 4 (Kanban board + drag reorder) is next. See the audit and decisions
+below for the reasoning each stage builds
 on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
@@ -341,7 +341,58 @@ module in full, and nothing found in this audit requires changing it:
       trigger-generated `updated_at` values are mapped and reloaded after
       update/archive. Full suite (245 tests), ruff, mypy, frontend
       lint/typecheck/test/build all green.
-- [ ] Stage 3 — Task CRUD, status/priority transitions, milestone linking
+- [x] Stage 3 — Task CRUD, status/priority transitions, milestone linking.
+      `modules/work/{services/task_service,services/milestone_service,
+      routes/tasks}.py` + milestone routes added to `routes/projects.py`
+      (`POST/GET /projects/{id}/milestones`). Proactively applied the same
+      trigger-`updated_at`/`FetchedValue` fix Codex's Stage 2 review found
+      on `Project` to `Task`/`TaskComment` too, before their own update
+      paths could hit the identical bug.
+
+      Implementation-level decisions, since RBAC.md documents "Task edit"
+      but not every case this stage needed:
+      1. **Task read is org-wide, with no per-resource restriction** —
+         unlike "Project detail," RBAC.md §3 has no "Task detail" bullet,
+         only "Task edit." Read is transparency (same as Team's own "view"
+         row); only editing is ownership-restricted. Flagged explicitly for
+         review since the asymmetry with projects isn't spelled out.
+      2. **Task delete follows the same rule as task edit** (`MANAGER+` OR
+         assignee OR creator) — RBAC.md's matrix has no dedicated
+         task-delete permission, and ADR-0011 treats deleting a task as a
+         normal, audited action, not one confined to managers. Inventing a
+         new `TASK_DELETE` permission not in the accepted enum would have
+         been scope creep; reusing the existing edit rule wasn't.
+      3. **`completed_at` is never client-settable** — derived entirely
+         from `status` (set on transition to `DONE`, cleared otherwise),
+         removed from both create/update request schemas. One source of
+         truth for `ck_task_completed` instead of trusting a client-sent
+         date to agree with the status sent alongside it.
+      4. **Milestones follow "Create/edit projects" (`MANAGER+`), not
+         decision 6's ownership exception** — that exception is documented
+         in RBAC.md §3 only for `project_members` specifically; milestones
+         are structural project data, closer to editing the project's own
+         fields (also `MANAGER+`-only, no ownership escape hatch).
+      5. **`board_position` is deliberately absent from the task
+         create/update schemas** — it's Stage 4's field to expose, once the
+         Kanban drag-reorder feature that gives it meaning actually exists.
+      6. Money/hours decimal-string validation (Codex's Stage 2
+         `BudgetDecimal` fix) generalized to a shared `_validate_decimal_string`
+         helper + a new `HoursDecimal` (non-negative, `Numeric(6,2)`) for
+         `estimated_hours`/`actual_hours` — each alias stays a literal
+         `Annotated[...]` assignment (not a factory-function call), since
+         mypy only recognizes an implicit type alias in that exact shape.
+
+      Route/service-split routes (same shape as decision 6, RBAC.md §3):
+      `GET /projects/{id}/milestones` (visibility) and
+      `PATCH`/`DELETE /tasks/{id}` (edit/delete) join
+      `_OWNERSHIP_SPLIT_ROUTES` in the authz matrix, each with a dedicated
+      4-or-5-way test covering every case (manager, assignee, creator,
+      unrelated member, cross-org), mirroring the pattern Codex's Stage 2
+      review established for project members.
+
+      `apps/web/lib/api/types.gen.ts` regenerated, no drift. Full suite
+      (302 tests), ruff, mypy, frontend lint/typecheck/test/build all
+      green.
 - [ ] Stage 4 — Kanban: board endpoint (500-task cap, decision 3), drag
       reorder via the existing task `PATCH` (decision 1)
 - [ ] Stage 5 — Task comments + checklist items

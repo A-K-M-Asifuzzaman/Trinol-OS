@@ -9,6 +9,7 @@ from tests.factories import (
     make_organization,
     make_project,
     make_project_member,
+    make_task,
     make_user,
 )
 from tests.helpers import login_as, login_as_existing
@@ -175,6 +176,24 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         {"name": "Matrix Renamed"},
     ),
     ("DELETE", "/api/v1/projects/{project_id}", Permission.PROJECT_DELETE, None),
+    (
+        "POST",
+        "/api/v1/projects/{project_id}/milestones",
+        Permission.PROJECT_WRITE,
+        {"name": "Matrix Milestone"},
+    ),
+    (
+        "POST",
+        "/api/v1/tasks",
+        Permission.TASK_WRITE_OWN,
+        {"title": "Matrix Task"},
+    ),
+    # RBAC.md §2 grants TASK_READ org-wide with no additional per-resource
+    # restriction (unlike Project detail) — ROADMAP.md Stage 3 decision, so
+    # every role is expected to pass both task-read rows below, same as the
+    # team-read rows above.
+    ("GET", "/api/v1/tasks", Permission.TASK_READ, None),
+    ("GET", "/api/v1/tasks/{task_id}", Permission.TASK_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -194,6 +213,16 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     ("POST", "/api/v1/projects/{project_id}/members"),
     ("PATCH", "/api/v1/projects/{project_id}/members/{member_id}"),
     ("DELETE", "/api/v1/projects/{project_id}/members/{member_id}"),
+    # Same shape (RBAC.md §3 "Project detail"): route is PROJECT_READ
+    # (MEMBER-tier), service is ensure_project_visible (MANAGER+ or project
+    # membership).
+    ("GET", "/api/v1/projects/{project_id}/milestones"),
+    # RBAC.md §3 "Task edit": route is TASK_WRITE_OWN (MEMBER-tier), service
+    # is TASK_WRITE_ANY (MANAGER+) or assignee or creator. Delete follows
+    # the same rule (task_service.can_write_task's docstring, ROADMAP.md
+    # Stage 3 decision).
+    ("PATCH", "/api/v1/tasks/{task_id}"),
+    ("DELETE", "/api/v1/tasks/{task_id}"),
 }
 
 
@@ -279,6 +308,135 @@ async def test_project_member_routes_enforce_ownership_split(
     assert response.status_code == (success_status if expected_status is None else expected_status)
 
 
+@pytest.mark.parametrize(
+    ("method", "body", "success_status"),
+    [
+        ("PATCH", {"title": "Renamed"}, 200),
+        ("DELETE", None, 204),
+    ],
+)
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("manager", None),
+        ("assignee", None),
+        ("creator", None),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_task_write_routes_enforce_ownership_split(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    body: dict[str, str] | None,
+    success_status: int,
+    access: str,
+    expected_status: int | None,
+) -> None:
+    """RBAC.md §3 'Task edit': MANAGER+ or the task's own assignee or
+    creator — the same rule governs delete (ROADMAP.md Stage 3 decision).
+    Covers every case the route/service split exists to distinguish, plus
+    the two escape hatches (assignee vs creator) being independent of each
+    other."""
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email=f"task-creator-{org.id}@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    assignee_user = await make_user(db_session, email=f"task-assignee-{org.id}@x.com")
+    assignee = await make_membership(
+        db_session, organization=org, user=assignee_user, role=Role.MEMBER
+    )
+    task = await make_task(db_session, organization=org, created_by=creator, assignee=assignee)
+
+    if access == "creator":
+        actor_user, actor_membership, actor_org = creator_user, creator, org
+    elif access == "assignee":
+        actor_user, actor_membership, actor_org = assignee_user, assignee, org
+    elif access in ("manager", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"task-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"task-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    headers = {"X-CSRF-Token": actor.csrf_token}
+    response = await client.request(method, f"/api/v1/tasks/{task.id}", json=body, headers=headers)
+    assert response.status_code == (success_status if expected_status is None else expected_status)
+
+
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [("manager", 200), ("member", 200), ("outsider", 403), ("cross_org", 404)],
+)
+async def test_project_milestones_list_enforces_project_visibility(
+    client: AsyncClient, fake_verifier, db_session, access: str, expected_status: int
+) -> None:
+    """Same shape as 'Project detail' (RBAC.md §3): route is PROJECT_READ
+    (MEMBER-tier), service is ensure_project_visible (MANAGER+ or project
+    membership)."""
+    org = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"milestone-owner-{org.id}@x.com")
+    owner = await make_membership(db_session, organization=org, user=owner_user, role=Role.OWNER)
+    project = await make_project(db_session, organization=org, owner=owner)
+
+    if access == "manager":
+        actor_user = await make_user(db_session, email=f"milestone-manager-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=org, user=actor_user, role=Role.MANAGER
+        )
+        actor_org = org
+    elif access == "member":
+        actor_user = await make_user(db_session, email=f"milestone-member-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=org, user=actor_user, role=Role.MEMBER
+        )
+        await make_project_member(db_session, project=project, user=actor_user)
+        actor_org = org
+    elif access == "outsider":
+        actor_user = await make_user(db_session, email=f"milestone-outsider-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=org, user=actor_user, role=Role.MEMBER
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"milestone-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    response = await client.get(f"/api/v1/projects/{project.id}/milestones")
+    assert response.status_code == expected_status
+
+
 def _live_permission_gated_routes() -> set[tuple[str, str]]:
     pairs: set[tuple[str, str]] = set()
     for route in iter_api_routes(app):
@@ -324,12 +482,19 @@ async def test_matrix_row_respects_required_permission(
 
     resolved_path = path.replace("{membership_id}", str(target.id))
     if "{project_id}" in resolved_path:
-        # Both rows using this placeholder (PATCH/DELETE project) are
-        # MANAGER+-only with no ownership escape hatch, so who owns the
-        # test project doesn't affect the assertion below.
+        # Every row using this placeholder (PATCH/DELETE project, POST
+        # milestone) is MANAGER+-only with no ownership escape hatch, so
+        # who owns the test project doesn't affect the assertion below.
         project = await make_project(db_session, organization=actor.organization, owner=target)
         await db_session.commit()
         resolved_path = resolved_path.replace("{project_id}", str(project.id))
+    if "{task_id}" in resolved_path:
+        # TASK_READ has no per-resource restriction (ROADMAP.md Stage 3
+        # decision) — a real task proves every role can genuinely read it,
+        # not just that a phantom lookup happens not to 404 into a 403.
+        task = await make_task(db_session, organization=actor.organization, created_by=target)
+        await db_session.commit()
+        resolved_path = resolved_path.replace("{task_id}", str(task.id))
     headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
     response = await client.request(method, resolved_path, json=body, headers=headers)
 

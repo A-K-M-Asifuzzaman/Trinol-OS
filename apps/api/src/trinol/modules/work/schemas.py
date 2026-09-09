@@ -4,27 +4,62 @@ import re
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from functools import partial
 from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, Field, WithJsonSchema, model_validator
 
-from trinol.modules.work.models import ProjectHealth, ProjectStatus, RoleOnProject
+from trinol.modules.work.models import (
+    ProjectHealth,
+    ProjectStatus,
+    RoleOnProject,
+    TaskPriority,
+    TaskStatus,
+)
 
-_BUDGET_PATTERN = r"^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$"
 
-
-def _require_budget_decimal_string(value: Any) -> Any:
-    if not isinstance(value, str) or re.fullmatch(_BUDGET_PATTERN, value) is None:
-        raise ValueError(
-            "budget must be a decimal string with at most 12 integer and 2 decimal digits"
-        )
+def _validate_decimal_string(pattern: str, error: str, value: Any) -> Any:
+    """Money/hours fields are `NUMERIC` in Postgres and `Decimal` in Python
+    (DATABASE.md §1 / ADR-0007) — accepting a JSON number here would round-
+    trip through IEEE-754 float before Pydantic ever sees it, the exact
+    thing that rule exists to prevent. A bounded decimal *string* is the
+    only representation that can't silently lose precision."""
+    if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
+        raise ValueError(error)
     return value
 
 
+# Each alias below must be a literal `Annotated[...]` assignment (not the
+# result of a function call) — mypy only recognizes an implicit type alias
+# in that exact shape; a factory returning `Any` fails `valid-type` checks
+# at every usage site instead. Only the validator logic above is shared.
+_BUDGET_PATTERN = r"^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$"
 BudgetDecimal = Annotated[
     Decimal,
-    BeforeValidator(_require_budget_decimal_string),
+    BeforeValidator(
+        partial(
+            _validate_decimal_string,
+            _BUDGET_PATTERN,
+            "budget must be a decimal string with at most 12 integer and 2 decimal digits",
+        )
+    ),
     WithJsonSchema({"type": "string", "pattern": _BUDGET_PATTERN}, mode="validation"),
+]
+
+# Numeric(6, 2): at most 4 integer digits. Non-negative — a task can't have
+# worked a negative number of hours.
+_HOURS_PATTERN = r"^(?:0|[1-9]\d{0,3})(?:\.\d{1,2})?$"
+HoursDecimal = Annotated[
+    Decimal,
+    BeforeValidator(
+        partial(
+            _validate_decimal_string,
+            _HOURS_PATTERN,
+            "hours must be a non-negative decimal string with at most 4 integer "
+            "and 2 decimal digits",
+        )
+    ),
+    WithJsonSchema({"type": "string", "pattern": _HOURS_PATTERN}, mode="validation"),
 ]
 
 
@@ -156,4 +191,118 @@ class ProjectMemberResponse(BaseModel):
 
 class ProjectMemberListResponse(BaseModel):
     items: list[ProjectMemberResponse]
+    total: int
+
+
+class MilestoneCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=4000)
+    due_date: date | None = None
+    position: int = Field(default=0, ge=0)
+
+
+class MilestoneResponse(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    name: str
+    description: str | None
+    due_date: date | None
+    completed_at: datetime | None
+    position: int
+
+
+class MilestoneListResponse(BaseModel):
+    items: list[MilestoneResponse]
+    total: int
+
+
+class TaskCreateRequest(BaseModel):
+    # Nullable: a task may exist without a project (DATABASE.md §3).
+    project_id: uuid.UUID | None = None
+    title: str = Field(min_length=1, max_length=300)
+    description: str | None = Field(default=None, max_length=8000)
+    status: TaskStatus = TaskStatus.TODO
+    priority: TaskPriority = TaskPriority.MEDIUM
+    # The membership's user_id, like ProjectMemberAddRequest.user_id.
+    assignee_id: uuid.UUID | None = None
+    milestone_id: uuid.UUID | None = None
+    due_date: date | None = None
+    start_date: date | None = None
+    estimated_hours: HoursDecimal | None = None
+    actual_hours: HoursDecimal | None = None
+    tags: list[str] | None = Field(default=None, max_length=20)
+    # completed_at is deliberately absent: derived from status
+    # (task_service sets/clears it), never client-settable — one source of
+    # truth for ck_task_completed instead of trusting client-sent dates to
+    # agree with the status they're also sending.
+
+
+class TaskUpdateRequest(BaseModel):
+    """Partial update: only fields present in the request body are applied
+    (routes/tasks.py uses `model_dump(exclude_unset=True)`). `created_by`
+    is absent — authorship is set at creation only, never reassignable."""
+
+    project_id: Annotated[
+        uuid.UUID | None, WithJsonSchema({"type": "string", "format": "uuid"}, mode="validation")
+    ] = None
+    title: Annotated[
+        str | None,
+        WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 300}, mode="validation"),
+    ] = Field(default=None, min_length=1, max_length=300)
+    description: str | None = Field(default=None, max_length=8000)
+    status: Annotated[
+        TaskStatus | None,
+        WithJsonSchema(
+            {"type": "string", "enum": [status.value for status in TaskStatus]}, mode="validation"
+        ),
+    ] = None
+    priority: Annotated[
+        TaskPriority | None,
+        WithJsonSchema(
+            {"type": "string", "enum": [priority.value for priority in TaskPriority]},
+            mode="validation",
+        ),
+    ] = None
+    assignee_id: uuid.UUID | None = None
+    milestone_id: uuid.UUID | None = None
+    due_date: date | None = None
+    start_date: date | None = None
+    estimated_hours: HoursDecimal | None = None
+    actual_hours: HoursDecimal | None = None
+    tags: list[str] | None = Field(default=None, max_length=20)
+
+    @model_validator(mode="after")
+    def _required_fields_not_null(self) -> TaskUpdateRequest:
+        # Same reasoning as ProjectUpdateRequest: exclude_unset means a
+        # field can be *present* and explicitly null, which would try to
+        # null a NOT NULL column — reject that with a clean 422 up front.
+        for field in ("title", "status", "priority"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} may not be null")
+        return self
+
+
+class TaskResponse(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID | None
+    title: str
+    description: str | None
+    status: TaskStatus
+    priority: TaskPriority
+    assignee_id: uuid.UUID | None
+    created_by: uuid.UUID
+    milestone_id: uuid.UUID | None
+    due_date: date | None
+    start_date: date | None
+    estimated_hours: Decimal | None
+    actual_hours: Decimal | None
+    tags: list[str] | None
+    board_position: Decimal
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskListResponse(BaseModel):
+    items: list[TaskResponse]
     total: int

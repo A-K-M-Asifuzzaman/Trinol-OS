@@ -10,8 +10,11 @@ from trinol.core.authz.require import require
 from trinol.core.db.engine import get_db_session
 from trinol.modules.identity.deps import get_current_membership
 from trinol.modules.identity.models import Membership
-from trinol.modules.work.models import Project, ProjectMember
+from trinol.modules.work.models import Milestone, Project, ProjectMember
 from trinol.modules.work.schemas import (
+    MilestoneCreateRequest,
+    MilestoneListResponse,
+    MilestoneResponse,
     ProjectCreateRequest,
     ProjectListResponse,
     ProjectMemberAddRequest,
@@ -21,6 +24,7 @@ from trinol.modules.work.schemas import (
     ProjectResponse,
     ProjectUpdateRequest,
 )
+from trinol.modules.work.services.milestone_service import create_milestone, list_milestones
 from trinol.modules.work.services.project_member_service import (
     add_project_member,
     list_project_members,
@@ -261,4 +265,66 @@ async def remove_project_member_route(
         actor=membership,
         project_id=project_id,
         member_id=member_id,
+    )
+
+
+def _milestone_to_response(milestone: Milestone) -> MilestoneResponse:
+    return MilestoneResponse(
+        id=milestone.id,
+        project_id=milestone.project_id,
+        name=milestone.name,
+        description=milestone.description,
+        due_date=milestone.due_date,
+        completed_at=milestone.completed_at,
+        position=milestone.position,
+    )
+
+
+@router.post(
+    "/{project_id}/milestones",
+    response_model=MilestoneResponse,
+    status_code=201,
+    dependencies=[Depends(require(Permission.PROJECT_WRITE))],
+)
+async def create_milestone_route(
+    project_id: uuid.UUID,
+    payload: MilestoneCreateRequest,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> MilestoneResponse:
+    milestone = await create_milestone(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        project_id=project_id,
+        name=payload.name,
+        description=payload.description,
+        due_date=payload.due_date,
+        position=payload.position,
+    )
+    return _milestone_to_response(milestone)
+
+
+@router.get(
+    "/{project_id}/milestones",
+    response_model=MilestoneListResponse,
+    dependencies=[Depends(require(Permission.PROJECT_READ))],
+)
+async def list_milestones_route(
+    project_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> MilestoneListResponse:
+    result = await list_milestones(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        project_id=project_id,
+        limit=limit,
+        offset=offset,
+    )
+    return MilestoneListResponse(
+        items=[_milestone_to_response(m) for m in result.items], total=result.total
     )
