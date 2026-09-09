@@ -254,7 +254,28 @@ module in full, and nothing found in this audit requires changing it:
       grouping, task must survive it); `milestones.project_id` and
       `tasks.project_id` RESTRICT (projects are soft-deleted only per
       ADR-0011, so an unexpected hard delete should fail loudly, not
-      cascade away real deliverable history).
+      cascade away real deliverable history). **Codex review round 1:** one
+      P1, one P2, both fixed. P1 — `budget`, `estimated_hours`,
+      `actual_hours`, `board_position` were annotated `Mapped[float]` over
+      `sa.Numeric` columns, violating DATABASE.md §1/ADR-0007's "NUMERIC in
+      Postgres, Decimal in Python, never float, anywhere in the stack" —
+      applies beyond just money fields, since SQLAlchemy's `Numeric` type
+      returns `Decimal` at runtime regardless, so the `float` annotations
+      were already a latent type mismatch. Changed all four to
+      `Mapped[Decimal]`. P2 — several composite FKs had no supporting
+      index (DATABASE.md §1: "every FK has an index unless it is already
+      the left prefix of a composite one"): added
+      `ix_projects_org_owner`, `ix_milestones_org_project`,
+      `ix_tasks_org_milestone`, `ix_tasks_org_created_by`; replaced the
+      single `ix_project_members_organization_id` with
+      `ix_project_members_org_project` + `ix_project_members_org_user`
+      (neither existing composite FK was that index's prefix); widened
+      `ix_task_comments_task`/`ix_task_checklist_items_task` to
+      `(organization_id, task_id)` to match their FKs' own columns
+      exactly. Migration `0003` edited in place (not a new migration) since
+      nothing outside this local dev DB had applied it yet. Re-verified:
+      `alembic downgrade -1`/`upgrade`/`check` clean, full suite
+      (160 tests), ruff, mypy all green.
 - [ ] Stage 2 — Project CRUD + `project_members` management (decision 6
       above: route gated on the new `PROJECT_MEMBER_WRITE` permission,
       MEMBER-tier; service enforces `PROJECT_WRITE` (MANAGER+) OR

@@ -74,6 +74,9 @@ def upgrade() -> None:
         )
         """
     )
+    # DATABASE.md §1: every FK has an index unless it is already the left
+    # prefix of a composite one. fk_projects_org_owner_memberships isn't.
+    op.execute("CREATE INDEX ix_projects_org_owner ON projects (organization_id, owner_id)")
     op.execute(
         "CREATE TRIGGER trg_projects_updated_at BEFORE UPDATE ON projects "
         "FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
@@ -97,8 +100,11 @@ def upgrade() -> None:
         )
         """
     )
-    # No separate organization_id index: uq_milestones_org_id already starts
-    # with organization_id, same reasoning as memberships (DATABASE.md §1).
+    # No index for organization_id alone: uq_milestones_org_id already
+    # starts with it (DATABASE.md §1, same reasoning as memberships).
+    # fk_milestones_org_project_projects isn't that constraint's prefix
+    # though, so it needs its own — also serves "list milestones for project".
+    op.execute("CREATE INDEX ix_milestones_org_project ON milestones (organization_id, project_id)")
 
     op.execute(
         """
@@ -119,8 +125,16 @@ def upgrade() -> None:
         )
         """
     )
+    # Neither composite FK above is the left prefix of
+    # uq_project_members_project_user (project_id, user_id) — each needs
+    # its own index (DATABASE.md §1); the first also covers plain
+    # organization_id-only lookups.
     op.execute(
-        "CREATE INDEX ix_project_members_organization_id ON project_members (organization_id)"
+        "CREATE INDEX ix_project_members_org_project "
+        "ON project_members (organization_id, project_id)"
+    )
+    op.execute(
+        "CREATE INDEX ix_project_members_org_user ON project_members (organization_id, user_id)"
     )
 
     op.execute(
@@ -165,6 +179,10 @@ def upgrade() -> None:
         "CREATE INDEX ix_tasks_org_assignee_status ON tasks (organization_id, assignee_id, status)"
     )
     op.execute("CREATE INDEX ix_tasks_project ON tasks (project_id)")
+    # fk_tasks_org_milestone_milestones and fk_tasks_org_created_by_memberships
+    # aren't covered by any index above (DATABASE.md §1).
+    op.execute("CREATE INDEX ix_tasks_org_milestone ON tasks (organization_id, milestone_id)")
+    op.execute("CREATE INDEX ix_tasks_org_created_by ON tasks (organization_id, created_by)")
     op.execute(
         "CREATE TRIGGER trg_tasks_updated_at BEFORE UPDATE ON tasks "
         "FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
@@ -190,7 +208,9 @@ def upgrade() -> None:
         )
         """
     )
-    op.execute("CREATE INDEX ix_task_comments_task ON task_comments (task_id)")
+    # Matches fk_task_comments_org_task_tasks's own columns exactly
+    # (DATABASE.md §1), not just task_id alone.
+    op.execute("CREATE INDEX ix_task_comments_org_task ON task_comments (organization_id, task_id)")
     op.execute(
         "CREATE TRIGGER trg_task_comments_updated_at BEFORE UPDATE ON task_comments "
         "FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
@@ -210,7 +230,10 @@ def upgrade() -> None:
         )
         """
     )
-    op.execute("CREATE INDEX ix_task_checklist_items_task ON task_checklist_items (task_id)")
+    op.execute(
+        "CREATE INDEX ix_task_checklist_items_org_task "
+        "ON task_checklist_items (organization_id, task_id)"
+    )
 
 
 def downgrade() -> None:

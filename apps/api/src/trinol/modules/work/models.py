@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 
 import sqlalchemy as sa
@@ -85,7 +86,9 @@ class Project(OrgScoped, Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     start_date: Mapped[date | None] = mapped_column(sa.Date, default=None)
     deadline: Mapped[date | None] = mapped_column(sa.Date, default=None)
-    budget: Mapped[float | None] = mapped_column(sa.Numeric(14, 2), default=None)
+    # DATABASE.md §1 / ADR-0007: NUMERIC in Postgres, Decimal in Python —
+    # never float, anywhere in the stack.
+    budget: Mapped[Decimal | None] = mapped_column(sa.Numeric(14, 2), default=None)
     currency: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="USD")
     repository_url: Mapped[str | None] = mapped_column(sa.Text, default=None)
     production_url: Mapped[str | None] = mapped_column(sa.Text, default=None)
@@ -113,6 +116,10 @@ class Project(OrgScoped, Base):
             "deadline IS NULL OR start_date IS NULL OR deadline >= start_date",
             name="ck_project_dates",
         ),
+        # DATABASE.md §1: every FK has an index unless it is already the
+        # left prefix of a composite one. fk_projects_org_owner_memberships
+        # isn't, so it needs its own.
+        Index("ix_projects_org_owner", "organization_id", "owner_id"),
     )
 
 
@@ -151,9 +158,12 @@ class ProjectMember(OrgScoped, Base):
             ondelete="CASCADE",
         ),
         # uq_project_members_project_user doesn't start with
-        # organization_id (unlike memberships/projects/milestones), so this
-        # table needs its own explicit index, same as sessions/invitations.
-        Index("ix_project_members_organization_id", "organization_id"),
+        # organization_id (unlike memberships/projects/milestones), and
+        # neither composite FK below is its left prefix — both need their
+        # own index (DATABASE.md §1). The first also covers plain
+        # organization_id-only lookups (org_id is its left prefix).
+        Index("ix_project_members_org_project", "organization_id", "project_id"),
+        Index("ix_project_members_org_user", "organization_id", "user_id"),
     )
 
 
@@ -180,6 +190,10 @@ class Milestone(OrgScoped, Base):
             # rather than silently cascade away milestone history.
             ondelete="RESTRICT",
         ),
+        # fk_milestones_org_project_projects isn't the left prefix of
+        # uq_milestones_org_id (organization_id, id) — needs its own index
+        # (DATABASE.md §1), and it also serves "list milestones for project".
+        Index("ix_milestones_org_project", "organization_id", "project_id"),
     )
 
 
@@ -210,10 +224,11 @@ class Task(OrgScoped, Base):
     milestone_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
     due_date: Mapped[date | None] = mapped_column(sa.Date, default=None)
     start_date: Mapped[date | None] = mapped_column(sa.Date, default=None)
-    estimated_hours: Mapped[float | None] = mapped_column(sa.Numeric(6, 2), default=None)
-    actual_hours: Mapped[float | None] = mapped_column(sa.Numeric(6, 2), default=None)
+    # DATABASE.md §1: NUMERIC in Postgres, Decimal in Python — never float.
+    estimated_hours: Mapped[Decimal | None] = mapped_column(sa.Numeric(6, 2), default=None)
+    actual_hours: Mapped[Decimal | None] = mapped_column(sa.Numeric(6, 2), default=None)
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(sa.Text), default=None)
-    board_position: Mapped[float] = mapped_column(sa.Numeric, nullable=False, server_default="0")
+    board_position: Mapped[Decimal] = mapped_column(sa.Numeric, nullable=False, server_default="0")
     completed_at: Mapped[datetime | None] = mapped_column(_TZ, default=None)
     created_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
@@ -259,6 +274,10 @@ class Task(OrgScoped, Base):
         Index("ix_tasks_org_status_due", "organization_id", "status", "due_date"),
         Index("ix_tasks_org_assignee_status", "organization_id", "assignee_id", "status"),
         Index("ix_tasks_project", "project_id"),
+        # fk_tasks_org_milestone_milestones and fk_tasks_org_created_by_memberships
+        # aren't covered by any index above (DATABASE.md §1).
+        Index("ix_tasks_org_milestone", "organization_id", "milestone_id"),
+        Index("ix_tasks_org_created_by", "organization_id", "created_by"),
         CheckConstraint("status <> 'DONE' OR completed_at IS NOT NULL", name="ck_task_completed"),
     )
 
@@ -290,7 +309,9 @@ class TaskComment(OrgScoped, Base):
             # Non-nullable authorship column (DATABASE.md §5.2): RESTRICT.
             ondelete="RESTRICT",
         ),
-        Index("ix_task_comments_task", "task_id"),
+        # Matches fk_task_comments_org_task_tasks's own columns exactly
+        # (DATABASE.md §1), not just task_id alone.
+        Index("ix_task_comments_org_task", "organization_id", "task_id"),
     )
 
 
@@ -310,5 +331,5 @@ class TaskChecklistItem(OrgScoped, Base):
             name="fk_task_checklist_items_org_task_tasks",
             ondelete="CASCADE",
         ),
-        Index("ix_task_checklist_items_task", "task_id"),
+        Index("ix_task_checklist_items_org_task", "organization_id", "task_id"),
     )
