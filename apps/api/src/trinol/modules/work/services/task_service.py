@@ -14,13 +14,15 @@ from trinol.core.db.org_session import OrgSession
 from trinol.core.errors import AppError, ForbiddenError, NotFoundError
 from trinol.core.ids import uuid7
 from trinol.modules.identity.models import Membership
-from trinol.modules.work.models import Milestone, Task, TaskPriority, TaskStatus
+from trinol.modules.work.models import Milestone, Task, TaskAttachment, TaskPriority, TaskStatus
 from trinol.modules.work.services.project_service import (
     ensure_actor_in_org,
     get_active_membership_by_user,
     get_project_in_org,
 )
 from trinol.platform.activity import record
+from trinol.platform.file_storage.protocol import FileStorage
+from trinol.platform.models import FileObject
 
 _MANAGER_UP = (Role.MANAGER, Role.ADMIN, Role.OWNER)
 
@@ -234,17 +236,50 @@ async def update_task(
 
 
 async def delete_task(
-    db: AsyncSession, *, organization_id: uuid.UUID, actor: Membership, task_id: uuid.UUID
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    actor: Membership,
+    task_id: uuid.UUID,
+    storage: FileStorage,
 ) -> None:
     """ADR-0011: tasks are hard-deleted, cascading to comments/checklist
     items (Stage 1's CASCADE FKs). "The audit event keeps the record of
     who did it and when" — the row is gone after this, so the event is the
     only remaining record; it must be written in the same transaction, not
-    deferred to Stage 7's ordinary feed-event wiring."""
+    deferred to Stage 7's ordinary feed-event wiring.
+
+    ADR-0008: "deleting a database row must also delete the object."
+    `task_attachments` cascades away at the DB level, but `file_objects`
+    doesn't hang off `tasks` in the FK graph at all, so its rows (and the
+    blobs they name) would otherwise be silently orphaned on every task
+    delete that had attachments — not a rare edge case, the *only* path by
+    which this could happen. Deleted explicitly here, in the order the FK
+    constraints require: `task_attachments` (references both `tasks` and
+    `file_objects`) before `file_objects`, all before the `task` itself —
+    `file_objects.file_id`'s `RESTRICT` would otherwise reject deleting a
+    still-referenced row."""
     ensure_actor_in_org(actor, organization_id)
     task = await get_task_in_org(db, organization_id=organization_id, task_id=task_id)
     if not can_write_task(actor, task):
         raise ForbiddenError("Insufficient permission to delete this task")
+
+    attachments_result = await db.execute(
+        select(TaskAttachment).where(
+            TaskAttachment.organization_id == organization_id, TaskAttachment.task_id == task_id
+        )
+    )
+    attachments = list(attachments_result.scalars().all())
+    file_objects: list[FileObject] = []
+    if attachments:
+        file_objects_result = await db.execute(
+            select(FileObject).where(
+                FileObject.organization_id == organization_id,
+                FileObject.id.in_([a.file_id for a in attachments]),
+            )
+        )
+        file_objects = list(file_objects_result.scalars().all())
+
     task_id_for_event = task.id
     await record(
         db,
@@ -256,5 +291,14 @@ async def delete_task(
         metadata={"title": task.title},
         audit=True,
     )
+
+    for attachment in attachments:
+        await db.delete(attachment)
+    await db.flush()
+    for file_object in file_objects:
+        await db.delete(file_object)
     await db.delete(task)
     await db.commit()
+
+    for file_object in file_objects:
+        await storage.delete(file_object.storage_key)

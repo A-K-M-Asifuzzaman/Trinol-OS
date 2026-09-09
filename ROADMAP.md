@@ -587,6 +587,47 @@ module in full, and nothing found in this audit requires changing it:
       and mocked-boto3 `test_s3_file_storage.py`), ruff, mypy,
       `alembic upgrade`/`downgrade -1`/`upgrade`/`check` clean, frontend
       lint/typecheck/test/build, OpenAPI diff all green.
+
+      **Codex review:** two P1s, both fixed. P1 — Content-Disposition
+      header injection: `download_attachment_route` interpolated the
+      user-supplied upload `filename` directly into a quoted header value
+      with no sanitization; a filename containing `"` could close the
+      quoted string early and append arbitrary header content, and a raw
+      CR/LF byte could inject an entirely new header line (e.g.
+      `Set-Cookie`). Added `_content_disposition()`: an RFC 6266
+      `filename*` value percent-encodes the *whole* name
+      (`quote(..., safe="")` leaves no raw quote/backslash/control byte
+      anywhere in it), with an ASCII `filename=` fallback built by
+      substituting (not deleting) any character outside
+      `[A-Za-z0-9 ._-]`, so the fallback can never end with a dangling
+      escape and is never empty for non-empty input. 7 dedicated unit
+      tests exercise the helper directly with quotes, backslashes,
+      embedded CRLF, non-ASCII, and empty input.
+
+      P1 — task deletion orphaned attachment files: `task_attachments`
+      cascades away at the DB level when a task is hard-deleted
+      (Stage 1), but `file_objects` doesn't hang off `tasks` in the FK
+      graph at all — `delete_task` never touched it, so every task
+      delete that had attachments silently orphaned both the metadata row
+      and the real storage blob. Not a rare edge case: the *only* path by
+      which this could happen, and my own first-pass test for this
+      (`test_deleting_task_cascades_attachment_rows`) only checked that
+      the task 404'd afterward, never checking whether the attachment's
+      `file_objects` row or blob were actually gone — the gap went
+      untested, not just unfixed. `delete_task` now takes a `FileStorage`
+      parameter and explicitly deletes, in FK-dependency order
+      (`task_attachments` → `file_objects` → `tasks`, since
+      `file_objects`'s `RESTRICT` would otherwise reject a still-
+      referenced row): the attachment rows, then the file_objects rows,
+      then the task itself, commits, then deletes each blob — same
+      commit-before-blob-delete ordering `delete_attachment` already
+      established. Renamed and strengthened the test
+      (`test_deleting_task_cleans_up_attachment_rows_and_blobs`) to assert
+      directly against the database and the filesystem that both are
+      actually gone, not just that the task itself 404s.
+
+      Re-verified: full suite (422 tests), ruff, mypy, `alembic check`
+      clean, frontend lint/typecheck/test/build, OpenAPI diff all green.
 - [ ] Stage 7 — Activity feed events wired for task/project changes
       (decision 2 above); first real exercise of `platform.activity.
       list_feed` (built Stage 7 of Phase 1, never called by a route until

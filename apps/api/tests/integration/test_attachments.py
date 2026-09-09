@@ -4,6 +4,7 @@ import hashlib
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from tests.factories import (
     PNG_1X1_BYTES,
@@ -19,6 +20,7 @@ from trinol.main import app
 from trinol.platform.activity import list_audit
 from trinol.platform.file_storage.deps import get_file_storage
 from trinol.platform.file_storage.local import LocalFileStorage
+from trinol.platform.models import FileObject
 
 pytestmark = pytest.mark.usefixtures("db_session")
 
@@ -208,21 +210,29 @@ async def test_delete_attachment_removes_row_and_blob_and_is_audited(
     assert str(deleted_events[0].entity_id) == attachment_id
 
 
-async def test_deleting_task_cascades_attachment_rows(
-    client: AsyncClient, fake_verifier, db_session, local_storage
+async def test_deleting_task_cleans_up_attachment_rows_and_blobs(
+    client: AsyncClient, fake_verifier, db_session, local_storage, tmp_path
 ) -> None:
-    """ADR-0011: attachments are task children (CASCADE) — the file_objects
-    row/blob become an orphan-sweep-backstop concern, not tested here."""
+    """ADR-0008: deleting a database row must also delete the object.
+    `task_attachments` cascades away at the DB level (ADR-0011), but
+    `file_objects` doesn't hang off `tasks` in the FK graph, so it (and the
+    blob it names) would otherwise be silently orphaned on every task
+    delete that had attachments. Checked directly against the database and
+    the filesystem, not just inferred from the task's own 404 — that alone
+    wouldn't distinguish "cleaned up properly" from "orphaned but
+    unreachable through this task_id"."""
     actor = await login_as(client, fake_verifier, db_session, role=Role.MEMBER)
     task_response = await client.post(
         "/api/v1/tasks", json={"title": "Task"}, headers={"X-CSRF-Token": actor.csrf_token}
     )
     task_id = task_response.json()["id"]
-    await client.post(
+    upload_response = await client.post(
         f"/api/v1/tasks/{task_id}/attachments",
         files={"file": ("receipt.png", PNG_1X1_BYTES, "image/png")},
         headers={"X-CSRF-Token": actor.csrf_token},
     )
+    file_id = upload_response.json()["file_id"]
+    assert any(f.is_file() for f in tmp_path.rglob("*"))
 
     delete_response = await client.delete(
         f"/api/v1/tasks/{task_id}", headers={"X-CSRF-Token": actor.csrf_token}
@@ -231,6 +241,14 @@ async def test_deleting_task_cascades_attachment_rows(
 
     get_response = await client.get(f"/api/v1/tasks/{task_id}")
     assert get_response.status_code == 404
+
+    file_object_result = await db_session.execute(
+        select(FileObject).where(
+            FileObject.organization_id == actor.organization.id, FileObject.id == file_id
+        )
+    )
+    assert file_object_result.scalar_one_or_none() is None
+    assert not any(f.is_file() for f in tmp_path.rglob("*"))
 
 
 async def test_attachment_on_task_in_another_org_is_404(

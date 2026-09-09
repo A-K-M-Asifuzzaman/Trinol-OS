@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi import Response as FastAPIResponse
@@ -184,9 +186,14 @@ async def delete_task_route(
     task_id: uuid.UUID,
     membership: Membership = Depends(get_current_membership),
     db: AsyncSession = Depends(get_db_session),
+    storage: FileStorage = Depends(get_file_storage),
 ) -> None:
     await delete_task(
-        db, organization_id=membership.organization_id, actor=membership, task_id=task_id
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        task_id=task_id,
+        storage=storage,
     )
 
 
@@ -454,6 +461,21 @@ async def list_attachments_route(
     )
 
 
+def _content_disposition(filename: str) -> str:
+    """`file_object.filename` is the user's original upload name, stored
+    verbatim (ADR-0008 — only the storage *key* is generated, the display
+    name is client-controlled) — building a header directly from it would
+    let a filename containing `"`, `\\`, or a raw CR/LF byte break out of
+    the quoted-string or inject additional header lines. RFC 6266's
+    `filename*` form percent-encodes the *entire* name (`quote(..., safe="")`
+    leaves no raw quote/backslash/control byte anywhere in the value,
+    unlike the plain `filename=` form), with a stripped-down ASCII
+    `filename=` fallback for clients that don't understand `filename*`."""
+    ascii_fallback = re.sub(r"[^A-Za-z0-9 ._-]", "_", filename).strip() or "download"
+    encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}"
+
+
 @router.get(
     "/{task_id}/attachments/{attachment_id}/download",
     dependencies=[Depends(require(Permission.TASK_READ))],
@@ -479,7 +501,7 @@ async def download_attachment_route(
         content=download.data,
         media_type=download.file_object.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{download.file_object.filename}"',
+            "Content-Disposition": _content_disposition(download.file_object.filename),
             "X-Content-Type-Options": "nosniff",
         },
     )
