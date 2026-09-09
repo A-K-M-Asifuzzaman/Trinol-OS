@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-3 complete.**
-Stage 4 (Pipeline board endpoint + drag reorder) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-4 complete.**
+Stage 5 (Lead conversion) is next.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1267,6 +1267,44 @@ checks; dashboard sales tiles show real counts.
 
       600 tests passing (was 550). `make openapi` regenerated for the
       five new lead operations. `make check` green end to end.
+- [x] Stage 4 — Pipeline board endpoint + drag reorder.
+      `modules/crm/services/pipeline_service.py`: `get_pipeline_board`
+      groups an org's non-archived leads by `stage`, ordered by
+      `board_position asc, id asc` — same shape as `board_service.py`'s
+      `get_project_board`, including the identical "bounded in practice"
+      500-lead cap (Phase 2 decision 3, not a fresh judgment call).
+      `modules/crm/routes/pipeline.py`: `GET /api/v1/pipeline`, a
+      top-level route (pipeline is org-wide, no parent resource — the
+      one route in `crm` that isn't nested under `/clients` or `/leads`,
+      mirroring `platform/routes/activity.py`'s single-route-file
+      precedent), gated on `LEAD_READ`. Drag reorder needed no new
+      endpoint at all (Phase 2 decision 1's identical pattern): Stage 3's
+      `PATCH /leads/{id}` already accepts both `board_position` and
+      `stage` as ordinary fields in one request, so a drag-across-columns
+      UI action is just one PATCH call.
+
+      Caught and fixed one naming-convention slip before it shipped:
+      `routes/leads.py`'s response-mapping helper was `_lead_to_response`
+      (leading underscore), but `routes/pipeline.py` needed to import it
+      to build `PipelineColumn`'s lead lists — the established convention
+      for a helper reused across route files within a module has no
+      leading underscore (precedent: `task_to_response` in
+      `routes/tasks.py`, imported by `routes/projects.py`). Renamed to
+      `lead_to_response` at all six call sites rather than duplicating
+      the mapping logic in `pipeline.py`.
+
+      Added the new route's authz-matrix row (`LEAD_READ`, no
+      `{lead_id}`-style placeholder to resolve — pipeline has no parent
+      resource, so no `_OWNERSHIP_SPLIT_ROUTES` branch was needed either).
+      `tests/integration/test_pipeline.py`: groups leads by stage
+      correctly, orders within a column by `board_position`, caps at 500
+      and reports `truncated` honestly, every role can view, a drag
+      (`stage` + `board_position` in one PATCH) writes exactly one
+      `lead_stage_events` row, a same-column reorder (`board_position`
+      only) writes zero.
+
+      614 tests passing (was 600). `make openapi` regenerated for the
+      new pipeline operation. `make check` green end to end.
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings

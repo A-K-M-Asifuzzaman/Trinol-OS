@@ -247,3 +247,20 @@ class LeadListResponse(BaseModel):
 
     items: list[LeadResponse]
     total: int
+
+
+class PipelineColumn(BaseModel):
+    stage: LeadStage
+    leads: list[LeadResponse]
+
+
+class PipelineBoardResponse(BaseModel):
+    """Stage 4 decision 3 (Phase 2 precedent, applied identically):
+    unpaginated but capped, not truly unlimited — `total` is the real count
+    and `truncated` tells the caller honestly whether the 500-lead cap
+    actually excluded anything, rather than silently returning a partial
+    board with no signal."""
+
+    columns: list[PipelineColumn]
+    total: int
+    truncated: bool

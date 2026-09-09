@@ -176,6 +176,7 @@ async def make_lead(
     source: LeadSource = LeadSource.WEBSITE,
     stage: LeadStage = LeadStage.NEW,
     assigned_to: Membership | None = None,
+    board_position: Decimal | None = None,
 ) -> Lead:
     lead = Lead(
         id=uuid7(),
@@ -187,6 +188,7 @@ async def make_lead(
         currency="USD",
         stage=stage,
         assigned_to=assigned_to.user_id if assigned_to is not None else None,
+        **({"board_position": board_position} if board_position is not None else {}),
     )
     db.add(lead)
     await db.flush()

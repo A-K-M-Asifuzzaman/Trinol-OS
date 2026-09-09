@@ -251,6 +251,9 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     ),
     ("PATCH", "/api/v1/leads/{lead_id}", Permission.LEAD_WRITE, {"notes": "Matrix note"}),
     ("DELETE", "/api/v1/leads/{lead_id}", Permission.LEAD_WRITE, None),
+    # Phase 3 Stage 4: pipeline is org-wide with no parent resource, so no
+    # placeholder to resolve — same LEAD_READ role-threshold-only shape.
+    ("GET", "/api/v1/pipeline", Permission.LEAD_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

@@ -28,7 +28,7 @@ from trinol.modules.identity.models import Membership
 router = APIRouter(prefix="/api/v1/leads", tags=["crm"])
 
 
-def _lead_to_response(lead: Lead) -> LeadResponse:
+def lead_to_response(lead: Lead) -> LeadResponse:
     return LeadResponse(
         id=lead.id,
         name=lead.name,
@@ -81,7 +81,7 @@ async def create_lead_route(
         next_follow_up=payload.next_follow_up,
         notes=payload.notes,
     )
-    return _lead_to_response(lead)
+    return lead_to_response(lead)
 
 
 @router.get(
@@ -105,7 +105,7 @@ async def list_leads_route(
         offset=offset,
     )
     return LeadListResponse(
-        items=[_lead_to_response(lead) for lead in result.items], total=result.total
+        items=[lead_to_response(lead) for lead in result.items], total=result.total
     )
 
 
@@ -120,7 +120,7 @@ async def get_lead_route(
     lead = await get_lead(
         db, organization_id=membership.organization_id, actor=membership, lead_id=lead_id
     )
-    return _lead_to_response(lead)
+    return lead_to_response(lead)
 
 
 @router.patch(
@@ -142,7 +142,7 @@ async def update_lead_route(
         lead_id=lead_id,
         updates=updates,
     )
-    return _lead_to_response(lead)
+    return lead_to_response(lead)
 
 
 @router.delete(
@@ -158,4 +158,4 @@ async def archive_lead_route(
     lead = await archive_lead(
         db, organization_id=membership.organization_id, actor=membership, lead_id=lead_id
     )
-    return _lead_to_response(lead)
+    return lead_to_response(lead)

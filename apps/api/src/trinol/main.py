@@ -19,6 +19,7 @@ from trinol.core.request_id import RequestIDMiddleware
 from trinol.core.security.origin_check import OriginCheckMiddleware
 from trinol.modules.crm.routes.clients import router as clients_router
 from trinol.modules.crm.routes.leads import router as leads_router
+from trinol.modules.crm.routes.pipeline import router as pipeline_router
 from trinol.modules.identity.csrf import verify_csrf
 from trinol.modules.identity.routes.auth import router as auth_router
 from trinol.modules.identity.routes.invitations import router as invitations_router
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(activity_router)
     app.include_router(clients_router)
     app.include_router(leads_router)
+    app.include_router(pipeline_router)
 
     @app.get("/health", tags=["meta"])
     @public

@@ -476,6 +476,23 @@ export interface paths {
         patch: operations["update_lead_route_api_v1_leads__lead_id__patch"];
         trace?: never;
     };
+    "/api/v1/pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Pipeline Board Route */
+        get: operations["get_pipeline_board_route_api_v1_pipeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -959,6 +976,28 @@ export interface components {
             completed_at: string | null;
             /** Position */
             position: number;
+        };
+        /**
+         * PipelineBoardResponse
+         * @description Stage 4 decision 3 (Phase 2 precedent, applied identically):
+         *     unpaginated but capped, not truly unlimited — `total` is the real count
+         *     and `truncated` tells the caller honestly whether the 500-lead cap
+         *     actually excluded anything, rather than silently returning a partial
+         *     board with no signal.
+         */
+        PipelineBoardResponse: {
+            /** Columns */
+            columns: components["schemas"]["PipelineColumn"][];
+            /** Total */
+            total: number;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** PipelineColumn */
+        PipelineColumn: {
+            stage: components["schemas"]["LeadStage"];
+            /** Leads */
+            leads: components["schemas"]["LeadResponse"][];
         };
         /**
          * ProjectBoardResponse
@@ -3087,6 +3126,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_pipeline_board_route_api_v1_pipeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineBoardResponse"];
                 };
             };
         };
