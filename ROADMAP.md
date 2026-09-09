@@ -98,9 +98,10 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stage 1 complete.**
-Stage 2 (Project CRUD + project-member management) is next. See the audit
-and decisions below for the reasoning each stage builds on.
+Status: **Implementation plan approved (11 stages). Stages 1-2 complete.**
+Stage 3 (Task CRUD, status/priority transitions, milestone linking) is
+next. See the audit and decisions below for the reasoning each stage builds
+on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -302,11 +303,36 @@ module in full, and nothing found in this audit requires changing it:
       shape — kept the spec-mandated index as-is, added the composite one
       alongside it). Re-verified: `alembic downgrade -1`/`upgrade`/`check`
       clean, full suite, ruff, mypy all green.
-- [ ] Stage 2 — Project CRUD + `project_members` management (decision 6
+- [x] Stage 2 — Project CRUD + `project_members` management (decision 6
       above: route gated on the new `PROJECT_MEMBER_WRITE` permission,
       MEMBER-tier; service enforces `PROJECT_WRITE` (MANAGER+) OR
       `project.owner_id == user.id`; `role_on_project` is
-      `LEAD | CONTRIBUTOR`, no permission weight)
+      `LEAD | CONTRIBUTOR`, no permission weight). `modules/work/{schemas,
+      services/project_service,services/project_member_service,
+      routes/projects}.py`. Two implementation-level decisions not
+      previously spelled out: **(a)** `create_project` always adds the
+      owner to `project_members` as `LEAD`, so "membership in
+      `project_members`" is the single, uniform visibility check RBAC.md
+      §3's "Project detail" rule needs — no separate `owner_id` branch:
+      removing the owner from the roster is rejected (409) to keep that
+      invariant intact, ownership transfer isn't implemented (not
+      requested). **(b)** `GET /projects` (list) applies the same
+      visibility rule as project detail, filtering to a MEMBER's own
+      projects — otherwise list responses would leak fields the detail
+      route would 403 on. Also excludes archived projects (ADR-0011). The
+      authz-matrix meta-assertion (Phase 1 Stage 11) required handling now,
+      not deferred to Stage 9: `GET/POST/PATCH/DELETE` on
+      `/projects/{id}/members` and `GET /projects/{id}` are route/service-
+      split routes (PROJECT_MEMBER_WRITE and PROJECT_READ are both
+      MEMBER-tier at the route; the real rule is ownership/membership,
+      enforced in the service) — the generic per-row assertion doesn't fit
+      that shape, so these routes are tracked in a separate
+      `_OWNERSHIP_SPLIT_ROUTES` set (satisfies the meta-assertion honestly)
+      with the real behavior asserted by dedicated tests in
+      `test_projects.py`/`test_project_members.py`, covering all four
+      decision-6 cases. `apps/web/lib/api/types.gen.ts` regenerated (`make
+      openapi`), no diff drift. Full suite (214 tests), ruff, mypy,
+      frontend lint/typecheck/test/build all green.
 - [ ] Stage 3 — Task CRUD, status/priority transitions, milestone linking
 - [ ] Stage 4 — Kanban: board endpoint (500-task cap, decision 3), drag
       reorder via the existing task `PATCH` (decision 1)

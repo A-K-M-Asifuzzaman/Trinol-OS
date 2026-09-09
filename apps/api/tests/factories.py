@@ -14,6 +14,7 @@ from trinol.modules.identity.models import (
     Organization,
     User,
 )
+from trinol.modules.work.models import Project, ProjectMember, ProjectStatus, RoleOnProject
 
 # Plain factory functions, not factory_boy (TESTING.md §2): each adds+flushes
 # a row and returns it, so a caller can chain them without repeating
@@ -91,3 +92,58 @@ async def make_invitation(
     db.add(invitation)
     await db.flush()
     return invitation
+
+
+async def make_project(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    owner: Membership,
+    project_code: str | None = None,
+    name: str = "Test Project",
+    status: ProjectStatus = ProjectStatus.PLANNING,
+) -> Project:
+    project = Project(
+        id=uuid7(),
+        organization_id=organization.id,
+        project_code=project_code or f"P-{uuid7()}",
+        name=name,
+        status=status,
+        owner_id=owner.user_id,
+    )
+    db.add(project)
+    await db.flush()
+    # Mirrors project_service.create_project's invariant: the owner is
+    # always a project_members row (LEAD) — ensure_project_visible relies
+    # on this being true for every project, not just ones created through
+    # the API.
+    db.add(
+        ProjectMember(
+            id=uuid7(),
+            organization_id=organization.id,
+            project_id=project.id,
+            user_id=owner.user_id,
+            role_on_project=RoleOnProject.LEAD,
+        )
+    )
+    await db.flush()
+    return project
+
+
+async def make_project_member(
+    db: AsyncSession,
+    *,
+    project: Project,
+    user: User,
+    role_on_project: RoleOnProject = RoleOnProject.CONTRIBUTOR,
+) -> ProjectMember:
+    member = ProjectMember(
+        id=uuid7(),
+        organization_id=project.organization_id,
+        project_id=project.id,
+        user_id=user.id,
+        role_on_project=role_on_project,
+    )
+    db.add(member)
+    await db.flush()
+    return member

@@ -21,6 +21,7 @@ from trinol.modules.identity.csrf import verify_csrf
 from trinol.modules.identity.routes.auth import router as auth_router
 from trinol.modules.identity.routes.invitations import router as invitations_router
 from trinol.modules.identity.routes.team import router as team_router
+from trinol.modules.work.routes.projects import router as projects_router
 
 _ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(invitations_router)
     app.include_router(team_router)
+    app.include_router(projects_router)
 
     @app.get("/health", tags=["meta"])
     @public

@@ -4,7 +4,7 @@ import pytest
 from fastapi.routing import APIRoute
 from httpx import AsyncClient
 
-from tests.factories import make_membership, make_user
+from tests.factories import make_membership, make_project, make_user
 from tests.helpers import login_as
 from trinol.core.authz.permissions import ROLE_PERMISSIONS, Permission, Role
 from trinol.core.authz.require import is_public
@@ -155,7 +155,40 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         Permission.MEMBER_ROLE_WRITE,
         {"role": "MANAGER"},
     ),
+    (
+        "POST",
+        "/api/v1/projects",
+        Permission.PROJECT_WRITE,
+        {"project_code": "MTX-1", "name": "Matrix Project"},
+    ),
+    ("GET", "/api/v1/projects", Permission.PROJECT_READ, None),
+    (
+        "PATCH",
+        "/api/v1/projects/{project_id}",
+        Permission.PROJECT_WRITE,
+        {"name": "Matrix Renamed"},
+    ),
+    ("DELETE", "/api/v1/projects/{project_id}", Permission.PROJECT_DELETE, None),
 ]
+
+# RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
+# route by a MEMBER-tier permission that only controls reachability — the
+# real rule (MANAGER+ OR resource ownership/membership) lives in the
+# service. The generic per-row assertion below ("permission in role <=> non
+# -403") doesn't fit that shape: every role holds the route permission, so
+# it would incorrectly assert a non-owner/non-member MEMBER must not be
+# 403. These routes still need to appear here so the meta-assertion doesn't
+# flag them as uncovered — the real (owner/member vs not) behavior is
+# asserted by dedicated tests in test_projects.py/test_project_members.py,
+# same dual-coverage pattern MEMBER_ROLE_WRITE's hand-written tests above
+# already use alongside its own (non-split) matrix row.
+_OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
+    ("GET", "/api/v1/projects/{project_id}"),
+    ("GET", "/api/v1/projects/{project_id}/members"),
+    ("POST", "/api/v1/projects/{project_id}/members"),
+    ("PATCH", "/api/v1/projects/{project_id}/members/{member_id}"),
+    ("DELETE", "/api/v1/projects/{project_id}/members/{member_id}"),
+}
 
 
 def _live_permission_gated_routes() -> set[tuple[str, str]]:
@@ -177,6 +210,7 @@ def test_matrix_covers_every_permission_gated_route() -> None:
     can't silently go untested the way a hand-maintained list with no
     cross-check against reality could."""
     matrix_routes = {(method, path) for method, path, _permission, _body in _MATRIX_ROWS}
+    matrix_routes |= _OWNERSHIP_SPLIT_ROUTES
     missing = _live_permission_gated_routes() - matrix_routes
     assert not missing, f"Route(s) with no authz-matrix row: {sorted(missing)}"
 
@@ -201,6 +235,13 @@ async def test_matrix_row_respects_required_permission(
     await db_session.commit()
 
     resolved_path = path.replace("{membership_id}", str(target.id))
+    if "{project_id}" in resolved_path:
+        # Both rows using this placeholder (PATCH/DELETE project) are
+        # MANAGER+-only with no ownership escape hatch, so who owns the
+        # test project doesn't affect the assertion below.
+        project = await make_project(db_session, organization=actor.organization, owner=target)
+        await db_session.commit()
+        resolved_path = resolved_path.replace("{project_id}", str(project.id))
     headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
     response = await client.request(method, resolved_path, json=body, headers=headers)
 

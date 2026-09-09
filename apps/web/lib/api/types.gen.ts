@@ -116,6 +116,79 @@ export interface paths {
         patch: operations["update_team_member_api_v1_memberships__membership_id__patch"];
         trace?: never;
     };
+    "/api/v1/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Projects Route */
+        get: operations["list_projects_route_api_v1_projects_get"];
+        put?: never;
+        /** Create Project Route */
+        post: operations["create_project_route_api_v1_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Route */
+        get: operations["get_project_route_api_v1_projects__project_id__get"];
+        put?: never;
+        post?: never;
+        /** Archive Project Route */
+        delete: operations["archive_project_route_api_v1_projects__project_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Project Route */
+        patch: operations["update_project_route_api_v1_projects__project_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Project Members Route */
+        get: operations["list_project_members_route_api_v1_projects__project_id__members_get"];
+        put?: never;
+        /** Add Project Member Route */
+        post: operations["add_project_member_route_api_v1_projects__project_id__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members/{member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Project Member Route */
+        delete: operations["remove_project_member_route_api_v1_projects__project_id__members__member_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Project Member Route */
+        patch: operations["update_project_member_route_api_v1_projects__project_id__members__member_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -257,6 +330,184 @@ export interface components {
             /** Status */
             status?: "INACTIVE" | null;
         };
+        /** ProjectCreateRequest */
+        ProjectCreateRequest: {
+            /** Project Code */
+            project_code: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** @default PLANNING */
+            status: components["schemas"]["ProjectStatus"];
+            /** @default ON_TRACK */
+            health: components["schemas"]["ProjectHealth"];
+            /** Owner Id */
+            owner_id?: string | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Deadline */
+            deadline?: string | null;
+            /** Budget */
+            budget?: number | string | null;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+            /** Repository Url */
+            repository_url?: string | null;
+            /** Production Url */
+            production_url?: string | null;
+            /** Staging Url */
+            staging_url?: string | null;
+        };
+        /**
+         * ProjectHealth
+         * @enum {string}
+         */
+        ProjectHealth: "ON_TRACK" | "AT_RISK" | "DELAYED";
+        /**
+         * ProjectListResponse
+         * @description ADR-0005: every list endpoint returns {items, total}, never a bare
+         *     array.
+         */
+        ProjectListResponse: {
+            /** Items */
+            items: components["schemas"]["ProjectResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** ProjectMemberAddRequest */
+        ProjectMemberAddRequest: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** @default CONTRIBUTOR */
+            role_on_project: components["schemas"]["RoleOnProject"];
+        };
+        /** ProjectMemberListResponse */
+        ProjectMemberListResponse: {
+            /** Items */
+            items: components["schemas"]["ProjectMemberResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** ProjectMemberResponse */
+        ProjectMemberResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            role_on_project: components["schemas"]["RoleOnProject"];
+            /**
+             * Added At
+             * Format: date-time
+             */
+            added_at: string;
+        };
+        /** ProjectMemberUpdateRequest */
+        ProjectMemberUpdateRequest: {
+            role_on_project: components["schemas"]["RoleOnProject"];
+        };
+        /** ProjectResponse */
+        ProjectResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Project Code */
+            project_code: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            status: components["schemas"]["ProjectStatus"];
+            health: components["schemas"]["ProjectHealth"];
+            /**
+             * Owner Id
+             * Format: uuid
+             */
+            owner_id: string;
+            /** Start Date */
+            start_date: string | null;
+            /** Deadline */
+            deadline: string | null;
+            /** Budget */
+            budget: string | null;
+            /** Currency */
+            currency: string;
+            /** Repository Url */
+            repository_url: string | null;
+            /** Production Url */
+            production_url: string | null;
+            /** Staging Url */
+            staging_url: string | null;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * ProjectStatus
+         * @enum {string}
+         */
+        ProjectStatus: "PLANNING" | "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED";
+        /**
+         * ProjectUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/projects.py uses `model_dump(exclude_unset=True)`). `owner_id`
+         *     is deliberately absent — ownership is set at creation only; transferring
+         *     an existing project's owner isn't requested anywhere in spec and would
+         *     need to reconcile `project_members`, so it's not built until it's a real
+         *     requirement.
+         */
+        ProjectUpdateRequest: {
+            /** Project Code */
+            project_code?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            status?: components["schemas"]["ProjectStatus"] | null;
+            health?: components["schemas"]["ProjectHealth"] | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Deadline */
+            deadline?: string | null;
+            /** Budget */
+            budget?: number | string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Repository Url */
+            repository_url?: string | null;
+            /** Production Url */
+            production_url?: string | null;
+            /** Staging Url */
+            staging_url?: string | null;
+        };
         /**
          * Role
          * @description The org role stored on `memberships.role` (DATABASE.md §3) — defined
@@ -266,6 +517,14 @@ export interface components {
          * @enum {string}
          */
         Role: "OWNER" | "ADMIN" | "MANAGER" | "MEMBER";
+        /**
+         * RoleOnProject
+         * @description Descriptive only (RBAC.md §3, ROADMAP.md Phase 2 decision 6) — carries
+         *     no permission weight. All authorization here is the organization `Role`
+         *     plus the project-owner resource rule; this enum never gates anything.
+         * @enum {string}
+         */
+        RoleOnProject: "LEAD" | "CONTRIBUTOR";
         /** SessionExchangeRequest */
         SessionExchangeRequest: {
             /** Id Token */
@@ -583,6 +842,303 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MembershipResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_projects_route_api_v1_projects_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_project_route_api_v1_projects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_route_api_v1_projects__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_project_route_api_v1_projects__project_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_route_api_v1_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_project_members_route_api_v1_projects__project_id__members_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_project_member_route_api_v1_projects__project_id__members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectMemberAddRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_project_member_route_api_v1_projects__project_id__members__member_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_member_route_api_v1_projects__project_id__members__member_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectMemberUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberResponse"];
                 };
             };
             /** @description Validation Error */
