@@ -25,4 +25,30 @@ export const handlers = [
       total: 1,
     }),
   ),
+  http.get(`${APP_ORIGIN}/api/v1/projects`, () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: "01960000-0000-7000-8000-000000000010",
+          project_code: "WEB",
+          name: "Website Redesign",
+          description: null,
+          status: "ACTIVE",
+          health: "ON_TRACK",
+          owner_id: "01960000-0000-7000-8000-000000000002",
+          start_date: null,
+          deadline: null,
+          budget: null,
+          currency: "USD",
+          repository_url: null,
+          production_url: null,
+          staging_url: null,
+          archived_at: null,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      total: 1,
+    }),
+  ),
 ];

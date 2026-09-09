@@ -1,16 +1,16 @@
-import { fetchTeamMembers } from "@/lib/api/client";
+import { fetchProjects, fetchTasks, fetchTeamMembers } from "@/lib/api/client";
 import { getServerCookieHeader } from "@/lib/api/server-cookie";
 
 // ARCHITECTURE.md §5: lists/pages are server-rendered by default — the
 // server component calls the API with the incoming cookie. Phase 1 plan
-// decision 8: every widget ships as an empty-state shell except the team-
-// count tile, which is the only data that exists yet (GET /memberships).
-async function getTeamCount(): Promise<number | null> {
+// decision 8: every widget ships as an empty-state shell until its own data
+// exists; Phase 2 Stage 8 fills in tasks/projects, replacing those two
+// placeholders.
+async function getCount(
+  fetcher: (options: { limit: number; cookie: string }) => Promise<{ total: number }>,
+): Promise<number | null> {
   try {
-    const result = await fetchTeamMembers({
-      limit: 1,
-      cookie: await getServerCookieHeader(),
-    });
+    const result = await fetcher({ limit: 1, cookie: await getServerCookieHeader() });
     return result.total;
   } catch {
     return null;
@@ -18,7 +18,17 @@ async function getTeamCount(): Promise<number | null> {
 }
 
 export default async function DashboardPage() {
-  const teamCount = await getTeamCount();
+  const [teamCount, taskCount, projectCount] = await Promise.all([
+    getCount(fetchTeamMembers),
+    // `ponytail: total task/project count, not "open"/"active" only — the
+    // list endpoints have no status filter for projects and only a single
+    // equality filter for tasks, so a true "open" count needs either a
+    // dedicated count endpoint or several requests; add when a real report
+    // needs it` (MASTER_PROMPT §21's own "Recent activity" widget is the
+    // richer version of this, already built in Stage 7).
+    getCount(fetchTasks),
+    getCount(fetchProjects),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -28,8 +38,14 @@ export default async function DashboardPage() {
           label="Team members"
           value={teamCount === null ? "—" : String(teamCount)}
         />
-        <DashboardTile label="Open tasks" value="—" placeholder />
-        <DashboardTile label="Active projects" value="—" placeholder />
+        <DashboardTile
+          label="Open tasks"
+          value={taskCount === null ? "—" : String(taskCount)}
+        />
+        <DashboardTile
+          label="Active projects"
+          value={projectCount === null ? "—" : String(projectCount)}
+        />
         <DashboardTile label="Open leads" value="—" placeholder />
       </div>
     </div>

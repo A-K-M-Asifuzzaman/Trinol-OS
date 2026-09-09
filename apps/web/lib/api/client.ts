@@ -136,3 +136,105 @@ export async function fetchTeamMembers(
     },
   );
 }
+
+export type Project = components["schemas"]["ProjectResponse"];
+export type ProjectList = components["schemas"]["ProjectListResponse"];
+export type ProjectCreateRequest = components["schemas"]["ProjectCreateRequest"];
+export type ProjectUpdateRequest = components["schemas"]["ProjectUpdateRequest"];
+export type ProjectBoard = components["schemas"]["ProjectBoardResponse"];
+export type BoardColumn = components["schemas"]["BoardColumn"];
+export type Task = components["schemas"]["TaskResponse"];
+export type TaskList = components["schemas"]["TaskListResponse"];
+export type TaskCreateRequest = components["schemas"]["TaskCreateRequest"];
+export type TaskUpdateRequest = components["schemas"]["TaskUpdateRequest"];
+export type TaskStatus = components["schemas"]["TaskStatus"];
+
+export async function fetchProjects(
+  options: { limit?: number; offset?: number; cookie?: string } = {},
+): Promise<ProjectList> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<ProjectList>(`/api/v1/projects${query ? `?${query}` : ""}`, {
+    cookie: options.cookie,
+  });
+}
+
+export async function fetchProject(
+  projectId: string,
+  cookie?: string,
+): Promise<Project> {
+  return apiFetch<Project>(`/api/v1/projects/${projectId}`, { cookie });
+}
+
+export async function createProject(
+  body: ProjectCreateRequest,
+): Promise<Project> {
+  return apiFetch<Project>("/api/v1/projects", { method: "POST", body });
+}
+
+export async function updateProject(
+  projectId: string,
+  body: ProjectUpdateRequest,
+): Promise<Project> {
+  return apiFetch<Project>(`/api/v1/projects/${projectId}`, {
+    method: "PATCH",
+    body,
+  });
+}
+
+export async function fetchProjectBoard(
+  projectId: string,
+  cookie?: string,
+): Promise<ProjectBoard> {
+  return apiFetch<ProjectBoard>(`/api/v1/projects/${projectId}/board`, {
+    cookie,
+  });
+}
+
+export async function fetchTasks(
+  options: {
+    projectId?: string;
+    assigneeId?: string;
+    status?: TaskStatus;
+    limit?: number;
+    offset?: number;
+    cookie?: string;
+  } = {},
+): Promise<TaskList> {
+  const params = new URLSearchParams();
+  if (options.projectId) params.set("project_id", options.projectId);
+  if (options.assigneeId) params.set("assignee_id", options.assigneeId);
+  if (options.status) params.set("status", options.status);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<TaskList>(`/api/v1/tasks${query ? `?${query}` : ""}`, {
+    cookie: options.cookie,
+  });
+}
+
+export async function fetchTask(taskId: string, cookie?: string): Promise<Task> {
+  return apiFetch<Task>(`/api/v1/tasks/${taskId}`, { cookie });
+}
+
+export async function createTask(body: TaskCreateRequest): Promise<Task> {
+  return apiFetch<Task>("/api/v1/tasks", { method: "POST", body });
+}
+
+export async function updateTask(
+  taskId: string,
+  body: TaskUpdateRequest,
+): Promise<Task> {
+  return apiFetch<Task>(`/api/v1/tasks/${taskId}`, {
+    method: "PATCH",
+    body,
+  });
+}
+
+export async function deleteTask(taskId: string): Promise<void> {
+  return apiFetch<void>(`/api/v1/tasks/${taskId}`, { method: "DELETE" });
+}

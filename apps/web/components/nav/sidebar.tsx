@@ -1,8 +1,9 @@
 import Link from "next/link";
 
-// MASTER_PROMPT §7's nav groups. Only Team has a real destination in Phase 1
-// (Stage 9's memberships endpoints) — everything else renders as a disabled
-// label until its own phase builds the page behind it.
+// MASTER_PROMPT §7's nav groups. Team (Phase 1 Stage 9) and My
+// Work/Projects/Tasks (Phase 2 Stage 8) have real destinations — everything
+// else renders as a disabled label until its own phase builds the page
+// behind it.
 //
 // RBAC.md §2: "Finance is invisible to MEMBER and MANAGER — not merely
 // hidden in navigation. The endpoints return 403 ..." Nav-hiding it is the
@@ -17,9 +18,9 @@ const NAV_GROUPS: ReadonlyArray<{
   {
     label: "WORK",
     items: [
-      { label: "My Work" },
-      { label: "Projects" },
-      { label: "Tasks" },
+      { label: "My Work", href: "/tasks/my" },
+      { label: "Projects", href: "/projects" },
+      { label: "Tasks", href: "/tasks" },
       { label: "Calendar" },
     ],
   },

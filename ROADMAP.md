@@ -98,9 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-7 complete.**
-Stage 8 (Frontend: Projects/Tasks/Kanban/dashboard tiles) is next. See the
-audit and decisions below for the reasoning each stage builds on.
+Status: **Implementation plan approved (11 stages). Stages 1-8 complete.**
+Stage 9 (security matrices extended) is next. See the audit and decisions
+below for the reasoning each stage builds on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -705,11 +705,83 @@ module in full, and nothing found in this audit requires changing it:
 
       Full suite (438 tests, was 422 going into this stage), ruff, mypy,
       frontend lint/typecheck/test/build, OpenAPI diff all green.
-- [ ] Stage 8 — Frontend: Projects list/detail, Tasks list/detail, Kanban
+- [x] Stage 8 — Frontend: Projects list/detail, Tasks list/detail, Kanban
       board (drag-and-drop UI for decision 1), `/tasks/my` page + backend
       support (decision 5 above — a real route, not a query-param
       substitute), dashboard tiles replacing Stage 10's "Open tasks"/"Active
       projects" placeholders with real counts, "My Work" nav enabled
+
+      **Implementation.** No backend changes — every endpoint this stage
+      needs already existed (Stages 2–7). `lib/api/client.ts` gained
+      `Project`/`Task`/`ProjectBoard` types and
+      `fetch*`/`create*`/`update*`/`deleteTask` wrappers, same shape as
+      the existing `fetchTeamMembers`. `app/(app)/projects/page.tsx` and
+      `app/(app)/tasks/page.tsx` follow Team's established client-
+      rendered/four-state pattern (Stage 10) with an inline create form
+      (react-hook-form + zod, same as the login page); `/tasks` page
+      passes `showCreateForm`, `/tasks/my` doesn't. `app/(app)/tasks/
+      my/page.tsx` is a **server** component — it resolves the caller's
+      own `user_id` from `fetchSessionInfo` server-side (decision 5: never
+      a client-supplied `assignee_id=me` sentinel) and passes it into the
+      shared `components/tasks/task-list.tsx` client component, which
+      both `/tasks` and `/tasks/my` render.
+
+      `components/board/kanban-board.tsx`: native HTML5 drag-and-drop
+      (`draggable`/`onDragStart`/`onDragOver`/`onDrop`) — no new
+      dependency (`dnd-kit` etc.), the ladder's "native platform feature"
+      rung covers it. Dropping a card computes `board_position` as the
+      midpoint of its new neighbors' positions (decision 1: reuses the
+      existing `PATCH /tasks/{id}`, no dedicated reorder endpoint) —
+      dropping before a specific card, not just appending to the column,
+      so an actual mid-column reorder is possible, not merely a move
+      between columns. `ponytail: plain float arithmetic for the
+      midpoint, not arbitrary-precision — repeated drops onto the exact
+      same slot will eventually run out of representable midpoints;
+      already covered by the technical debt ledger's existing "no
+      collision handling" entry for Kanban reorder, not a new gap`.
+      `app/(app)/projects/[id]/page.tsx` fetches the project and its
+      board, renders `KanbanBoard`, and invalidates the board query on
+      every successful move (a refetch, not optimistic cache patching —
+      simplest correct option, revisit only if the refetch lag is ever
+      actually reported as a problem).
+
+      Dashboard tiles: `Open tasks`/`Active projects` now show real
+      `fetchTasks`/`fetchProjects` totals rather than Stage 10's
+      placeholders. `ponytail: both are *total* counts, not "open"/
+      "active" filtered ones — GET /projects has no status filter and GET
+      /tasks only supports one equality filter, so a true filtered count
+      needs either a dedicated count endpoint or several requests; add
+      when a real report needs it, MASTER_PROMPT §21's "Recent activity"
+      widget (Stage 7) is the richer version of this dashboard need
+      already built`. Sidebar's "My Work"/"Projects"/"Tasks" now link to
+      real routes instead of rendering as disabled labels.
+
+      New tests: `tests/projects.test.tsx` (four states, MSW-backed, same
+      pattern as `tests/team.test.tsx`) and `tests/kanban-board.test.tsx`
+      (drag interaction — drop into an empty column computes position
+      `"0"`; drop before an existing card computes the correct midpoint,
+      asserted directly against `onMoveTask`'s call arguments, not the
+      DOM). 19 frontend tests passing (was 13).
+
+      **Manual verification, partial.** Backend server + web dev server
+      both started locally against the real local Postgres (no Docker in
+      this environment, same as every prior stage's DB-lifecycle
+      checks) and every new route (`/projects`, `/projects/[id]`,
+      `/tasks`, `/tasks/[id]`, `/tasks/my`, `/dashboard`) confirmed to
+      render server-side with no crash — `/tasks/my`'s no-session
+      fallback (`fetchSessionInfo` failing, caught, rendering the
+      documented error state) verified directly, not merely inspected in
+      source. **Could not** complete an actual authenticated
+      click-through (create a project/task, drag a card, watch the
+      dashboard tile update) — `FIREBASE_CREDENTIALS` is unset in this
+      environment (same pre-existing gap Phase 1's own blocked-items list
+      already documents; no stage before this one has had a real
+      authenticated browser session available either), and Chromium isn't
+      installed for Playwright here. Full click-through coverage is
+      Stage 11's Playwright smoke spec, which runs against a real dev
+      stack outside this constraint. Ruff/mypy/pytest untouched (no
+      backend files changed this stage); OpenAPI diff clean; ESLint,
+      `tsc --noEmit`, Vitest, and `next build` all green.
 - [ ] Stage 9 — Security matrices extended: the authz-matrix meta-assertion
       (Phase 1 Stage 11) already fails the suite if any new Project/Task
       route has no row, so this is enforced structurally, not by discipline
