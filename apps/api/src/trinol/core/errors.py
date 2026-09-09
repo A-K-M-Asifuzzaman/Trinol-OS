@@ -48,6 +48,11 @@ class ConflictError(AppError):
     code = "CONFLICT"
 
 
+class UnprocessableEntityError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = "VALIDATION_ERROR"
+
+
 class RateLimitedError(AppError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "RATE_LIMITED"

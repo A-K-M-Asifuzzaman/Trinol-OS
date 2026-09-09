@@ -4,8 +4,14 @@ import pytest
 from fastapi.routing import APIRoute
 from httpx import AsyncClient
 
-from tests.factories import make_membership, make_project, make_user
-from tests.helpers import login_as
+from tests.factories import (
+    make_membership,
+    make_organization,
+    make_project,
+    make_project_member,
+    make_user,
+)
+from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import ROLE_PERMISSIONS, Permission, Role
 from trinol.core.authz.require import is_public
 from trinol.core.authz.startup_audit import iter_api_routes
@@ -189,6 +195,88 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     ("PATCH", "/api/v1/projects/{project_id}/members/{member_id}"),
     ("DELETE", "/api/v1/projects/{project_id}/members/{member_id}"),
 }
+
+
+@pytest.mark.parametrize(
+    ("method", "path_template", "body", "success_status"),
+    [
+        ("GET", "/api/v1/projects/{project_id}/members", None, 200),
+        (
+            "POST",
+            "/api/v1/projects/{project_id}/members",
+            {"user_id": "{add_user_id}"},
+            201,
+        ),
+        (
+            "PATCH",
+            "/api/v1/projects/{project_id}/members/{member_id}",
+            {"role_on_project": "LEAD"},
+            200,
+        ),
+        ("DELETE", "/api/v1/projects/{project_id}/members/{member_id}", None, 204),
+    ],
+)
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [("manager", None), ("owner", None), ("non_owner", 403), ("cross_org", 404)],
+)
+async def test_project_member_routes_enforce_ownership_split(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_template: str,
+    body: dict[str, str] | None,
+    success_status: int,
+    access: str,
+    expected_status: int | None,
+) -> None:
+    org = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"matrix-owner-{org.id}@x.com")
+    owner = await make_membership(db_session, organization=org, user=owner_user, role=Role.MEMBER)
+    project = await make_project(db_session, organization=org, owner=owner)
+
+    target_user = await make_user(db_session, email=f"matrix-target-{org.id}@x.com")
+    await make_membership(db_session, organization=org, user=target_user, role=Role.MEMBER)
+    target_member = await make_project_member(db_session, project=project, user=target_user)
+    add_user = await make_user(db_session, email=f"matrix-add-{org.id}@x.com")
+    await make_membership(db_session, organization=org, user=add_user, role=Role.MEMBER)
+
+    if access == "owner":
+        actor_user, actor_membership, actor_org = owner_user, owner, org
+    elif access in ("manager", "non_owner"):
+        actor_user = await make_user(db_session, email=f"matrix-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"matrix-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    path = path_template.format(project_id=project.id, member_id=target_member.id)
+    resolved_body = (
+        {key: value.format(add_user_id=add_user.id) for key, value in body.items()}
+        if body is not None
+        else None
+    )
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(method, path, json=resolved_body, headers=headers)
+    assert response.status_code == (success_status if expected_status is None else expected_status)
 
 
 def _live_permission_gated_routes() -> set[tuple[str, str]]:

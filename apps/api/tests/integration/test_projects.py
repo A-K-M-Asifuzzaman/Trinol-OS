@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from tests.factories import (
     make_membership,
@@ -12,6 +16,15 @@ from tests.factories import (
 )
 from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import Role
+from trinol.core.db.engine import get_session_factory
+from trinol.core.errors import ConflictError
+from trinol.modules.identity.models import Membership, Organization, User
+from trinol.modules.work.models import Project, ProjectHealth, ProjectMember, ProjectStatus
+from trinol.modules.work.services.project_service import (
+    archive_project,
+    create_project,
+    update_project,
+)
 
 pytestmark = pytest.mark.usefixtures("db_session")
 
@@ -112,6 +125,109 @@ async def test_duplicate_project_code_conflicts(
     assert second.status_code == 409
 
 
+async def test_concurrent_duplicate_project_code_only_one_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both writers pass the pre-check; the unique constraint decides the race."""
+    session_factory = get_session_factory()
+    setup_session = session_factory()
+    try:
+        org = await make_organization(setup_session)
+        user = await make_user(setup_session, email=f"project-race-{org.id}@x.com")
+        actor = await make_membership(setup_session, organization=org, user=user, role=Role.OWNER)
+        await setup_session.commit()
+        org_id, user_id, actor_id = org.id, user.id, actor.id
+    finally:
+        await setup_session.close()
+
+    session_1, session_2 = session_factory(), session_factory()
+    arrived = 0
+    both_prechecked = asyncio.Event()
+    arrival_lock = asyncio.Lock()
+
+    async def synchronize_project_code_precheck(original_execute, statement, *args, **kwargs):
+        nonlocal arrived
+        result = await original_execute(statement, *args, **kwargs)
+        if "projects.project_code" in str(statement):
+            async with arrival_lock:
+                arrived += 1
+                if arrived == 2:
+                    both_prechecked.set()
+            await both_prechecked.wait()
+        return result
+
+    original_1, original_2 = session_1.execute, session_2.execute
+
+    async def execute_1(statement, *args, **kwargs):
+        return await synchronize_project_code_precheck(original_1, statement, *args, **kwargs)
+
+    async def execute_2(statement, *args, **kwargs):
+        return await synchronize_project_code_precheck(original_2, statement, *args, **kwargs)
+
+    monkeypatch.setattr(session_1, "execute", execute_1)
+    monkeypatch.setattr(session_2, "execute", execute_2)
+
+    try:
+        actor_1 = (
+            await original_1(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == actor_id
+                )
+            )
+        ).scalar_one()
+        actor_2 = (
+            await original_2(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == actor_id
+                )
+            )
+        ).scalar_one()
+
+        async def create_one(db, actor):
+            return await create_project(
+                db,
+                organization_id=org_id,
+                actor=actor,
+                project_code="RACE",
+                name="Race",
+                description=None,
+                status=ProjectStatus.PLANNING,
+                health=ProjectHealth.ON_TRACK,
+                owner_id=None,
+                start_date=None,
+                deadline=None,
+                budget=None,
+                currency="USD",
+                repository_url=None,
+                production_url=None,
+                staging_url=None,
+            )
+
+        results = await asyncio.gather(
+            create_one(session_1, actor_1),
+            create_one(session_2, actor_2),
+            return_exceptions=True,
+        )
+        assert sum(not isinstance(result, Exception) for result in results) == 1
+        failures = [result for result in results if isinstance(result, Exception)]
+        assert len(failures) == 1 and isinstance(failures[0], ConflictError)
+    finally:
+        await session_1.close()
+        await session_2.close()
+        cleanup = session_factory()
+        try:
+            await cleanup.execute(
+                delete(ProjectMember).where(ProjectMember.organization_id == org_id)
+            )
+            await cleanup.execute(delete(Project).where(Project.organization_id == org_id))
+            await cleanup.execute(delete(Membership).where(Membership.organization_id == org_id))
+            await cleanup.execute(delete(User).where(User.id == user_id))
+            await cleanup.execute(delete(Organization).where(Organization.id == org_id))
+            await cleanup.commit()
+        finally:
+            await cleanup.close()
+
+
 async def test_deadline_before_start_date_is_rejected(
     client: AsyncClient, fake_verifier, db_session
 ) -> None:
@@ -127,6 +243,174 @@ async def test_deadline_before_start_date_is_rejected(
         headers={"X-CSRF-Token": actor.csrf_token},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("field", ["project_code", "name", "status", "health", "currency"])
+async def test_patch_rejects_null_for_required_fields(
+    client: AsyncClient, fake_verifier, db_session, field: str
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    project = await make_project(
+        db_session, organization=actor.organization, owner=actor.membership
+    )
+    await db_session.commit()
+    response = await client.patch(
+        f"/api/v1/projects/{project.id}",
+        json={field: None},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("initial", "update"),
+    [
+        ({"start_date": "2026-06-01"}, {"deadline": "2026-01-01"}),
+        ({"deadline": "2026-06-01"}, {"start_date": "2026-12-01"}),
+    ],
+)
+async def test_patch_validates_dates_against_stored_counterpart(
+    client: AsyncClient, fake_verifier, db_session, initial: dict[str, str], update: dict[str, str]
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    created = await client.post(
+        "/api/v1/projects",
+        json={"project_code": "DATES", "name": "Dates", **initial},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    response = await client.patch(
+        f"/api/v1/projects/{created.json()['id']}",
+        json=update,
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("budget", [123.45, "1234567890123.45", "1.234"])
+async def test_budget_requires_bounded_decimal_string(
+    client: AsyncClient, fake_verifier, db_session, budget: object
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    response = await client.post(
+        "/api/v1/projects",
+        json={"project_code": "BUDGET", "name": "Budget", "budget": budget},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 422
+
+
+async def test_budget_decimal_string_round_trips_as_string(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    response = await client.post(
+        "/api/v1/projects",
+        json={"project_code": "BUDGET", "name": "Budget", "budget": "123456789012.34"},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 201
+    assert response.json()["budget"] == "123456789012.34"
+
+
+async def test_non_project_code_integrity_error_is_not_mislabeled(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email=f"integrity-{org.id}@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    project = await make_project(db_session, organization=org, owner=actor)
+    await db_session.commit()
+
+    with pytest.raises(IntegrityError):
+        await update_project(
+            db_session,
+            organization_id=org.id,
+            actor=actor,
+            project_id=project.id,
+            updates={"name": None},
+        )
+
+
+async def test_patch_duplicate_project_code_is_conflict(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    first = await make_project(
+        db_session, organization=actor.organization, owner=actor.membership, project_code="FIRST"
+    )
+    second = await make_project(
+        db_session, organization=actor.organization, owner=actor.membership, project_code="SECOND"
+    )
+    await db_session.commit()
+
+    response = await client.patch(
+        f"/api/v1/projects/{second.id}",
+        json={"project_code": first.project_code},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 409
+
+
+async def test_update_and_archive_return_trigger_refreshed_updated_at() -> None:
+    session_factory = get_session_factory()
+    session = session_factory()
+    try:
+        org = await make_organization(session)
+        user = await make_user(session, email=f"timestamp-{org.id}@x.com")
+        actor = await make_membership(session, organization=org, user=user, role=Role.OWNER)
+        await session.commit()
+        org_id, user_id = org.id, user.id
+
+        project = await create_project(
+            session,
+            organization_id=org_id,
+            actor=actor,
+            project_code="TIMESTAMP",
+            name="Timestamp",
+            description=None,
+            status=ProjectStatus.PLANNING,
+            health=ProjectHealth.ON_TRACK,
+            owner_id=None,
+            start_date=None,
+            deadline=None,
+            budget=None,
+            currency="USD",
+            repository_url=None,
+            production_url=None,
+            staging_url=None,
+        )
+        created_updated_at = project.updated_at
+        await asyncio.sleep(0.001)
+        project = await update_project(
+            session,
+            organization_id=org_id,
+            actor=actor,
+            project_id=project.id,
+            updates={"name": "Updated"},
+        )
+        assert project.updated_at > created_updated_at
+
+        updated_at = project.updated_at
+        await asyncio.sleep(0.001)
+        project = await archive_project(
+            session,
+            organization_id=org_id,
+            actor=actor,
+            project_id=project.id,
+        )
+        assert project.updated_at > updated_at
+    finally:
+        await session.close()
+        cleanup = session_factory()
+        try:
+            await cleanup.execute(
+                delete(ProjectMember).where(ProjectMember.organization_id == org_id)
+            )
+            await cleanup.execute(delete(Project).where(Project.organization_id == org_id))
+            await cleanup.execute(delete(Membership).where(Membership.organization_id == org_id))
+            await cleanup.execute(delete(User).where(User.id == user_id))
+            await cleanup.execute(delete(Organization).where(Organization.id == org_id))
+            await cleanup.commit()
+        finally:
+            await cleanup.close()
 
 
 async def test_list_projects_excludes_archived(

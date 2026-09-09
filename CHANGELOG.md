@@ -4,6 +4,16 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Added — Phase 2: work schema and project management
+- Added the work-module schema for projects, project members, milestones,
+  tasks, comments, and checklist items with composite organization-scoped
+  foreign keys and supporting indexes.
+- Added project CRUD and project-member roster management with role and
+  ownership checks, archive semantics, pagination, and generated API types.
+- Codex review fixes cover concurrent project-code conflicts, merged PATCH
+  validation, decimal-string budgets, per-route ownership/isolation tests,
+  and refreshed trigger-generated `updated_at` values.
+
 ### Added — Phase 0 (architecture only, no product code)
 - Architecture docs: ARCHITECTURE, DATABASE, AUTH, RBAC, SECURITY, EMAIL,
   TESTING, DEPLOYMENT.

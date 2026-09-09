@@ -349,7 +349,7 @@ export interface components {
             /** Deadline */
             deadline?: string | null;
             /** Budget */
-            budget?: number | string | null;
+            budget?: string | null;
             /**
              * Currency
              * @default USD
@@ -486,21 +486,23 @@ export interface components {
          */
         ProjectUpdateRequest: {
             /** Project Code */
-            project_code?: string | null;
+            project_code?: string;
             /** Name */
-            name?: string | null;
+            name?: string;
             /** Description */
             description?: string | null;
-            status?: components["schemas"]["ProjectStatus"] | null;
-            health?: components["schemas"]["ProjectHealth"] | null;
+            /** @enum {string} */
+            status?: "PLANNING" | "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED";
+            /** @enum {string} */
+            health?: "ON_TRACK" | "AT_RISK" | "DELAYED";
             /** Start Date */
             start_date?: string | null;
             /** Deadline */
             deadline?: string | null;
             /** Budget */
-            budget?: number | string | null;
+            budget?: string | null;
             /** Currency */
-            currency?: string | null;
+            currency?: string;
             /** Repository Url */
             repository_url?: string | null;
             /** Production Url */

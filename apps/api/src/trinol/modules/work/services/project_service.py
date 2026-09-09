@@ -11,7 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Role
 from trinol.core.db.org_session import OrgSession
-from trinol.core.errors import AppError, ConflictError, ForbiddenError, NotFoundError
+from trinol.core.errors import (
+    AppError,
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    UnprocessableEntityError,
+)
 from trinol.core.ids import uuid7
 from trinol.modules.identity.models import Membership, MembershipStatus
 from trinol.modules.work.models import (
@@ -23,12 +29,22 @@ from trinol.modules.work.models import (
 )
 
 _MANAGER_UP = (Role.MANAGER, Role.ADMIN, Role.OWNER)
+_PROJECT_CODE_CONSTRAINT = "uq_project_org_code"
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectList:
     items: list[Project]
     total: int
+
+
+def _violates_constraint(exc: IntegrityError, name: str) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        if getattr(current, "constraint_name", None) == name:
+            return True
+        current = current.__cause__
+    return False
 
 
 def ensure_actor_in_org(actor: Membership, organization_id: uuid.UUID) -> None:
@@ -62,7 +78,9 @@ async def get_project_in_org(
     """Org-scoped lookup — 404s a cross-org id exactly like a missing one
     (RBAC.md §4), same pattern as identity's get_membership_in_org."""
     result = await db.execute(
-        select(Project).where(Project.organization_id == organization_id, Project.id == project_id)
+        select(Project)
+        .where(Project.organization_id == organization_id, Project.id == project_id)
+        .execution_options(populate_existing=True)
     )
     project = result.scalar_one_or_none()
     if project is None:
@@ -157,24 +175,26 @@ async def create_project(
         production_url=production_url,
         staging_url=staging_url,
     )
-    org_session.add(project)
-    await db.flush()
-
-    # The owner is always a project_members row (LEAD) — see
-    # ensure_project_visible's docstring.
-    org_session.add(
-        ProjectMember(
-            id=uuid7(),
-            project_id=project.id,
-            user_id=resolved_owner_id,
-            role_on_project=RoleOnProject.LEAD,
-        )
-    )
     try:
+        org_session.add(project)
+        await db.flush()
+
+        # The owner is always a project_members row (LEAD) — see
+        # ensure_project_visible's docstring.
+        org_session.add(
+            ProjectMember(
+                id=uuid7(),
+                project_id=project.id,
+                user_id=resolved_owner_id,
+                role_on_project=RoleOnProject.LEAD,
+            )
+        )
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
-        raise ConflictError("project_code already in use in this organization") from None
+        if _violates_constraint(exc, _PROJECT_CODE_CONSTRAINT):
+            raise ConflictError("project_code already in use in this organization") from None
+        raise
     return project
 
 
@@ -243,15 +263,26 @@ async def update_project(
         raise ForbiddenError("Insufficient role to edit this project")
     project = await get_project_in_org(db, organization_id=organization_id, project_id=project_id)
 
+    resulting_start = updates.get("start_date", project.start_date)
+    resulting_deadline = updates.get("deadline", project.deadline)
+    if (
+        resulting_start is not None
+        and resulting_deadline is not None
+        and resulting_deadline < resulting_start
+    ):
+        raise UnprocessableEntityError("deadline must be on or after start_date")
+
     for field, value in updates.items():
         setattr(project, field, value)
 
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
-        raise ConflictError("project_code already in use in this organization") from None
-    return project
+        if _violates_constraint(exc, _PROJECT_CODE_CONSTRAINT):
+            raise ConflictError("project_code already in use in this organization") from None
+        raise
+    return await get_project_in_org(db, organization_id=organization_id, project_id=project_id)
 
 
 async def archive_project(
@@ -266,4 +297,4 @@ async def archive_project(
     project = await get_project_in_org(db, organization_id=organization_id, project_id=project_id)
     project.archived_at = datetime.now(UTC)
     await db.commit()
-    return project
+    return await get_project_in_org(db, organization_id=organization_id, project_id=project_id)

@@ -6,7 +6,14 @@ from decimal import Decimal
 from enum import StrEnum
 
 import sqlalchemy as sa
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, UniqueConstraint, text
+from sqlalchemy import (
+    CheckConstraint,
+    FetchedValue,
+    ForeignKeyConstraint,
+    Index,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy import Enum as PgEnum
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
@@ -97,7 +104,9 @@ class Project(OrgScoped, Base):
     # product flow. "Delete project" (RBAC.md §2) sets this, not a SQL DELETE.
     archived_at: Mapped[datetime | None] = mapped_column(_TZ, default=None)
     created_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(
+        _TZ, server_default=text("now()"), server_onupdate=FetchedValue()
+    )
 
     __table_args__ = (
         UniqueConstraint("organization_id", "project_code", name="uq_project_org_code"),

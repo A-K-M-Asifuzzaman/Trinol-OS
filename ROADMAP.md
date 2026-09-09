@@ -331,8 +331,16 @@ module in full, and nothing found in this audit requires changing it:
       with the real behavior asserted by dedicated tests in
       `test_projects.py`/`test_project_members.py`, covering all four
       decision-6 cases. `apps/web/lib/api/types.gen.ts` regenerated (`make
-      openapi`), no diff drift. Full suite (214 tests), ruff, mypy,
-      frontend lint/typecheck/test/build all green.
+      openapi`), no diff drift. **Codex review:** all four P1s and one P2
+      fixed. Concurrent duplicate creates now catch the unique violation
+      from `flush()` and return 409; PATCH rejects null required fields,
+      validates dates against the stored counterpart, and only translates
+      `uq_project_org_code`; budget input is a bounded decimal string in
+      both validation and generated OpenAPI; every project-member route has
+      manager, MEMBER-owner, MEMBER-non-owner, and cross-org matrix cases;
+      trigger-generated `updated_at` values are mapped and reloaded after
+      update/archive. Full suite (245 tests), ruff, mypy, frontend
+      lint/typecheck/test/build all green.
 - [ ] Stage 3 — Task CRUD, status/priority transitions, milestone linking
 - [ ] Stage 4 — Kanban: board endpoint (500-task cap, decision 3), drag
       reorder via the existing task `PATCH` (decision 1)
