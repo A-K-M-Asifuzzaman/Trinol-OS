@@ -7,10 +7,16 @@ import { getServerCookieHeader } from "@/lib/api/server-cookie";
 // exists; Phase 2 Stage 8 fills in tasks/projects, replacing those two
 // placeholders.
 async function getCount(
-  fetcher: (options: { limit: number; cookie: string }) => Promise<{ total: number }>,
+  fetcher: (options: {
+    limit: number;
+    cookie: string;
+  }) => Promise<{ total: number }>,
 ): Promise<number | null> {
   try {
-    const result = await fetcher({ limit: 1, cookie: await getServerCookieHeader() });
+    const result = await fetcher({
+      limit: 1,
+      cookie: await getServerCookieHeader(),
+    });
     return result.total;
   } catch {
     return null;

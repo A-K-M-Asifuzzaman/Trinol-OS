@@ -139,8 +139,10 @@ export async function fetchTeamMembers(
 
 export type Project = components["schemas"]["ProjectResponse"];
 export type ProjectList = components["schemas"]["ProjectListResponse"];
-export type ProjectCreateRequest = components["schemas"]["ProjectCreateRequest"];
-export type ProjectUpdateRequest = components["schemas"]["ProjectUpdateRequest"];
+export type ProjectCreateRequest =
+  components["schemas"]["ProjectCreateRequest"];
+export type ProjectUpdateRequest =
+  components["schemas"]["ProjectUpdateRequest"];
 export type ProjectBoard = components["schemas"]["ProjectBoardResponse"];
 export type BoardColumn = components["schemas"]["BoardColumn"];
 export type Task = components["schemas"]["TaskResponse"];
@@ -217,7 +219,10 @@ export async function fetchTasks(
   });
 }
 
-export async function fetchTask(taskId: string, cookie?: string): Promise<Task> {
+export async function fetchTask(
+  taskId: string,
+  cookie?: string,
+): Promise<Task> {
   return apiFetch<Task>(`/api/v1/tasks/${taskId}`, { cookie });
 }
 

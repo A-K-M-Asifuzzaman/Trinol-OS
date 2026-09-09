@@ -51,7 +51,7 @@ const task = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-function boardWith(tasks: typeof task[]) {
+function boardWith(tasks: (typeof task)[]) {
   return {
     columns: [
       { status: "TODO", tasks },
@@ -109,7 +109,9 @@ describe("ProjectDetailPage", () => {
     fireEvent.drop(screen.getByTestId("board-column-DONE"));
 
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Could not move task"),
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Could not move task",
+      ),
     );
   });
 });

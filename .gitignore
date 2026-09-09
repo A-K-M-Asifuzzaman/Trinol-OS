@@ -28,6 +28,7 @@ out/
 .turbo/
 coverage/
 *.tsbuildinfo
+.pnpm-store/
 
 # playwright
 test-results/

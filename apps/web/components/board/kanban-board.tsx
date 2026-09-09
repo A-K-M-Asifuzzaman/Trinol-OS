@@ -21,7 +21,10 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 // endpoint with rebalancing is the fix if that's ever observed in practice`
 // (already logged in ROADMAP.md's technical debt ledger as the no-collision-
 // handling gap this decision accepted).
-function computeBoardPosition(before: string | null, after: string | null): string {
+function computeBoardPosition(
+  before: string | null,
+  after: string | null,
+): string {
   const b = before === null ? null : Number(before);
   const a = after === null ? null : Number(after);
   if (b === null && a === null) return "0";
@@ -35,7 +38,11 @@ export function KanbanBoard({
   onMoveTask,
 }: {
   columns: BoardColumn[];
-  onMoveTask: (taskId: string, status: TaskStatus, boardPosition: string) => void;
+  onMoveTask: (
+    taskId: string,
+    status: TaskStatus,
+    boardPosition: string,
+  ) => void;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -47,11 +54,7 @@ export function KanbanBoard({
       beforeIndex < column.tasks.length
         ? column.tasks[beforeIndex].board_position
         : null;
-    onMoveTask(
-      draggingId,
-      column.status,
-      computeBoardPosition(before, after),
-    );
+    onMoveTask(draggingId, column.status, computeBoardPosition(before, after));
     setDraggingId(null);
   }
 

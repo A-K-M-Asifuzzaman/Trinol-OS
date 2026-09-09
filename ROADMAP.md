@@ -864,6 +864,20 @@ module in full, and nothing found in this audit requires changing it:
       506 tests passing (was 438 — 68 new: 15×4 generic + 4 attachment +
       4 project-write). No backend logic changed, no migrations, no
       OpenAPI diff (test-only stage). Ruff, mypy, full suite all green.
+
+      **Codex review: `make check` wasn't actually green** — I'd been
+      running `pnpm lint`/`typecheck`/`test`/`build` individually all
+      stage, never `make lint`/`make check` themselves, so `prettier
+      --check .` (part of `make lint`, not `pnpm lint`, which only runs
+      ESLint) never actually ran. Four Stage 8 files were unformatted:
+      `dashboard/page.tsx`, `kanban-board.tsx`, `lib/api/client.ts`,
+      `tests/project-detail.test.tsx` — fixed with `prettier --write .`,
+      re-verified with `prettier --check .` and a full `make check` run
+      end to end this time, not the individual commands standing in for
+      it. Also removed an untracked `.pnpm-store/` directory `make check`
+      had created locally and added it to `.gitignore` (a stray pnpm
+      cache path, not a project file). No source logic changed — purely
+      formatting plus the ignore-list addition.
 - [ ] Stage 10 — `scripts/seed.py` extended (decision 4 above)
 - [ ] Stage 11 — E2E foundation (Playwright) — first real page with content
       to click through; TESTING.md §5 already scopes this to
