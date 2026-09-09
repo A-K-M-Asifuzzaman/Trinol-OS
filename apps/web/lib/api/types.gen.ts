@@ -439,6 +439,43 @@ export interface paths {
         patch: operations["update_client_route_api_v1_clients__client_id__patch"];
         trace?: never;
     };
+    "/api/v1/leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Leads Route */
+        get: operations["list_leads_route_api_v1_leads_get"];
+        put?: never;
+        /** Create Lead Route */
+        post: operations["create_lead_route_api_v1_leads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leads/{lead_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Lead Route */
+        get: operations["get_lead_route_api_v1_leads__lead_id__get"];
+        put?: never;
+        post?: never;
+        /** Archive Lead Route */
+        delete: operations["archive_lead_route_api_v1_leads__lead_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Lead Route */
+        patch: operations["update_lead_route_api_v1_leads__lead_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -683,6 +720,151 @@ export interface components {
             expires_at: string;
             /** Accepted At */
             accepted_at: string | null;
+        };
+        /** LeadCreateRequest */
+        LeadCreateRequest: {
+            /** Name */
+            name: string;
+            /** Company */
+            company?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Phone */
+            phone?: string | null;
+            source: components["schemas"]["LeadSource"];
+            /** Service */
+            service?: string | null;
+            /** Estimated Value */
+            estimated_value?: string | null;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+            /** @default NEW */
+            stage: components["schemas"]["LeadStage"];
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Next Follow Up */
+            next_follow_up?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /**
+         * LeadListResponse
+         * @description ADR-0005: every list endpoint returns {items, total}, never a bare
+         *     array.
+         */
+        LeadListResponse: {
+            /** Items */
+            items: components["schemas"]["LeadResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** LeadResponse */
+        LeadResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Company */
+            company: string | null;
+            /** Email */
+            email: string | null;
+            /** Phone */
+            phone: string | null;
+            source: components["schemas"]["LeadSource"];
+            /** Service */
+            service: string | null;
+            /** Estimated Value */
+            estimated_value: string | null;
+            /** Currency */
+            currency: string;
+            stage: components["schemas"]["LeadStage"];
+            /** Assigned To */
+            assigned_to: string | null;
+            /** Next Follow Up */
+            next_follow_up: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Converted Client Id */
+            converted_client_id: string | null;
+            /** Converted At */
+            converted_at: string | null;
+            /** Lost Reason */
+            lost_reason: string | null;
+            /** Board Position */
+            board_position: string;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * LeadSource
+         * @enum {string}
+         */
+        LeadSource: "WEBSITE" | "FACEBOOK" | "LINKEDIN" | "REFERRAL" | "EMAIL" | "PHONE" | "OTHER";
+        /**
+         * LeadStage
+         * @enum {string}
+         */
+        LeadStage: "NEW" | "CONTACTED" | "MEETING" | "PROPOSAL" | "NEGOTIATION" | "WON" | "LOST";
+        /**
+         * LeadUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/leads.py uses `model_dump(exclude_unset=True)`). `stage` and
+         *     `board_position` are ordinary fields here, same as `TaskUpdateRequest`
+         *     allows `status`/`board_position` directly — `update_lead` detects a
+         *     stage change and writes the `lead_stage_events` row itself (DATABASE.md
+         *     §3: "written in the same transaction as the stage change"), the same
+         *     way `update_task` detects a status change and records an activity
+         *     event, rather than needing a separate dedicated route.
+         *     `converted_client_id`/`converted_at` are deliberately absent — set only
+         *     by `work.services.lead_conversion_service.convert_lead`, never
+         *     client-settable, same reasoning `TaskUpdateRequest` excludes
+         *     `completed_at`.
+         */
+        LeadUpdateRequest: {
+            /** Name */
+            name?: string;
+            /** Company */
+            company?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** @enum {string} */
+            source?: "WEBSITE" | "FACEBOOK" | "LINKEDIN" | "REFERRAL" | "EMAIL" | "PHONE" | "OTHER";
+            /** Service */
+            service?: string | null;
+            /** Estimated Value */
+            estimated_value?: string | null;
+            /** Currency */
+            currency?: string;
+            /** @enum {string} */
+            stage?: "NEW" | "CONTACTED" | "MEETING" | "PROPOSAL" | "NEGOTIATION" | "WON" | "LOST";
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Next Follow Up */
+            next_follow_up?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Lost Reason */
+            lost_reason?: string | null;
+            /** Board Position */
+            board_position?: string;
         };
         /** MembershipListResponse */
         MembershipListResponse: {
@@ -2732,6 +2914,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_leads_route_api_v1_leads_get: {
+        parameters: {
+            query?: {
+                stage?: components["schemas"]["LeadStage"] | null;
+                assigned_to?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_lead_route_api_v1_leads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_lead_route_api_v1_leads__lead_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_lead_route_api_v1_leads__lead_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_lead_route_api_v1_leads__lead_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadResponse"];
                 };
             };
             /** @description Validation Error */

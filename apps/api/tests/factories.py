@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Role
 from trinol.core.ids import uuid7
-from trinol.modules.crm.models import Client, ClientStatus
+from trinol.modules.crm.models import Client, ClientStatus, Lead, LeadSource, LeadStage
 from trinol.modules.identity.models import (
     AuthProvider,
     Invitation,
@@ -164,6 +164,33 @@ async def make_client(
     db.add(client)
     await db.flush()
     return client
+
+
+async def make_lead(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    name: str = "Test Lead",
+    email: str | None = "lead@x.com",
+    phone: str | None = None,
+    source: LeadSource = LeadSource.WEBSITE,
+    stage: LeadStage = LeadStage.NEW,
+    assigned_to: Membership | None = None,
+) -> Lead:
+    lead = Lead(
+        id=uuid7(),
+        organization_id=organization.id,
+        name=name,
+        email=email,
+        phone=phone,
+        source=source,
+        currency="USD",
+        stage=stage,
+        assigned_to=assigned_to.user_id if assigned_to is not None else None,
+    )
+    db.add(lead)
+    await db.flush()
+    return lead
 
 
 async def make_project_member(

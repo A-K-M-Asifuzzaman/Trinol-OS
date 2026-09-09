@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-2 complete.**
-Stage 3 (Lead CRUD + stage transitions) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-3 complete.**
+Stage 4 (Pipeline board endpoint + drag reorder) is next.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1203,6 +1203,70 @@ checks; dashboard sales tiles show real counts.
       five client operations, expected and committed alongside), `make
       check` green end to end (backend + frontend; the one intentional
       OpenAPI diff is the commit's own content, not drift).
+- [x] Stage 3 — Lead CRUD + stage transitions. `modules/crm/schemas.py`:
+      `LeadCreateRequest`/`LeadUpdateRequest`/`LeadResponse`/
+      `LeadListResponse`; `estimated_value`/`board_position` use a
+      decimal-string `Annotated` type duplicated from `work/schemas.py`'s
+      `BudgetDecimal`/`BoardPositionDecimal` rather than imported (crm must
+      not import work — ARCHITECTURE.md §3 — applies to a plain Python
+      import too, not just business logic; small enough to duplicate once).
+      `modules/crm/services/lead_service.py`: `create_lead`/`list_leads`
+      (filterable by `stage`/`assigned_to`)/`get_lead`/`update_lead`/
+      `archive_lead`, plus `change_lead_stage` (writes the `lead_stage_
+      events` row in the same transaction, DATABASE.md §3). `modules/
+      crm/routes/leads.py`: `POST/GET /leads`, `GET/PATCH /leads/{id}`,
+      `DELETE /leads/{id}` (archive) — gated on `LEAD_READ`/`LEAD_WRITE`.
+
+      **A real self-contradiction in this plan's own Stage 3/Stage 4 text,
+      resolved by finding a closer-fitting existing precedent than the one
+      the plan reached for.** Stage 3's text said `stage` should be
+      excluded from `LeadUpdateRequest` behind a dedicated `POST
+      /leads/{id}/stage` route ("one source of truth," reasoning by
+      analogy to `TaskUpdateRequest` excluding `completed_at`) — but Stage
+      4's own text then required the *general* `PATCH /leads/{id}` to
+      accept `stage` directly for drag-across-columns. Re-reading
+      `modules/work/services/task_service.py`'s actual `update_task`
+      before writing code (not just trusting the plan's summary of it)
+      showed the analogy was wrong at the source: `TaskUpdateRequest`
+      *does* accept `status` directly, and `update_task` detects the
+      change inline and records the activity event itself — only the
+      *derived* field (`completed_at`) is excluded, never `status` itself.
+      Adopted the same shape for leads: `LeadUpdateRequest` includes
+      `stage` and `board_position` as ordinary fields (matching
+      `TaskUpdateRequest` exactly); `update_lead` captures the previous
+      stage, applies updates, and calls `change_lead_stage` inline when
+      `stage` changed — writing the `lead_stage_events` row in the same
+      transaction as the DB commit either way. No dedicated stage-change
+      route exists; this resolves the contradiction and removes a route
+      Stage 4 would otherwise have had no real use for. `converted_client_
+      id`/`converted_at` stay excluded from `LeadUpdateRequest`, mirroring
+      `completed_at`'s exclusion correctly this time — set only by Stage
+      5's `work.services.lead_conversion_service.convert_lead`.
+
+      `ck_lead_contact` (email or phone required) is checked at the
+      Pydantic layer for `LeadCreateRequest` (full state available) and,
+      for `LeadUpdateRequest`, only when a request explicitly nulls both
+      fields in the same body — a request touching only one of the two
+      can't be validated without the row's other current value, so
+      `update_lead` also catches the DB's own `IntegrityError` on that
+      constraint and translates it to a clean 422, the same
+      `_violates_constraint` pattern `project_service.py` already
+      established for `uq_project_org_code`.
+
+      Added the five new lead routes' authz-matrix rows and a
+      `{lead_id}` resolution branch (same requirement Stage 2 found —
+      the meta-assertion needs this immediately, not deferred), plus a
+      `make_lead` factory. `tests/integration/test_leads.py`: role
+      gating, `ck_lead_contact` validation (both at creation and via the
+      partial-update/IntegrityError path), every one of the seven legal
+      stage transitions asserting exactly one `lead_stage_events` row
+      with correct `from_stage`/`to_stage`/`actor_id`, a same-stage PATCH
+      and an unrelated-field PATCH both asserting *zero* stage-event rows
+      (proving the "only on a real change" guard works both ways), list
+      filtering by `stage`, archive-excludes-from-list, cross-org 404.
+
+      600 tests passing (was 550). `make openapi` regenerated for the
+      five new lead operations. `make check` green end to end.
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings

@@ -8,6 +8,7 @@ from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
     make_client,
+    make_lead,
     make_membership,
     make_organization,
     make_project,
@@ -238,6 +239,18 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     ("POST", "/api/v1/clients", Permission.CLIENT_WRITE, {"name": "Matrix Client"}),
     ("PATCH", "/api/v1/clients/{client_id}", Permission.CLIENT_WRITE, {"name": "Matrix Updated"}),
     ("DELETE", "/api/v1/clients/{client_id}", Permission.CLIENT_WRITE, None),
+    # Phase 3 Stage 3: same shape as the client rows above — role-threshold
+    # only, no ownership-split rule this phase.
+    ("GET", "/api/v1/leads", Permission.LEAD_READ, None),
+    ("GET", "/api/v1/leads/{lead_id}", Permission.LEAD_READ, None),
+    (
+        "POST",
+        "/api/v1/leads",
+        Permission.LEAD_WRITE,
+        {"name": "Matrix Lead", "email": "matrix-lead@x.com", "source": "WEBSITE"},
+    ),
+    ("PATCH", "/api/v1/leads/{lead_id}", Permission.LEAD_WRITE, {"notes": "Matrix note"}),
+    ("DELETE", "/api/v1/leads/{lead_id}", Permission.LEAD_WRITE, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -852,6 +865,12 @@ async def test_matrix_row_respects_required_permission(
         client_row = await make_client(db_session, organization=actor.organization, owner=target)
         await db_session.commit()
         resolved_path = resolved_path.replace("{client_id}", str(client_row.id))
+    if "{lead_id}" in resolved_path:
+        # Same reasoning as {client_id} above — LEAD_READ/LEAD_WRITE have
+        # no per-resource restriction this phase.
+        lead_row = await make_lead(db_session, organization=actor.organization, assigned_to=target)
+        await db_session.commit()
+        resolved_path = resolved_path.replace("{lead_id}", str(lead_row.id))
     if "{project_id}" in resolved_path:
         # Every row using this placeholder (PATCH/DELETE project, POST
         # milestone) is MANAGER+-only with no ownership escape hatch, so
