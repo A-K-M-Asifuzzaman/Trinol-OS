@@ -98,9 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-9 complete.**
-Stage 10 (seed script extended) is next. See the audit and decisions below
-for the reasoning each stage builds on.
+Status: **Implementation plan approved (11 stages). Stages 1-10 complete.**
+Stage 11 (Playwright E2E foundation) is next. See the audit and decisions
+below for the reasoning each stage builds on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -878,7 +878,64 @@ module in full, and nothing found in this audit requires changing it:
       had created locally and added it to `.gitignore` (a stray pnpm
       cache path, not a project file). No source logic changed — purely
       formatting plus the ignore-list addition.
-- [ ] Stage 10 — `scripts/seed.py` extended (decision 4 above)
+- [x] Stage 10 — `scripts/seed.py` extended (decision 4 above). Two
+      projects: "TrinolIT Website" (`WEB`) and "Trinol OS" (`TOS`, the
+      internal-product project — dogfooding the product itself rather
+      than inventing an unrelated placeholder), each owned by Founder
+      with Developer and Designer as `project_members` (so every seed
+      role can actually see both projects under RBAC.md §3's "Project
+      detail" rule — `MANAGER+` or membership — not just the OWNER).
+      Five tasks per project, one per `TaskStatus`, priorities spread
+      across all four `TaskPriority` values and assignees rotated across
+      the three seed users — enough to exercise the Kanban board and
+      dashboard tiles realistically per decision 4, without inventing
+      Phase 3/CRM data (`client_id` stays null). Idempotency matched on
+      each project's code, each (project, user) project-member pair, and
+      each (project, title) task pair — same per-entity tracking already
+      established for users/memberships (Stage 12 of Phase 1), extended
+      to the three new entity types in `test_seed_idempotent.py`.
+
+      **Found and fixed a real, pre-existing bug while running `make
+      seed` for real, not just adding rows to the script**: the CLI
+      entry point (`python -m trinol.scripts.seed`) has been broken
+      since Phase 2 Stage 6 added `organizations.logo_file_id`'s
+      composite FK to `file_objects` — `scripts/seed.py` never imports
+      `trinol.platform.models`, so SQLAlchemy's mapper registry never
+      resolves that FK, and flushing the very first `Organization` row
+      crashes with `NoReferencedTableError`. Invisible until now because
+      every test that exercises `seed()` runs inside the same pytest
+      session as `tests/conftest.py`'s own imports (which pull in
+      `trinol.main` transitively, registering `platform.models` as a
+      side effect before `seed()` ever runs) — the standalone CLI path
+      has no such import chain. `migrations/env.py` already had the
+      identical fix for the identical reason (`from trinol.platform
+      import models as _platform_models  # noqa: F401`, for exactly its
+      documented side effect); applied the same one-line fix to
+      `scripts/seed.py`. Confirmed by reverting to the pre-fix version
+      and reproducing the crash (`git stash`), not just reasoning about
+      it — same empirical-verification discipline as every other schema-
+      adjacent finding this phase.
+
+      A second bug surfaced while extending `test_seed_idempotent.py`'s
+      cleanup: it only ever tracked Organization/User/Membership, so once
+      `seed()` also creates Projects (whose `owner_id` is a composite FK
+      to `memberships`), a naive cleanup that deletes memberships before
+      projects hits `fk_projects_org_owner_memberships` — the identical
+      *shape* of bug the Stage 12 (Phase 1) Codex review already found and
+      fixed once for Organization/User, now recurring at the next entity
+      layer down. Fixed by extending the same per-entity snapshot/cleanup
+      pattern to projects, project members, and tasks, deleting in FK-safe
+      order (tasks and members before their project, projects before the
+      memberships they reference). Reproduced against a genuinely fresh
+      local DB (not just reasoned about) before and after the fix to
+      confirm it was real.
+
+      `make seed` run twice against the real local Postgres and verified
+      directly via `psql`: exactly one row per project, five tasks each,
+      no duplication. Full suite (506 tests, unchanged — existing tests
+      strengthened with project/task assertions, not new test count),
+      ruff, mypy, `make check` end to end (backend + frontend + OpenAPI
+      diff) all green.
 - [ ] Stage 11 — E2E foundation (Playwright) — first real page with content
       to click through; TESTING.md §5 already scopes this to
       main/release-candidate runs, not every PR

@@ -38,6 +38,30 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
   now genuinely rejects a deliberately-added single-column FK between two
   org-scoped tables (reverted immediately after).
 
+### Fixed — `make seed`'s CLI entry point crashed since Phase 2 Stage 6
+- `scripts/seed.py` never imports `trinol.platform.models`, so SQLAlchemy's
+  mapper registry never learns about `file_objects` — flushing the very
+  first `Organization` row then crashes with `NoReferencedTableError`
+  trying to resolve `organizations.logo_file_id`'s composite FK to it.
+  Invisible in the test suite because every test importing `trinol.main`
+  (transitively, via `tests/conftest.py`) registers `platform.models` as a
+  side effect before `seed()` ever runs — the standalone `python -m
+  trinol.scripts.seed` path has no such import chain. `migrations/env.py`
+  already carries the identical one-line fix for the identical reason;
+  applied the same fix here. Found and confirmed by actually running
+  `make seed` against a real local Postgres, not by reading the code —
+  reproduced by reverting the fix (`git stash`) and confirming the crash
+  returns.
+- A related bug in `tests/unit/test_seed_idempotent.py`'s cleanup helper:
+  it tracked only Organization/User/Membership, so once `seed()` also
+  creates Projects (`owner_id` is a composite FK to `memberships`), cleanup
+  deleting a membership before its project hit
+  `fk_projects_org_owner_memberships` — the same *shape* of bug Phase 1
+  Stage 12's Codex review already found and fixed once for
+  Organization/User, now recurring one entity layer down. Extended the
+  same per-entity snapshot/cleanup tracking to projects, project members,
+  and tasks.
+
 ### Added — Phase 0 (architecture only, no product code)
 - Architecture docs: ARCHITECTURE, DATABASE, AUTH, RBAC, SECURITY, EMAIL,
   TESTING, DEPLOYMENT.

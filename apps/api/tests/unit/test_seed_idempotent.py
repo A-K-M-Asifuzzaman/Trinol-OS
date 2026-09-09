@@ -15,7 +15,8 @@ from trinol.modules.identity.models import (
     Organization,
     User,
 )
-from trinol.scripts.seed import _ORG_SLUG, _SEED_USERS, seed
+from trinol.modules.work.models import Project, ProjectMember, Task
+from trinol.scripts.seed import _ORG_SLUG, _SEED_PROJECTS, _SEED_USERS, seed
 
 # Phase 1 plan, Stage 12 proof criterion: "make seed on a fresh DB produces
 # the expected rows; re-running doesn't duplicate or error." seed() manages
@@ -34,6 +35,12 @@ from trinol.scripts.seed import _ORG_SLUG, _SEED_USERS, seed
 # Verified this actually catches the original bug by temporarily reverting
 # to the org-existence-only check and confirming both new tests below fail
 # against it.
+#
+# Phase 2 Stage 10: extended the same per-entity tracking to projects,
+# project members, and tasks — seed() now creates those too, and an
+# org-delete-only cleanup would hit `fk_projects_org_owner_memberships`
+# (a project still referencing the membership being deleted), reproduced
+# and fixed here the same way, not just reasoned about.
 
 
 @dataclass
@@ -41,6 +48,9 @@ class _SeedSnapshot:
     organization_existed: bool
     user_existed: dict[str, bool] = field(default_factory=dict)
     membership_existed: dict[str, bool] = field(default_factory=dict)
+    project_existed: dict[str, bool] = field(default_factory=dict)
+    project_member_existed: dict[tuple[str, str], bool] = field(default_factory=dict)
+    task_existed: dict[tuple[str, str], bool] = field(default_factory=dict)
 
 
 async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
@@ -73,22 +83,124 @@ async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
         ).scalar_one_or_none()
         membership_existed[entry.email] = membership is not None
 
+    project_existed: dict[str, bool] = {}
+    project_member_existed: dict[tuple[str, str], bool] = {}
+    task_existed: dict[tuple[str, str], bool] = {}
+    for project_entry in _SEED_PROJECTS:
+        project = None
+        if organization is not None:
+            project = (
+                await db.execute(
+                    select(Project).where(
+                        Project.organization_id == organization.id,
+                        Project.project_code == project_entry.project_code,
+                    )
+                )
+            ).scalar_one_or_none()
+        project_existed[project_entry.project_code] = project is not None
+
+        for email in (project_entry.owner_email, *project_entry.member_emails):
+            key = (project_entry.project_code, email)
+            if project is None or email not in user_ids:
+                project_member_existed[key] = False
+                continue
+            member = (
+                await db.execute(
+                    select(ProjectMember).where(
+                        ProjectMember.organization_id == organization.id,
+                        ProjectMember.project_id == project.id,
+                        ProjectMember.user_id == user_ids[email],
+                    )
+                )
+            ).scalar_one_or_none()
+            project_member_existed[key] = member is not None
+
+        for task_entry in project_entry.tasks:
+            key = (project_entry.project_code, task_entry.title)
+            if project is None:
+                task_existed[key] = False
+                continue
+            task = (
+                await db.execute(
+                    select(Task).where(
+                        Task.organization_id == organization.id,
+                        Task.project_id == project.id,
+                        Task.title == task_entry.title,
+                    )
+                )
+            ).scalar_one_or_none()
+            task_existed[key] = task is not None
+
     return _SeedSnapshot(
         organization_existed=organization is not None,
         user_existed=user_existed,
         membership_existed=membership_existed,
+        project_existed=project_existed,
+        project_member_existed=project_member_existed,
+        task_existed=task_existed,
     )
 
 
 async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot) -> None:
     """Removes only what didn't exist in `snapshot` — a pre-existing
-    organization, user, or membership is never touched, regardless of what
-    else this run of seed() created alongside it."""
+    organization, user, membership, project, project member, or task is
+    never touched, regardless of what else this run of seed() created
+    alongside it. Tasks and project members are removed before their
+    project (FK dependency order), and projects before the memberships
+    their owner_id references (`fk_projects_org_owner_memberships`) — the
+    exact constraint a naive org-then-membership-only cleanup violates."""
     organization = (
         await db.execute(select(Organization).where(Organization.slug == _ORG_SLUG))
     ).scalar_one_or_none()
 
     if organization is not None:
+        for project_entry in _SEED_PROJECTS:
+            project = (
+                await db.execute(
+                    select(Project).where(
+                        Project.organization_id == organization.id,
+                        Project.project_code == project_entry.project_code,
+                    )
+                )
+            ).scalar_one_or_none()
+            if project is None:
+                continue
+
+            for task_entry in project_entry.tasks:
+                key = (project_entry.project_code, task_entry.title)
+                if snapshot.task_existed.get(key):
+                    continue
+                await db.execute(
+                    delete(Task).where(
+                        Task.organization_id == organization.id,
+                        Task.project_id == project.id,
+                        Task.title == task_entry.title,
+                    )
+                )
+
+            for email in (project_entry.owner_email, *project_entry.member_emails):
+                key = (project_entry.project_code, email)
+                if snapshot.project_member_existed.get(key):
+                    continue
+                user = (
+                    await db.execute(select(User).where(User.email == email))
+                ).scalar_one_or_none()
+                if user is not None:
+                    await db.execute(
+                        delete(ProjectMember).where(
+                            ProjectMember.organization_id == organization.id,
+                            ProjectMember.project_id == project.id,
+                            ProjectMember.user_id == user.id,
+                        )
+                    )
+
+            if not snapshot.project_existed.get(project_entry.project_code):
+                await db.execute(
+                    delete(Project).where(
+                        Project.organization_id == organization.id, Project.id == project.id
+                    )
+                )
+
         for entry in _SEED_USERS:
             if snapshot.membership_existed.get(entry.email):
                 continue
@@ -140,6 +252,41 @@ async def test_seed_is_idempotent() -> None:
                 select(User).where(User.email.in_([entry.email for entry in _SEED_USERS]))
             )
             assert len(user_result.scalars().all()) == len(_SEED_USERS)
+
+            project_result = await db.execute(
+                select(Project).where(Project.organization_id == organization.id)
+            )
+            projects = {project.project_code: project for project in project_result.scalars()}
+            assert set(projects) == {entry.project_code for entry in _SEED_PROJECTS}, (
+                "re-running must not duplicate or lose a project"
+            )
+
+            for project_entry in _SEED_PROJECTS:
+                project = projects[project_entry.project_code]
+
+                member_result = await db.execute(
+                    select(ProjectMember).where(
+                        ProjectMember.organization_id == organization.id,
+                        ProjectMember.project_id == project.id,
+                    )
+                )
+                expected_members = 1 + len(project_entry.member_emails)  # owner + members
+                assert len(member_result.scalars().all()) == expected_members, (
+                    f"{project_entry.project_code}: re-running must not duplicate members"
+                )
+
+                task_result = await db.execute(
+                    select(Task).where(
+                        Task.organization_id == organization.id, Task.project_id == project.id
+                    )
+                )
+                tasks = task_result.scalars().all()
+                assert len(tasks) == len(project_entry.tasks), (
+                    f"{project_entry.project_code}: re-running must not duplicate tasks"
+                )
+                assert {task.title for task in tasks} == {
+                    task_entry.title for task_entry in project_entry.tasks
+                }
     finally:
         async with session_factory() as db:
             await _cleanup_rows_created_since(db, snapshot)
