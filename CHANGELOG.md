@@ -4,6 +4,11 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+## Phase 2 — Projects + Tasks
+
+Full history and per-stage Codex review notes live in ROADMAP.md; this is
+the condensed release-note version.
+
 ### Added — Phase 2: work schema and project management
 - Added the work-module schema for projects, project members, milestones,
   tasks, comments, and checklist items with composite organization-scoped
@@ -139,6 +144,15 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
 - Added a schema-integrity CI test (TESTING.md) that reads
   `information_schema` and fails on any single-column FK between two
   org-scoped tables.
+
+## Phase 2 — APPROVED
+
+Codex final verification (Stage 11): "approved... no P0/P1/P2 findings,"
+independently re-verifying the E2E identity verifier's production gate,
+CSRF rehydration, project-linked task creation, the full test suite (510
+backend, 22 frontend), and `make check` end to end. All 11 stages
+independently reviewed and re-verified per-stage throughout, not as one
+end-of-phase pass — full history in ROADMAP.md.
 
 ## Phase 0 — APPROVED
 

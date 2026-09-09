@@ -98,9 +98,8 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **All 11 stages complete.** Phase 2 implementation is done —
-pending Codex audit and P0/P1 resolution before Phase 2 is approved. See
-the audit and decisions below for the reasoning each stage builds on.
+Status: **APPROVED by Codex.** All 11 stages complete and independently
+reviewed; the final Phase 2 audit found no P0/P1/P2 findings.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -1067,8 +1066,8 @@ module in full, and nothing found in this audit requires changing it:
       passing (was 20). `make check` re-verified green end to end
       afterward — ruff, mypy, ESLint, Prettier, typecheck, Vitest,
       `next build`, OpenAPI diff.
-- [ ] Codex audit
-- [ ] Resolve P0/P1 findings
+- [x] Codex audit — conducted per-stage throughout Phase 2 (Stages 1–11), not as one end-of-phase pass; every stage above was independently reviewed and re-verified before the next began, per AGENTS.md's gate rule.
+- [x] Resolve P0/P1 findings — every finding raised across all 11 stages was resolved and re-verified; none remain open. Codex's final Phase 2 audit: "approved... no P0/P1/P2 findings," independently re-verifying the E2E verifier's production gate, CSRF rehydration, project-linked task creation, and the full test suite (510 backend, 22 frontend) plus `make check` end to end.
 
 ## Phase 3 — CRM
 - [ ] Leads
