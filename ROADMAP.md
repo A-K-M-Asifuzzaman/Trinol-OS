@@ -2079,6 +2079,71 @@ four soft-deleted entities) with a same-transaction audit event.
       stage, no new test cases beyond the schema-integrity import and the
       new factories), ruff, ruff format, mypy all green.
 
+- [x] Stage 2 — Meeting CRUD. `modules/meetings/schemas.py`:
+      `MeetingCreateRequest`/`MeetingUpdateRequest`/`MeetingResponse`/
+      `MeetingListResponse`. `client_id`/`project_id` are plain UUIDs, not
+      embedded `ClientResponse`/`ProjectResponse` objects — deliberate
+      deviation from the plan's own draft text, matching the existing
+      precedent every other cross-module reference field in this codebase
+      already follows (`ProjectResponse.client_id`, `LeadResponse.
+      converted_client_id`); embedding would be new scope this phase
+      doesn't need. `modules/meetings/services/meeting_service.py`:
+      `ensure_meeting_visible` (MANAGER+ OR creator OR a
+      `meeting_participants` row for the actor — direct copy of
+      `ensure_project_visible`'s shape), `can_write_meeting` (MANAGER+ OR
+      creator only — RBAC.md's literal rule), `create_meeting` (everyone
+      may create; validates `client_id`/`project_id` against the org via
+      `crm.services.client_service.get_client_in_org`/`work.services.
+      project_service.get_project_in_org` — the `meetings → work/crm`
+      import direction ARCHITECTURE.md §3 explicitly allows; `record(...,
+      audit=False)` wired inline, Phase 2's pattern rather than Phase 3's
+      later-stage retrofit), `list_meetings` (visibility-filtered, same
+      shape as `list_projects`), `get_meeting`, `update_meeting` (partial
+      update; cross-field `starts_at`/`ends_at` consistency checked
+      against the persisted row when only one is in the request body, same
+      split `update_project` uses for `start_date`/`deadline`),
+      `delete_meeting` (hard delete per ADR-0011 + same-transaction
+      `is_audit=true` event, mirrors `delete_task` exactly — no
+      `file_objects` cleanup needed, meetings have no attachments this
+      phase). `modules/meetings/routes/meetings.py`: the 5 CRUD routes,
+      registered in `main.py`.
+
+      `tests/integration/test_meetings.py` (25 tests): full CRUD
+      round-trip; every role can create; visibility (creator/participant/
+      MANAGER+ can `GET`, an unrelated MEMBER 403s); edit (creator/
+      MANAGER+ can `PATCH`/`DELETE`, a participant who isn't the creator
+      cannot); partial-update cross-field validation against the
+      persisted row; `meeting.created`/`meeting.deleted` land in the
+      correct feed/audit table (`is_audit=false`/`true` respectively,
+      checked directly via `platform.activity.list_feed`/`list_audit` —
+      there's no HTTP endpoint for the audit log yet, so this can't be
+      asserted through the API the way the plan's own draft phrasing
+      implied); cross-org `client_id`/`project_id` rejected with 404;
+      cross-org meeting access 404s.
+
+      `tests/security/test_authz_matrix.py`: plain rows for `POST`/`GET
+      (list) /meetings` (both role-threshold-only, no ownership split); a
+      new `test_meeting_routes_enforce_ownership_split` for `GET`/`PATCH`/
+      `DELETE /meetings/{id}` — the first ownership-split test in this
+      matrix where a single role (`participant`) has to pass one method
+      (`GET`) and fail the other two (`PATCH`/`DELETE`), unlike every
+      existing ownership-split test where an access level is uniformly
+      allowed or denied across all its methods.
+      `tests/security/test_isolation_matrix.py`: a new
+      `_MEETING_ISOLATION_ROUTES`/`test_meeting_routes_isolated_across_orgs`
+      pair — every role tests cross-org 404 (unlike CRM's write routes,
+      which only test MANAGER+/ADMIN/OWNER since `LEAD_WRITE`/
+      `CLIENT_WRITE` have no MEMBER-reachable path at all; meetings' edit
+      routes ARE MEMBER-reachable via `MEETING_WRITE_OWN`, so every role
+      genuinely needs the isolation check, the same shape
+      `_WORK_ISOLATION_ROUTES` already uses for task routes).
+
+      65 new backend tests (671 → 736); ruff, ruff format, mypy, `make
+      openapi` (frontend `types.gen.ts` diff, not yet committed at
+      verification time — expected, resolved by this stage's own commit)
+      all green. Frontend `pnpm typecheck`/`pnpm test`/`pnpm build`
+      unaffected (no frontend changes this stage — that's Stage 7).
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses

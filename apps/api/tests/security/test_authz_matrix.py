@@ -9,6 +9,8 @@ from tests.factories import (
     make_checklist_item,
     make_client,
     make_lead,
+    make_meeting,
+    make_meeting_participant,
     make_membership,
     make_organization,
     make_project,
@@ -263,6 +265,25 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # Phase 3 Stage 8: a static path, registered before /{lead_id} in
     # routes/leads.py — no placeholder to resolve, same LEAD_READ shape.
     ("GET", "/api/v1/leads/stats", Permission.LEAD_READ, None),
+    # Phase 4 Stage 2: RBAC.md §2 "Meetings: create/edit own" and the new
+    # "Meetings: view" row are both granted to every role — create and list
+    # have no per-resource restriction (list is visibility-filtered, same
+    # shape as list_projects, but the endpoint itself never 403s), so a
+    # plain per-row check is the whole story for these two. GET/PATCH/
+    # DELETE /meetings/{meeting_id} are NOT here — visibility and edit are
+    # each an ownership-split rule (creator/participant/MANAGER+), covered
+    # by test_meeting_routes_enforce_ownership_split below instead.
+    (
+        "POST",
+        "/api/v1/meetings",
+        Permission.MEETING_WRITE_OWN,
+        {
+            "title": "Matrix Meeting",
+            "starts_at": "2026-01-01T10:00:00Z",
+            "ends_at": "2026-01-01T11:00:00Z",
+        },
+    ),
+    ("GET", "/api/v1/meetings", Permission.MEETING_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -310,6 +331,13 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     # content too, no author concept (ROADMAP.md Stage 6 decision).
     ("POST", "/api/v1/tasks/{task_id}/attachments"),
     ("DELETE", "/api/v1/tasks/{task_id}/attachments/{attachment_id}"),
+    # Phase 4 Stage 2: RBAC.md §3 "Meeting visibility"/"Meeting edit" — route
+    # is MEETING_READ/MEETING_WRITE_OWN (MEMBER-tier, everyone passes),
+    # service is ensure_meeting_visible (MANAGER+ or creator or participant)
+    # for GET, can_write_meeting (MANAGER+ or creator only) for PATCH/DELETE.
+    ("GET", "/api/v1/meetings/{meeting_id}"),
+    ("PATCH", "/api/v1/meetings/{meeting_id}"),
+    ("DELETE", "/api/v1/meetings/{meeting_id}"),
 }
 
 
@@ -822,6 +850,91 @@ async def test_project_subresource_reads_enforce_project_visibility(
     )
     response = await client.get(f"/api/v1/projects/{project.id}/{suffix}")
     assert response.status_code == expected_status
+
+
+@pytest.mark.parametrize(
+    ("method", "body", "success_status"),
+    [
+        ("GET", None, 200),
+        ("PATCH", {"title": "Hijacked"}, 200),
+        ("DELETE", None, 204),
+    ],
+)
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("manager", None),
+        ("creator", None),
+        # A participant can view (ensure_meeting_visible), but does not
+        # gain edit rights merely by being invited (can_write_meeting) —
+        # so GET succeeds while PATCH/DELETE 403, unlike every other role
+        # in this table which is uniform across all three methods.
+        ("participant", "method_dependent"),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_meeting_routes_enforce_ownership_split(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    body: dict[str, str] | None,
+    success_status: int,
+    access: str,
+    expected_status: int | str | None,
+) -> None:
+    """RBAC.md §3 'Meeting visibility'/'Meeting edit': view is MANAGER+ or
+    creator or participant; edit/delete is MANAGER+ or creator only."""
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email=f"meeting-creator-{org.id}-{access}@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    meeting = await make_meeting(db_session, organization=org, created_by=creator)
+
+    if access == "creator":
+        actor_user, actor_membership, actor_org = creator_user, creator, org
+    elif access == "participant":
+        actor_user = await make_user(db_session, email=f"meeting-participant-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=org, user=actor_user, role=Role.MEMBER
+        )
+        await make_meeting_participant(db_session, meeting=meeting, user=actor_membership)
+        actor_org = org
+    elif access in ("manager", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"meeting-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"meeting-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(
+        method, f"/api/v1/meetings/{meeting.id}", json=body, headers=headers
+    )
+    if expected_status == "method_dependent":
+        resolved_expected = success_status if method == "GET" else 403
+    else:
+        resolved_expected = success_status if expected_status is None else expected_status
+    assert response.status_code == resolved_expected
 
 
 def _live_permission_gated_routes() -> set[tuple[str, str]]:

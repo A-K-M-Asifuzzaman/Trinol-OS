@@ -544,6 +544,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/meetings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Meetings Route */
+        get: operations["list_meetings_route_api_v1_meetings_get"];
+        put?: never;
+        /** Create Meeting Route */
+        post: operations["create_meeting_route_api_v1_meetings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meetings/{meeting_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Meeting Route */
+        get: operations["get_meeting_route_api_v1_meetings__meeting_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Meeting Route */
+        delete: operations["delete_meeting_route_api_v1_meetings__meeting_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Meeting Route */
+        patch: operations["update_meeting_route_api_v1_meetings__meeting_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -995,6 +1032,119 @@ export interface components {
             lost_reason?: string | null;
             /** Board Position */
             board_position?: string;
+        };
+        /** MeetingCreateRequest */
+        MeetingCreateRequest: {
+            /** Title */
+            title: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Client Id */
+            client_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Meeting Url */
+            meeting_url?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /**
+         * MeetingListResponse
+         * @description ADR-0005: every list endpoint returns {items, total}, never a bare
+         *     array.
+         */
+        MeetingListResponse: {
+            /** Items */
+            items: components["schemas"]["MeetingResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** MeetingResponse */
+        MeetingResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string | null;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Client Id */
+            client_id: string | null;
+            /** Project Id */
+            project_id: string | null;
+            /** Meeting Url */
+            meeting_url: string | null;
+            /** Location */
+            location: string | null;
+            /** Notes */
+            notes: string | null;
+            /** External Event Id */
+            external_event_id: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * MeetingUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/meetings.py uses `model_dump(exclude_unset=True)`). `created_by`
+         *     is absent — authorship is set at creation only, never reassignable.
+         */
+        MeetingUpdateRequest: {
+            /** Title */
+            title?: string;
+            /** Description */
+            description?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Ends At */
+            ends_at?: string | null;
+            /** Client Id */
+            client_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Meeting Url */
+            meeting_url?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** MembershipListResponse */
         MembershipListResponse: {
@@ -3336,6 +3486,166 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContactSubmitResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_meetings_route_api_v1_meetings_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_meeting_route_api_v1_meetings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_meeting_route_api_v1_meetings__meeting_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_meeting_route_api_v1_meetings__meeting_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_meeting_route_api_v1_meetings__meeting_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingResponse"];
                 };
             };
             /** @description Validation Error */
