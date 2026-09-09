@@ -402,6 +402,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Clients Route */
+        get: operations["list_clients_route_api_v1_clients_get"];
+        put?: never;
+        /** Create Client Route */
+        post: operations["create_client_route_api_v1_clients_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clients/{client_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Client Route */
+        get: operations["get_client_route_api_v1_clients__client_id__get"];
+        put?: never;
+        post?: never;
+        /** Archive Client Route */
+        delete: operations["archive_client_route_api_v1_clients__client_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Client Route */
+        patch: operations["update_client_route_api_v1_clients__client_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -489,6 +526,110 @@ export interface components {
         Body_upload_attachment_route_api_v1_tasks__task_id__attachments_post: {
             /** File */
             file: string;
+        };
+        /** ClientCreateRequest */
+        ClientCreateRequest: {
+            /** Name */
+            name: string;
+            /** Company */
+            company?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Website */
+            website?: string | null;
+            /** Address */
+            address?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** @default ACTIVE */
+            status: components["schemas"]["ClientStatus"];
+            /** Owner Id */
+            owner_id?: string | null;
+        };
+        /**
+         * ClientListResponse
+         * @description ADR-0005: every list endpoint returns {items, total}, never a bare
+         *     array.
+         */
+        ClientListResponse: {
+            /** Items */
+            items: components["schemas"]["ClientResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** ClientResponse */
+        ClientResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Company */
+            company: string | null;
+            /** Email */
+            email: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Website */
+            website: string | null;
+            /** Address */
+            address: string | null;
+            /** Notes */
+            notes: string | null;
+            status: components["schemas"]["ClientStatus"];
+            /** Owner Id */
+            owner_id: string | null;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * ClientStatus
+         * @description DATABASE.md §3 lists `status` on `clients` with no enum values
+         *     spelled out (unlike `leads.stage`/`source`) — kept to the minimum that
+         *     distinguishes a client still being worked with from one that isn't,
+         *     without duplicating what `archived_at` (ADR-0011) already covers for
+         *     the fully-inactive case.
+         * @enum {string}
+         */
+        ClientStatus: "ACTIVE" | "INACTIVE";
+        /**
+         * ClientUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/clients.py uses `model_dump(exclude_unset=True)`).
+         */
+        ClientUpdateRequest: {
+            /** Name */
+            name?: string;
+            /** Company */
+            company?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Website */
+            website?: string | null;
+            /** Address */
+            address?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** @enum {string} */
+            status?: "ACTIVE" | "INACTIVE";
+            /** Owner Id */
+            owner_id?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2429,6 +2570,168 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ActivityFeedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_clients_route_api_v1_clients_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_client_route_api_v1_clients_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_client_route_api_v1_clients__client_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_client_route_api_v1_clients__client_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_client_route_api_v1_clients__client_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientResponse"];
                 };
             };
             /** @description Validation Error */

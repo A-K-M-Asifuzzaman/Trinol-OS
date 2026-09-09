@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
+    make_client,
     make_membership,
     make_organization,
     make_project,
@@ -226,6 +227,17 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # PROJECT_READ rather than a new permission, same org-wide transparency
     # shape as the task-read rows above.
     ("GET", "/api/v1/activity", Permission.PROJECT_READ, None),
+    # Phase 3 Stage 2: RBAC.md §2 "Leads & clients: view" is granted to
+    # every role (no per-resource restriction, same org-wide transparency
+    # shape as the task-read rows above) — "create/edit" is MANAGER+, with
+    # no ownership-split rule this phase (ROADMAP.md Phase 3 Context
+    # decision), so a plain per-row check is the whole story for these
+    # routes, unlike project-member-write below.
+    ("GET", "/api/v1/clients", Permission.CLIENT_READ, None),
+    ("GET", "/api/v1/clients/{client_id}", Permission.CLIENT_READ, None),
+    ("POST", "/api/v1/clients", Permission.CLIENT_WRITE, {"name": "Matrix Client"}),
+    ("PATCH", "/api/v1/clients/{client_id}", Permission.CLIENT_WRITE, {"name": "Matrix Updated"}),
+    ("DELETE", "/api/v1/clients/{client_id}", Permission.CLIENT_WRITE, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -832,6 +844,14 @@ async def test_matrix_row_respects_required_permission(
     await db_session.commit()
 
     resolved_path = path.replace("{membership_id}", str(target.id))
+    if "{client_id}" in resolved_path:
+        # CLIENT_READ/CLIENT_WRITE have no per-resource restriction (no
+        # ownership-split rule this phase, ROADMAP.md Phase 3 Context
+        # decision) — who owns the test client doesn't affect the
+        # assertion below, same reasoning as {project_id}.
+        client_row = await make_client(db_session, organization=actor.organization, owner=target)
+        await db_session.commit()
+        resolved_path = resolved_path.replace("{client_id}", str(client_row.id))
     if "{project_id}" in resolved_path:
         # Every row using this placeholder (PATCH/DELETE project, POST
         # milestone) is MANAGER+-only with no ownership escape hatch, so

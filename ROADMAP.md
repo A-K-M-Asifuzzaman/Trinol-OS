@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stage 1 complete.**
-Stage 2 (Client CRUD) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-2 complete.**
+Stage 3 (Lead CRUD + stage transitions) is next.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1161,6 +1161,48 @@ checks; dashboard sales tiles show real counts.
       upgrade`/`downgrade -1`/`upgrade`/`check` (run twice, after the
       index fix too) all clean, `make check` end to end (backend +
       frontend + OpenAPI diff, unaffected this stage) green.
+- [x] Stage 2 — Client CRUD. `modules/crm/schemas.py`:
+      `ClientCreateRequest`/`ClientUpdateRequest` (partial,
+      `exclude_unset=True`)/`ClientResponse`/`ClientListResponse`
+      (`{items, total}`, ADR-0005). `modules/crm/services/
+      client_service.py`: `create_client`/`list_clients`/`get_client`/
+      `update_client`/`archive_client`, mirroring `project_service.py`'s
+      exact shape — soft-delete via `archived_at` (ADR-0011), `GET
+      /clients` excludes archived by default. `modules/crm/routes/
+      clients.py`: `POST/GET/GET{id}/PATCH/DELETE /api/v1/clients`, each
+      gated on `Permission.CLIENT_READ` or `CLIENT_WRITE` — archive also
+      `CLIENT_WRITE` (Context's stated assumption: no distinct delete
+      permission exists in RBAC.md for clients, unlike `PROJECT_DELETE`).
+      Registered in `main.py`. `tests/integration/test_clients.py`: role
+      gating (MANAGER+ create, every role views), owner-membership
+      validation, archive-excluded-from-list, partial update, null
+      rejection on required fields, cross-org 404.
+
+      **A structural requirement the plan's own Stage 2 text didn't
+      call out, found while actually running the suite, not assumed**:
+      `test_authz_matrix.py`'s meta-assertion
+      (`test_matrix_covers_every_permission_gated_route`, Phase 1 Stage 11)
+      fails the *entire* suite the moment any new permission-gated route
+      has no matrix row — checked directly against git history, this
+      meant every one of Phase 2's own stages (2 through 7) added its
+      own routes' matrix rows in the same commit, not deferred to a
+      single "security matrices" stage the way the plan's Stage 9
+      wording implied. Added the five new client routes to `_MATRIX_
+      ROWS` and a `{client_id}` resolution branch (mirroring
+      `{project_id}`'s) to the generic per-role test, plus a new
+      `make_client` factory in `tests/factories.py` (needed regardless —
+      Stage 9 would have added it anyway for isolation-matrix rows).
+      Full per-resource ownership-split testing and cross-org isolation
+      rows for clients still land in Stage 9 as planned; only the bare
+      per-route/per-role coverage the meta-assertion structurally
+      requires was pulled forward.
+
+      550 tests passing (was 510 — 15 `test_clients.py` + 5 new matrix
+      rows × 4 roles = 20, plus the meta-assertion itself continuing to
+      pass), ruff, mypy, `make openapi` regenerated (new diff for the
+      five client operations, expected and committed alongside), `make
+      check` green end to end (backend + frontend; the one intentional
+      OpenAPI diff is the commit's own content, not drift).
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings
