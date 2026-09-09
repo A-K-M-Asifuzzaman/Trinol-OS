@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { KanbanBoard } from "@/components/board/kanban-board";
 import { ListErrorState } from "@/components/list/error-state";
@@ -27,14 +28,22 @@ export default function ProjectDetailPage() {
     queryKey: ["project-board", projectId],
     queryFn: () => fetchProjectBoard(projectId),
   });
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   async function handleMoveTask(
     taskId: string,
     status: TaskStatus,
     boardPosition: string,
   ) {
-    await updateTask(taskId, { status, board_position: boardPosition });
-    queryClient.invalidateQueries({ queryKey: ["project-board", projectId] });
+    setMoveError(null);
+    try {
+      await updateTask(taskId, { status, board_position: boardPosition });
+      queryClient.invalidateQueries({ queryKey: ["project-board", projectId] });
+    } catch (err) {
+      setMoveError(
+        err instanceof ApiError ? err.message : "Could not move that task.",
+      );
+    }
   }
 
   if (projectQuery.isLoading || boardQuery.isLoading) {
@@ -70,6 +79,11 @@ export default function ProjectDetailPage() {
         <Badge>{projectQuery.data.status}</Badge>
         <Badge>{projectQuery.data.health}</Badge>
       </div>
+      {moveError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {moveError}
+        </p>
+      ) : null}
       <KanbanBoard
         columns={boardQuery.data.columns}
         onMoveTask={handleMoveTask}

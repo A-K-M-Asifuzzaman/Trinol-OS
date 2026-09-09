@@ -782,6 +782,23 @@ module in full, and nothing found in this audit requires changing it:
       stack outside this constraint. Ruff/mypy/pytest untouched (no
       backend files changed this stage); OpenAPI diff clean; ESLint,
       `tsc --noEmit`, Vitest, and `next build` all green.
+
+      **Codex review: two non-blocking P2s, both fixed.** (1) A failed
+      Kanban move (`updateTask` rejecting) was silently swallowed — no
+      revert, no message, the user would see nothing happen and no
+      indication why. `ProjectDetailPage` now wraps the move in
+      `try`/`catch` and renders the `ApiError` message as a `role="alert"`
+      banner (same pattern as the task-detail page's own action errors);
+      a new `tests/project-detail.test.tsx` drives a real drag/drop
+      through a mocked failing `PATCH /tasks/{id}` and asserts the banner
+      appears. (2) The dashboard's "Open tasks"/"Active projects" labels
+      implied status-filtered counts when the values were always totals
+      — relabeled to "Total tasks"/"Total projects" rather than building
+      the status-aware query path (MASTER_PROMPT doesn't mandate these
+      exact labels; a real filtered count is still the documented
+      `ponytail:` follow-up if a report ever needs one). 20 frontend
+      tests passing (was 19); ESLint, `tsc --noEmit`, Vitest, `next
+      build` re-verified green.
 - [ ] Stage 9 — Security matrices extended: the authz-matrix meta-assertion
       (Phase 1 Stage 11) already fails the suite if any new Project/Task
       route has no row, so this is enforced structurally, not by discipline

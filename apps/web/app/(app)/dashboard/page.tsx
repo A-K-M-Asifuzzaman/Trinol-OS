@@ -20,12 +20,14 @@ async function getCount(
 export default async function DashboardPage() {
   const [teamCount, taskCount, projectCount] = await Promise.all([
     getCount(fetchTeamMembers),
-    // `ponytail: total task/project count, not "open"/"active" only — the
+    // `ponytail: total task/project count, not a status-filtered one — the
     // list endpoints have no status filter for projects and only a single
-    // equality filter for tasks, so a true "open" count needs either a
+    // equality filter for tasks, so a true filtered count needs either a
     // dedicated count endpoint or several requests; add when a real report
     // needs it` (MASTER_PROMPT §21's own "Recent activity" widget is the
-    // richer version of this, already built in Stage 7).
+    // richer version of this, already built in Stage 7). Tile labels below
+    // say "Total", not "Open"/"Active", so they stay honest about what's
+    // actually counted (Codex Stage 8 review P2).
     getCount(fetchTasks),
     getCount(fetchProjects),
   ]);
@@ -39,11 +41,11 @@ export default async function DashboardPage() {
           value={teamCount === null ? "—" : String(teamCount)}
         />
         <DashboardTile
-          label="Open tasks"
+          label="Total tasks"
           value={taskCount === null ? "—" : String(taskCount)}
         />
         <DashboardTile
-          label="Active projects"
+          label="Total projects"
           value={projectCount === null ? "—" : String(projectCount)}
         />
         <DashboardTile label="Open leads" value="—" placeholder />
