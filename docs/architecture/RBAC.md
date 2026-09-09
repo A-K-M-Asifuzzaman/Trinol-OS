@@ -39,6 +39,7 @@ test, so a hand-edit to the map cannot quietly break the hierarchy.
 | Leads & clients: view | ✓ | ✓ | ✓ | ✓ |
 | Leads & clients: create/edit | – | ✓ | ✓ | ✓ |
 | Convert lead | – | ✓ | ✓ | ✓ |
+| Meetings: view | ✓ | ✓ | ✓ | ✓ |
 | Meetings: create/edit own | ✓ | ✓ | ✓ | ✓ |
 | Finance: view | – | – | ✓ | ✓ |
 | Income/expenses: write | – | – | ✓ | ✓ |
@@ -105,7 +106,27 @@ not one — a `MEMBER`-tier one that only gates *route access*, and a
   always records
   `is_audit=true`, never a feed event — unlike ordinary task/project/comment
   activity, which is feed content.
-- Meeting edit: creator or `MANAGER+`.
+- Meeting visibility — route: `Permission.MEETING_READ` (**new**, `MEMBER`-
+  tier — see §2's "Meetings: view" row, added Phase 4 Stage 1; the matrix
+  previously had no separate view row for meetings, unlike leads/clients).
+  Service: `MANAGER+` **or** `meeting.created_by == user.id` **or**
+  membership in `meeting_participants` — mirrors "Project detail"'s own
+  rule exactly, since a meeting is equally a multi-person resource.
+- Meeting edit: creator or `MANAGER+` (route: `Permission.MEETING_WRITE_OWN`,
+  `MEMBER`-tier, everyone passes; service enforces the real rule). A
+  participant does **not** gain edit rights merely by being invited — only
+  their own `meeting_participants.response` is theirs to change, regardless
+  of the edit rule (e.g. accepting/declining an invitation).
+- Meeting decision/action create/edit/delete: inherits the meeting's own
+  edit rule above (creator or `MANAGER+`) — same reasoning as task
+  checklist items/attachments ("no author concept here"), not the
+  independent author-only rule comments get.
+- Meeting participant add/remove: same rule as meeting edit (creator or
+  `MANAGER+`). Adding or removing a participant changes who can see the
+  meeting (the visibility rule above depends on `meeting_participants`
+  membership), so per guard 6's principle this always records
+  `is_audit=true`, never a feed event — same reasoning as project-member
+  add/remove above.
 
 ## 4. Not-found over forbidden
 

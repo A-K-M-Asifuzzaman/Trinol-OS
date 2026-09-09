@@ -43,6 +43,7 @@ class Permission(StrEnum):
     LEAD_CONVERT = "LEAD_CONVERT"
 
     # Meetings — Phase 4
+    MEETING_READ = "MEETING_READ"
     MEETING_WRITE_OWN = "MEETING_WRITE_OWN"
 
     # Finance — Phase 5
@@ -78,6 +79,7 @@ _MEMBER: frozenset[Permission] = frozenset(
         Permission.TASK_WRITE_OWN,
         Permission.LEAD_READ,
         Permission.CLIENT_READ,
+        Permission.MEETING_READ,
         Permission.MEETING_WRITE_OWN,
         Permission.TEAM_READ,
     }

@@ -17,6 +17,7 @@ from trinol.core.db.base import Base
 # every module with models must be imported here or Alembic won't see it.
 from trinol.modules.crm import models as _crm_models  # noqa: F401
 from trinol.modules.identity import models as _identity_models  # noqa: F401
+from trinol.modules.meetings import models as _meetings_models  # noqa: F401
 from trinol.modules.work import models as _work_models  # noqa: F401
 from trinol.platform import models as _platform_models  # noqa: F401
 

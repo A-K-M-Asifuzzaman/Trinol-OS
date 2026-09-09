@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -15,6 +16,13 @@ from trinol.modules.identity.models import (
     MembershipStatus,
     Organization,
     User,
+)
+from trinol.modules.meetings.models import (
+    Meeting,
+    MeetingAction,
+    MeetingDecision,
+    MeetingParticipant,
+    MeetingParticipantResponse,
 )
 from trinol.modules.work.models import (
     Milestone,
@@ -303,6 +311,96 @@ PNG_1X1_BYTES = bytes.fromhex(
     "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753"
     "de0000000c4944415478da6360606060000000050001a5f645400000000049454e44ae426082"
 )
+
+
+async def make_meeting(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    created_by: Membership,
+    title: str = "Test Meeting",
+    starts_at: datetime | None = None,
+    ends_at: datetime | None = None,
+    client: Client | None = None,
+    project: Project | None = None,
+) -> Meeting:
+    starts = starts_at or datetime.now(UTC)
+    meeting = Meeting(
+        id=uuid7(),
+        organization_id=organization.id,
+        title=title,
+        starts_at=starts,
+        ends_at=ends_at or starts + timedelta(hours=1),
+        client_id=client.id if client is not None else None,
+        project_id=project.id if project is not None else None,
+        created_by=created_by.user_id,
+    )
+    db.add(meeting)
+    await db.flush()
+    return meeting
+
+
+async def make_meeting_participant(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    user: Membership | None = None,
+    external_email: str | None = None,
+    response: MeetingParticipantResponse = MeetingParticipantResponse.PENDING,
+) -> MeetingParticipant:
+    participant = MeetingParticipant(
+        id=uuid7(),
+        organization_id=meeting.organization_id,
+        meeting_id=meeting.id,
+        user_id=user.user_id if user is not None else None,
+        external_email=external_email if user is None else None,
+        response=response,
+    )
+    db.add(participant)
+    await db.flush()
+    return participant
+
+
+async def make_meeting_decision(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    decided_by: Membership | None = None,
+    body: str = "Test decision",
+) -> MeetingDecision:
+    decision = MeetingDecision(
+        id=uuid7(),
+        organization_id=meeting.organization_id,
+        meeting_id=meeting.id,
+        body=body,
+        decided_by=decided_by.user_id if decided_by is not None else None,
+    )
+    db.add(decision)
+    await db.flush()
+    return decision
+
+
+async def make_meeting_action(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    owner: Membership | None = None,
+    description: str = "Test action",
+    due_date: date | None = None,
+    task_id: uuid.UUID | None = None,
+) -> MeetingAction:
+    action = MeetingAction(
+        id=uuid7(),
+        organization_id=meeting.organization_id,
+        meeting_id=meeting.id,
+        description=description,
+        owner_id=owner.user_id if owner is not None else None,
+        due_date=due_date,
+        task_id=task_id,
+    )
+    db.add(action)
+    await db.flush()
+    return action
 
 
 async def make_task_attachment(

@@ -1973,14 +1973,111 @@ checks; dashboard sales tiles show real counts.
       diff — no backend changes this stage).
 
 ## Phase 4 — Meetings + Calendar
-- [ ] Meetings
-- [ ] Notes
-- [ ] Decisions
-- [ ] Action items
-- [ ] Action item → Task
-- [ ] Google Calendar integration if justified
-- [ ] Codex audit
-- [ ] Resolve P0/P1 findings
+
+Status: **In progress.** Planned via a dedicated plan-mode session (mirroring
+how Phase 3 itself started); plan file: `reactive-dreaming-lantern.md`.
+Stage 1 complete.
+
+DATABASE.md §3 (lines 184-201) already fully specified the `meetings`,
+`meeting_participants`, `meeting_decisions`, `meeting_actions` tables;
+ARCHITECTURE.md §3 already pinned the module boundary (`meetings → work/crm`
+is allowed, the mirror of Phase 3's `crm` restriction; the one cross-module
+write is `MeetingAction → Task` in `meetings.services.promote_action`).
+RBAC.md, unlike Phase 3, had only one thin matrix row and one enforcement
+line for meetings — several real decisions were made explicitly during
+planning rather than invented mid-stage:
+
+- **Meeting reminder emails are skipped entirely this phase** (user
+  decision): a reminder needs a time-triggered send, and ADR-0010 rules out
+  any Redis/background-worker mechanism in V1. Treated like Google
+  Calendar's own "not justified until asked" deferral (ADR-0012) — no
+  template, no trigger.
+- **No in-app calendar-grid view this phase** (user decision): no spec doc
+  names one — MASTER_PROMPT.md has no `## Calendar` section, and
+  ROADMAP.md's own checklist below never listed a calendar-grid page. The
+  phase name's "Calendar" half refers to the deferred Google Calendar
+  integration bullet.
+- **Visibility vs. edit are different rules**: RBAC.md's one enforcement
+  line only covered edit (creator or MANAGER+). Visibility needed its own
+  rule since meetings, like projects, are multi-person resources: view =
+  MANAGER+ OR creator OR a `meeting_participants` row for the actor (mirrors
+  `ensure_project_visible`); edit/delete = MANAGER+ OR creator only. One new
+  permission, `MEETING_READ` (MEMBER-tier), added to gate view-route
+  reachability alongside the pre-existing `MEETING_WRITE_OWN`.
+- **Sub-resources (decisions, actions) inherit the meeting's own edit
+  rule**, not an author-only rule — neither has `edited_at` in DATABASE.md's
+  spec and neither is discourse, so they follow task checklist items/
+  attachments' precedent ("no author concept here"), not task comments'
+  independent author-only exception. Participants may update their own
+  `response` regardless of the edit rule.
+- **`meeting_decisions.decided_by`/`meeting_actions.owner_id`'s ON DELETE
+  action fills a real gap in DATABASE.md §5.2** (its RESTRICT-nullable-actor
+  row didn't list these two) — treated identically to every other nullable
+  "person who did X" column (RESTRICT to `memberships`).
+
+Exit criteria: a MEMBER can create a meeting, add participants, record
+decisions and action items, and see meetings they're invited to; only the
+creator or a MANAGER+ can edit/delete the meeting; promoting an action to a
+task is one transaction, provably atomic, and rejects double-promotion;
+deleting a meeting hard-deletes it (ADR-0011 — meetings are not among the
+four soft-deleted entities) with a same-transaction audit event.
+
+- [x] Stage 1 — `meetings` module schema. `modules/meetings/models.py`:
+      `MeetingParticipantResponse` (new StrEnum — DATABASE.md leaves
+      `response` undefined — `PENDING`/`ACCEPTED`/`DECLINED`/`TENTATIVE`),
+      `Meeting`, `MeetingParticipant`, `MeetingDecision`, `MeetingAction` —
+      exact columns/constraints from DATABASE.md §3, following `Project`/
+      `Task`'s template: `OrgScoped` mixin, `uq_meetings_org_id`,
+      `ck_meeting_times (ends_at > starts_at)`, `ck_meeting_participant_
+      identity` (exactly one of `user_id`/`external_email`), composite FKs
+      to `memberships(organization_id, user_id)` for every person
+      reference, `RESTRICT` throughout (§5.2 — deactivation, not deletion,
+      is the supported path). `Meeting` gets both `created_at` and
+      `updated_at` (DATABASE.md's "timestamps," plural, for the meetings
+      row itself); its three sub-resources only get `created_at` (no
+      `edited_at`/`updated_at` in their spec — append-only in spirit, not
+      discourse). No `archived_at` anywhere (ADR-0011: meetings are
+      hard-deleted). `migrations/versions/0006_meetings_schema.py`: new
+      tables, hand-written raw SQL matching `0003`/`0004`/`0005`'s exact
+      style. `core/authz/permissions.py`: added `MEETING_READ`
+      (`MEMBER`-tier) alongside the pre-existing `MEETING_WRITE_OWN`.
+      `RBAC.md`: added the "Meetings: view" matrix row and documented the
+      visibility/edit split, the sub-resource inheritance rule, and the
+      participant-own-response exception in §3 — the same kind of
+      gap-fill RBAC.md already carries for `PROJECT_MEMBER_WRITE`.
+
+      **A real finding, verified empirically before fixing, not assumed
+      from the plan.** `alembic check` failed after the migration was
+      written and applied — not because the migration was wrong, but
+      because `migrations/env.py` (unlike `tests/security/
+      test_schema_integrity.py`, which the plan already flagged as needing
+      the same treatment) never imported `trinol.modules.meetings.models`
+      for its side effect of registering tables on `Base.metadata`.
+      Alembic's autogenerate compare saw the four new tables in the live
+      database but not in the target metadata, and concluded they should
+      be dropped — the exact *shape* of import-completeness bug Phase 3
+      Stage 1 already found once in the test file, now found in the
+      migration environment itself, a file that bug never touched before
+      because CRM's own equivalent fix only ever added the import to the
+      test file. Fixed by adding the same explicit import to `migrations/
+      env.py`, mirroring its own existing discipline for `crm`/`work`.
+      Verified directly: `alembic check` failed with "New upgrade
+      operations detected" (four `remove_table`s) before the fix, and
+      reported "No new upgrade operations detected" after.
+
+      Verified the schema-integrity tests are not passing vacuously the
+      same way Phase 3 Stage 1 did: deliberately added a real single-
+      column FK (`meeting_decisions.client_id_test -> clients.id`, a
+      genuinely valid target since `clients.id` has its own single-column
+      primary key) via `psql` against the migrator role, confirmed
+      `test_every_fk_between_org_scoped_tables_is_composite` failed on it
+      with the expected violation message, then dropped the column and
+      constraint and confirmed the suite was clean again.
+
+      `alembic upgrade head` / `downgrade -1` / `upgrade head` clean;
+      `alembic check` clean; full suite (671 tests, unchanged — schema-only
+      stage, no new test cases beyond the schema-integrity import and the
+      new factories), ruff, ruff format, mypy all green.
 
 ## Phase 5 — Finance
 - [ ] Income
