@@ -14,6 +14,8 @@ dependencies = [
     "aiosmtplib>=3.0",
     "jinja2>=3.1",
     "uvicorn[standard]>=0.30",
+    "boto3>=1.35",
+    "python-multipart>=0.0.12",
 ]
 
 [dependency-groups]
@@ -35,7 +37,13 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.flake8-bugbear]
 # Depends()/Query()/etc. in a default argument is the required FastAPI
 # idiom, not the mutable-default-argument bug B008 exists to catch.
-extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.File",
+]
 
 [tool.mypy]
 python_version = "3.12"
@@ -46,6 +54,12 @@ packages = ["trinol"]
 [[tool.mypy.overrides]]
 # Ships no type stubs or py.typed marker.
 module = "firebase_admin.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Same: no type stubs or py.typed marker (boto3-stubs is a separate,
+# much larger package not worth adding for four calls in s3.py).
+module = ["boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     firebase_credentials: str | None = None
 
     storage_backend: Literal["local", "s3"] = "local"
+    # ADR-0008: "a directory outside the repo" — relative paths resolve
+    # under whatever the process's cwd is (apps/api locally, /app in
+    # Docker), and both `storage/` and `uploads/` are already gitignored
+    # at any depth, so this is never accidentally committed either way.
+    local_storage_dir: str = "storage/uploads"
     s3_endpoint: str | None = None
     s3_bucket: str | None = None
     s3_access_key_id: str | None = None

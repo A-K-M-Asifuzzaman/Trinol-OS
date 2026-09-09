@@ -425,3 +425,19 @@ class TaskChecklistItemResponse(BaseModel):
 class TaskChecklistItemListResponse(BaseModel):
     items: list[TaskChecklistItemResponse]
     total: int
+
+
+class TaskAttachmentResponse(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    file_id: uuid.UUID
+    filename: str
+    content_type: str
+    size_bytes: int
+    uploaded_by: uuid.UUID
+    created_at: datetime
+
+
+class TaskAttachmentListResponse(BaseModel):
+    items: list[TaskAttachmentResponse]
+    total: int

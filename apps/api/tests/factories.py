@@ -22,11 +22,14 @@ from trinol.modules.work.models import (
     ProjectStatus,
     RoleOnProject,
     Task,
+    TaskAttachment,
     TaskChecklistItem,
     TaskComment,
     TaskPriority,
     TaskStatus,
 )
+from trinol.platform.file_storage.protocol import FileStorage
+from trinol.platform.files import create_file_object
 
 # Plain factory functions, not factory_boy (TESTING.md §2): each adds+flushes
 # a row and returns it, so a caller can chain them without repeating
@@ -237,3 +240,45 @@ async def make_checklist_item(
     db.add(item)
     await db.flush()
     return item
+
+
+# A minimal, valid PNG (the smallest possible: 1x1 transparent pixel) so
+# tests exercise the real sniff-and-validate path (platform/files.py)
+# instead of bypassing it.
+PNG_1X1_BYTES = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753"
+    "de0000000c4944415478da6360606060000000050001a5f645400000000049454e44ae426082"
+)
+
+
+async def make_task_attachment(
+    db: AsyncSession,
+    *,
+    task: Task,
+    uploaded_by: Membership,
+    storage: FileStorage,
+    filename: str = "receipt.png",
+    data: bytes = PNG_1X1_BYTES,
+) -> TaskAttachment:
+    """Uses the real upload path (platform.files.create_file_object), not a
+    bare row insert — `storage` must be a real `FileStorage` (e.g.
+    `LocalFileStorage(tmp_path)`) so `download_attachment`'s later
+    `storage.get()` finds real bytes, not a phantom key."""
+    file_object = await create_file_object(
+        db,
+        organization_id=task.organization_id,
+        uploaded_by=uploaded_by.user_id,
+        filename=filename,
+        data=data,
+        storage=storage,
+    )
+    attachment = TaskAttachment(
+        id=uuid7(),
+        organization_id=task.organization_id,
+        task_id=task.id,
+        file_id=file_object.id,
+        uploaded_by=uploaded_by.user_id,
+    )
+    db.add(attachment)
+    await db.flush()
+    return attachment

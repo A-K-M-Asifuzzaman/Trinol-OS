@@ -366,3 +366,49 @@ class TaskChecklistItem(OrgScoped, Base):
         ),
         Index("ix_task_checklist_items_org_task", "organization_id", "task_id"),
     )
+
+
+class TaskAttachment(OrgScoped, Base):
+    """ADR-0008/DATABASE.md §3. Metadata linking a task to a `file_objects`
+    row — the blob itself lives in whatever `FileStorage` backend is
+    configured (platform/files.py)."""
+
+    __tablename__ = "task_attachments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid7)
+    task_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    file_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "task_id"],
+            ["tasks.organization_id", "tasks.id"],
+            name="fk_task_attachments_org_task_tasks",
+            # ADR-0011: tasks are hard-deleted; an attachment without its
+            # task is meaningless (same reasoning as task_comments).
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "file_id"],
+            ["file_objects.organization_id", "file_objects.id"],
+            name="fk_task_attachments_org_file_file_objects",
+            # RESTRICT, not CASCADE: the service always deletes the
+            # task_attachments row and the file_objects row together in one
+            # explicit transaction (task_attachment_service.delete_attachment)
+            # — RESTRICT catches an ordering bug instead of silently
+            # cascading if something ever deletes file_objects out of turn.
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "uploaded_by"],
+            ["memberships.organization_id", "memberships.user_id"],
+            name="fk_task_attachments_org_uploaded_by_memberships",
+            # Non-nullable authorship column (DATABASE.md §5.2): RESTRICT.
+            ondelete="RESTRICT",
+        ),
+        Index("ix_task_attachments_org_task", "organization_id", "task_id"),
+        Index("ix_task_attachments_org_file", "organization_id", "file_id"),
+        Index("ix_task_attachments_org_uploaded_by", "organization_id", "uploaded_by"),
+    )

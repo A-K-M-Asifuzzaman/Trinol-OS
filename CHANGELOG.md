@@ -10,9 +10,33 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
   foreign keys and supporting indexes.
 - Added project CRUD and project-member roster management with role and
   ownership checks, archive semantics, pagination, and generated API types.
+- Added task CRUD, a Kanban board endpoint with a capped, grouped-by-status
+  response, task comments and checklist items, and file attachments backed
+  by a `FileStorage` abstraction with local and S3-compatible backends.
 - Codex review fixes cover concurrent project-code conflicts, merged PATCH
   validation, decimal-string budgets, per-route ownership/isolation tests,
-  and refreshed trigger-generated `updated_at` values.
+  refreshed trigger-generated `updated_at` values, and audit events on
+  every hard-delete path (tasks, comments, checklist items, attachments).
+
+### Fixed — schema-integrity CI gate was silently non-functional since Phase 1
+- The composite-foreign-key regression test (added Phase 1 Stage 3,
+  TESTING.md §4 item 5) queried `information_schema.constraint_column_usage`,
+  whose own view definition only returns rows to a role with `USAGE` on the
+  constrained table's *owning* role. `trinol_app` — the role the entire test
+  suite and CI run as — is deliberately not a member of `trinol_migrator`
+  (ADR-0006's two-role split), so this view has returned zero rows to every
+  run of this test for the whole project's history, making both of its
+  assertions vacuously true. Found while adding a Stage 6 regression test
+  that asserts a specific FK positively exists, rather than only "no
+  violations found" — a check an empty result set satisfies by accident.
+  Rewritten to query `pg_constraint`/`pg_attribute`/`pg_class` directly,
+  which carry no such owner-role restriction; also fixed a second,
+  independent bug the same rewrite exposed (the original query's join
+  produced a cross product across both sides' columns before aggregation,
+  silently duplicating entries for any FK with more than one column on
+  either side). Verified empirically both ways: confirmed the fixed query
+  now genuinely rejects a deliberately-added single-column FK between two
+  org-scoped tables (reverted immediately after).
 
 ### Added — Phase 0 (architecture only, no product code)
 - Architecture docs: ARCHITECTURE, DATABASE, AUTH, RBAC, SECURITY, EMAIL,

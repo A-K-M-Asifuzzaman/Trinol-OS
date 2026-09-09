@@ -98,9 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-5 complete.**
-Stage 6 (`platform.FileObject` + `FileStorage`) is next. See the audit and
-decisions below for the reasoning each stage builds
+Status: **Implementation plan approved (11 stages). Stages 1-6 complete.**
+Stage 7 (activity feed events wired) is next. See the audit and decisions
+below for the reasoning each stage builds
 on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
@@ -491,7 +491,7 @@ module in full, and nothing found in this audit requires changing it:
       `apps/web/lib/api/types.gen.ts` regenerated, no drift. Full suite
       (373 tests), ruff, mypy, frontend lint/typecheck/test/build all
       green.
-- [ ] Stage 6 — `platform.FileObject` + `FileStorage` protocol: **both**
+- [x] Stage 6 — `platform.FileObject` + `FileStorage` protocol: **both**
       `LocalFileStorage` and `S3FileStorage` — ADR-0008 decided both ("one
       interface, two implementations, no speculative third"), and
       MASTER_PROMPT §24 requires S3-compatible storage in production
@@ -519,6 +519,74 @@ module in full, and nothing found in this audit requires changing it:
       an `organization_id` column, and `organizations` itself has none — so
       a single-column-FK regression here wouldn't be caught by the existing
       generic assertion the way it would for any other table.
+
+      **Implementation.** `platform/file_storage/{protocol,local,s3,deps}.py`
+      (not `platform/storage/` — that name collides with `.gitignore`'s
+      `storage/` pattern, which matches at *any* depth, not just repo
+      root; caught before committing by noticing the package was silently
+      absent from `git status`, not by design — renamed rather than
+      touching the gitignore rule, which is correctly scoped to the
+      runtime upload directory) —
+      `FileStorage` (`put`/`get`/`delete`/`exists`), `LocalFileStorage`
+      (plain directory, `asyncio.to_thread`-wrapped), `S3FileStorage`
+      (`boto3`, also `to_thread`-wrapped since it's a sync client), and
+      `get_file_storage()` selected by `STORAGE_BACKEND` (same DI-override
+      pattern as `get_email_sender`/`get_identity_verifier`). `platform/
+      files.py`'s `create_file_object()` does upload validation
+      (SECURITY.md §6: 10 MiB cap, extension allowlist, sniffed content
+      type via magic-byte signatures — PNG/JPEG/WebP/PDF only, SVG
+      rejected by the same general mechanism, no special case) and writes
+      the `file_objects` row; doesn't commit, so the caller (`task_
+      attachment_service.create_attachment`) adds `TaskAttachment` in the
+      same transaction. Upload is multipart (`UploadFile`); download
+      streams with `Content-Disposition: attachment` and
+      `X-Content-Type-Options: nosniff`, authorized by the parent task's
+      own read rule (org-wide, Stage 3) — no separate attachment
+      permission, per ADR-0008. `TaskAttachment`'s write routes
+      (upload/delete) follow `can_write_task`, same as checklist items —
+      task content, no author concept. Deletion writes a `task_attachment.
+      deleted` audit event and removes both the `file_objects` row and the
+      blob (commit before the blob delete, so a failure after orphans a
+      blob — the documented backstop — rather than leaving a dangling DB
+      reference to an already-deleted one). Proactively applied the same
+      trigger-`updated_at`/`FetchedValue` fix to `Organization` while its
+      model was open for `logo_file_id` anyway, even though no route
+      updates it yet — closing the gap before a future org-settings
+      feature could independently rediscover it, same reasoning as
+      Stage 3's `Task`/`TaskComment` fix.
+
+      **Major finding, unrelated to this stage's own feature work:** while
+      writing this stage's dedicated `organizations.logo_file_id`
+      regression test, discovered that `tests/security/
+      test_schema_integrity.py`'s two composite-FK checks
+      (`_foreign_keys()`, added Phase 1 Stage 3) have returned **zero
+      rows** to every test run since they were written — `information_
+      schema.constraint_column_usage`'s own definition only shows rows to
+      a role with `pg_has_role(table_owner, 'USAGE')`, and `trinol_app`
+      (the role the whole suite and CI run as) is deliberately not a
+      member of `trinol_migrator` (ADR-0006's two-role split). Both
+      assertions have therefore been vacuously true for the entire
+      project's history — a schema-safety CI gate that never actually
+      checked anything. Rewritten to query `pg_constraint`/`pg_attribute`/
+      `pg_class` directly (no owner-role restriction), which also fixed a
+      second, independent bug the same rewrite exposed: the old query's
+      join produced a cross product across both sides' columns before
+      `array_agg`, silently duplicating entries for any multi-column FK —
+      invisible before only because every prior assertion happened to be
+      duplication-insensitive (`set()`-wrapped or presence/length checks),
+      unlike this stage's new positive-existence assertion. **Verified
+      empirically, not just reasoned about:** confirmed via direct `psql`
+      queries as `trinol_app` that the old query returned 0 rows and the
+      new one doesn't; confirmed the fixed test now genuinely rejects a
+      deliberately-added single-column FK between two real org-scoped
+      tables (`tasks` → `projects`), then removed it — matching Stage 3's
+      own historical verification discipline for this exact test file.
+      See CHANGELOG.md for the condensed version.
+
+      Full suite (415 tests, including new `test_local_file_storage.py`
+      and mocked-boto3 `test_s3_file_storage.py`), ruff, mypy,
+      `alembic upgrade`/`downgrade -1`/`upgrade`/`check` clean, frontend
+      lint/typecheck/test/build, OpenAPI diff all green.
 - [ ] Stage 7 — Activity feed events wired for task/project changes
       (decision 2 above); first real exercise of `platform.activity.
       list_feed` (built Stage 7 of Phase 1, never called by a route until

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import Response as FastAPIResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Permission
@@ -12,6 +13,8 @@ from trinol.modules.identity.deps import get_current_membership
 from trinol.modules.identity.models import Membership
 from trinol.modules.work.models import Task, TaskChecklistItem, TaskComment, TaskStatus
 from trinol.modules.work.schemas import (
+    TaskAttachmentListResponse,
+    TaskAttachmentResponse,
     TaskChecklistItemCreateRequest,
     TaskChecklistItemListResponse,
     TaskChecklistItemResponse,
@@ -24,6 +27,13 @@ from trinol.modules.work.schemas import (
     TaskListResponse,
     TaskResponse,
     TaskUpdateRequest,
+)
+from trinol.modules.work.services.task_attachment_service import (
+    AttachmentWithFile,
+    create_attachment,
+    delete_attachment,
+    download_attachment,
+    list_attachments,
 )
 from trinol.modules.work.services.task_checklist_service import (
     create_checklist_item,
@@ -44,6 +54,8 @@ from trinol.modules.work.services.task_service import (
     list_tasks,
     update_task,
 )
+from trinol.platform.file_storage.deps import get_file_storage
+from trinol.platform.file_storage.protocol import FileStorage
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["work"])
 
@@ -375,4 +387,121 @@ async def delete_checklist_item_route(
         actor=membership,
         task_id=task_id,
         item_id=item_id,
+    )
+
+
+def _attachment_to_response(pair: AttachmentWithFile) -> TaskAttachmentResponse:
+    return TaskAttachmentResponse(
+        id=pair.attachment.id,
+        task_id=pair.attachment.task_id,
+        file_id=pair.attachment.file_id,
+        filename=pair.file_object.filename,
+        content_type=pair.file_object.content_type,
+        size_bytes=pair.file_object.size_bytes,
+        uploaded_by=pair.attachment.uploaded_by,
+        created_at=pair.attachment.created_at,
+    )
+
+
+@router.post(
+    "/{task_id}/attachments",
+    response_model=TaskAttachmentResponse,
+    status_code=201,
+    dependencies=[Depends(require(Permission.TASK_WRITE_OWN))],
+)
+async def upload_attachment_route(
+    task_id: uuid.UUID,
+    file: UploadFile = File(...),
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+    storage: FileStorage = Depends(get_file_storage),
+) -> TaskAttachmentResponse:
+    data = await file.read()
+    pair = await create_attachment(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        task_id=task_id,
+        filename=file.filename or "upload",
+        data=data,
+        storage=storage,
+    )
+    return _attachment_to_response(pair)
+
+
+@router.get(
+    "/{task_id}/attachments",
+    response_model=TaskAttachmentListResponse,
+    dependencies=[Depends(require(Permission.TASK_READ))],
+)
+async def list_attachments_route(
+    task_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> TaskAttachmentListResponse:
+    result = await list_attachments(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        task_id=task_id,
+        limit=limit,
+        offset=offset,
+    )
+    return TaskAttachmentListResponse(
+        items=[_attachment_to_response(p) for p in result.items], total=result.total
+    )
+
+
+@router.get(
+    "/{task_id}/attachments/{attachment_id}/download",
+    dependencies=[Depends(require(Permission.TASK_READ))],
+)
+async def download_attachment_route(
+    task_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+    storage: FileStorage = Depends(get_file_storage),
+) -> FastAPIResponse:
+    # SECURITY.md §6: authorized download, streamed with an attachment
+    # disposition and nosniff — no public bucket, no guessable direct URL.
+    download = await download_attachment(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        task_id=task_id,
+        attachment_id=attachment_id,
+        storage=storage,
+    )
+    return FastAPIResponse(
+        content=download.data,
+        media_type=download.file_object.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{download.file_object.filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete(
+    "/{task_id}/attachments/{attachment_id}",
+    status_code=204,
+    dependencies=[Depends(require(Permission.TASK_WRITE_OWN))],
+)
+async def delete_attachment_route(
+    task_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+    storage: FileStorage = Depends(get_file_storage),
+) -> None:
+    await delete_attachment(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        task_id=task_id,
+        attachment_id=attachment_id,
+        storage=storage,
     )

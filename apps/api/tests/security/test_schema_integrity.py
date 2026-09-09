@@ -31,22 +31,49 @@ _ALLOWED_SINGLE_COLUMN_TARGETS = {"users"}
 
 
 async def _foreign_keys(db_session):
+    """Queries `pg_catalog` directly, not `information_schema.
+    constraint_column_usage` — that view's own definition (`pg_get_viewdef`)
+    filters on `pg_has_role(tblowner, 'USAGE')`, which checks *role
+    membership in the table's owner*, not any of the SELECT/INSERT/UPDATE/
+    DELETE table-level grants `trinol_app` actually holds. Since
+    `trinol_app` is deliberately not a member of `trinol_migrator`
+    (ADR-0006 — that's the entire point of the two-role split), this view
+    has returned **zero rows** to every test in this file since Stage 3,
+    silently making both assertions below vacuously true for the whole
+    project's history. Found while adding Stage 6's dedicated
+    `organizations.logo_file_id` regression test, which asserts a row
+    actually exists rather than merely "no violations found" — a positive
+    assertion an empty result set can't satisfy by accident, unlike the
+    other two. `pg_constraint`/`pg_attribute`/`pg_class` are ordinary
+    catalog tables with no such owner-role restriction, and building each
+    column array with an explicit position-preserving subquery (instead of
+    joining two one-to-many views and `array_agg`-ing the join's cross
+    product) also avoids a second, independent bug: the old query
+    duplicated every column across the number of columns on the other
+    side (confirmed empirically — a 2-column-source/2-column-target FK
+    produced 4 rows before aggregation, not 2)."""
     result = await db_session.execute(
         text(
             """
             SELECT
-                tc.constraint_name,
-                tc.table_name AS source_table,
-                array_agg(kcu.column_name ORDER BY kcu.ordinal_position) AS source_columns,
-                ccu.table_name AS target_table,
-                array_agg(ccu.column_name ORDER BY kcu.ordinal_position) AS target_columns
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-            JOIN information_schema.constraint_column_usage ccu
-                ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
-            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
-            GROUP BY tc.constraint_name, tc.table_name, ccu.table_name
+                con.conname AS constraint_name,
+                rel.relname AS source_table,
+                (
+                    SELECT array_agg(attname ORDER BY array_position(con.conkey, attnum))
+                    FROM pg_attribute
+                    WHERE attrelid = con.conrelid AND attnum = ANY(con.conkey)
+                ) AS source_columns,
+                frel.relname AS target_table,
+                (
+                    SELECT array_agg(attname ORDER BY array_position(con.confkey, attnum))
+                    FROM pg_attribute
+                    WHERE attrelid = con.confrelid AND attnum = ANY(con.confkey)
+                ) AS target_columns
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_class frel ON frel.oid = con.confrelid
+            JOIN pg_namespace nsp ON nsp.oid = con.connamespace
+            WHERE con.contype = 'f' AND nsp.nspname = 'public'
             """
         )
     )
@@ -54,16 +81,25 @@ async def _foreign_keys(db_session):
 
 
 async def _unique_column_sets(db_session, table_name: str) -> list[set[str]]:
+    """Same `pg_catalog` fix as `_foreign_keys` above — this one happened
+    to still return correct results via `information_schema` (unique/
+    primary-key constraints go through `key_column_usage` alone, which
+    isn't owner-role-gated the way `constraint_column_usage` is), but is
+    rewritten for consistency with the function it feeds."""
     result = await db_session.execute(
         text(
             """
-            SELECT array_agg(kcu.column_name ORDER BY kcu.ordinal_position) AS columns
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type IN ('UNIQUE', 'PRIMARY KEY')
-                AND tc.table_schema = 'public' AND tc.table_name = :table_name
-            GROUP BY tc.constraint_name
+            SELECT
+                con.conname AS constraint_name,
+                (
+                    SELECT array_agg(attname)
+                    FROM pg_attribute
+                    WHERE attrelid = con.conrelid AND attnum = ANY(con.conkey)
+                ) AS columns
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_namespace nsp ON nsp.oid = con.connamespace
+            WHERE con.contype IN ('p', 'u') AND nsp.nspname = 'public' AND rel.relname = :table_name
             """
         ),
         {"table_name": table_name},
@@ -103,3 +139,26 @@ async def test_every_composite_fk_target_has_matching_unique_constraint(db_sessi
                 f"constraint on exactly those columns"
             )
     assert not violations, "\n".join(violations)
+
+
+async def test_organizations_logo_file_id_fk_is_composite(db_session) -> None:
+    """Dedicated regression check (ROADMAP.md Stage 6): `organizations` is
+    the tenant root, not `OrgScoped` (it has no `organization_id` column),
+    so `test_every_fk_between_org_scoped_tables_is_composite` above never
+    walks its FKs at all — a regression here (e.g. a future migration
+    flattening this into a single-column FK to `file_objects.id`) would go
+    undetected by the generic check. `organizations.id` is the tenant key
+    for this one FK (DATABASE.md §3), so this is checked by name instead."""
+    fks = await _foreign_keys(db_session)
+    logo_fk = next(
+        (
+            fk
+            for fk in fks
+            if fk["constraint_name"] == "fk_organizations_id_logo_file_id_file_objects"
+        ),
+        None,
+    )
+    assert logo_fk is not None, "organizations.logo_file_id's composite FK is missing"
+    assert set(logo_fk["source_columns"]) == {"id", "logo_file_id"}
+    assert logo_fk["target_table"] == "file_objects"
+    assert set(logo_fk["target_columns"]) == {"organization_id", "id"}

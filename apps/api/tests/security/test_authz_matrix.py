@@ -5,12 +5,14 @@ from fastapi.routing import APIRoute
 from httpx import AsyncClient
 
 from tests.factories import (
+    PNG_1X1_BYTES,
     make_checklist_item,
     make_membership,
     make_organization,
     make_project,
     make_project_member,
     make_task,
+    make_task_attachment,
     make_task_comment,
     make_user,
 )
@@ -19,6 +21,8 @@ from trinol.core.authz.permissions import ROLE_PERMISSIONS, Permission, Role
 from trinol.core.authz.require import is_public
 from trinol.core.authz.startup_audit import iter_api_routes
 from trinol.main import app
+from trinol.platform.file_storage.deps import get_file_storage
+from trinol.platform.file_storage.local import LocalFileStorage
 
 # RBAC.md §6: for every route x every role x own resource, assert the
 # expected status.
@@ -207,6 +211,16 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     ),
     ("GET", "/api/v1/tasks/{task_id}/comments", Permission.TASK_READ, None),
     ("GET", "/api/v1/tasks/{task_id}/checklist-items", Permission.TASK_READ, None),
+    # ADR-0008/ROADMAP.md Stage 6: attachments are authorized by the parent
+    # task's own read rule, no separate attachment-level permission — same
+    # org-wide transparency as every other task-read row above.
+    ("GET", "/api/v1/tasks/{task_id}/attachments", Permission.TASK_READ, None),
+    (
+        "GET",
+        "/api/v1/tasks/{task_id}/attachments/{attachment_id}/download",
+        Permission.TASK_READ,
+        None,
+    ),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -250,6 +264,10 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     ("POST", "/api/v1/tasks/{task_id}/checklist-items"),
     ("PATCH", "/api/v1/tasks/{task_id}/checklist-items/{item_id}"),
     ("DELETE", "/api/v1/tasks/{task_id}/checklist-items/{item_id}"),
+    # Same can_write_task rule as checklist items — attachments are task
+    # content too, no author concept (ROADMAP.md Stage 6 decision).
+    ("POST", "/api/v1/tasks/{task_id}/attachments"),
+    ("DELETE", "/api/v1/tasks/{task_id}/attachments/{attachment_id}"),
 }
 
 
@@ -490,6 +508,152 @@ async def test_checklist_item_routes_enforce_ownership_split(
 
 
 @pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("manager", None),
+        ("assignee", None),
+        ("creator", None),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_attachment_upload_enforces_ownership_split(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    tmp_path,
+    access: str,
+    expected_status: int | None,
+) -> None:
+    """Same can_write_task rule as checklist items — attachments are task
+    content too, no author concept (ROADMAP.md Stage 6 decision)."""
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email=f"attach-creator-{org.id}@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    assignee_user = await make_user(db_session, email=f"attach-assignee-{org.id}@x.com")
+    assignee = await make_membership(
+        db_session, organization=org, user=assignee_user, role=Role.MEMBER
+    )
+    task = await make_task(db_session, organization=org, created_by=creator, assignee=assignee)
+    await db_session.commit()
+
+    if access == "creator":
+        actor_user, actor_membership, actor_org = creator_user, creator, org
+    elif access == "assignee":
+        actor_user, actor_membership, actor_org = assignee_user, assignee, org
+    elif access in ("manager", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"attach-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"attach-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    storage = LocalFileStorage(tmp_path)
+    app.dependency_overrides[get_file_storage] = lambda: storage
+    try:
+        response = await client.post(
+            f"/api/v1/tasks/{task.id}/attachments",
+            files={"file": ("receipt.png", PNG_1X1_BYTES, "image/png")},
+            headers={"X-CSRF-Token": actor.csrf_token},
+        )
+        assert response.status_code == (201 if expected_status is None else expected_status)
+    finally:
+        app.dependency_overrides.pop(get_file_storage, None)
+
+
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("manager", None),
+        ("assignee", None),
+        ("creator", None),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_attachment_delete_enforces_ownership_split(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    tmp_path,
+    access: str,
+    expected_status: int | None,
+) -> None:
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email=f"attach-del-creator-{org.id}@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    assignee_user = await make_user(db_session, email=f"attach-del-assignee-{org.id}@x.com")
+    assignee = await make_membership(
+        db_session, organization=org, user=assignee_user, role=Role.MEMBER
+    )
+    task = await make_task(db_session, organization=org, created_by=creator, assignee=assignee)
+    storage = LocalFileStorage(tmp_path)
+    app.dependency_overrides[get_file_storage] = lambda: storage
+    attachment = await make_task_attachment(
+        db_session, task=task, uploaded_by=creator, storage=storage
+    )
+    await db_session.commit()
+
+    if access == "creator":
+        actor_user, actor_membership, actor_org = creator_user, creator, org
+    elif access == "assignee":
+        actor_user, actor_membership, actor_org = assignee_user, assignee, org
+    elif access in ("manager", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"attach-del-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"attach-del-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    try:
+        response = await client.delete(
+            f"/api/v1/tasks/{task.id}/attachments/{attachment.id}",
+            headers={"X-CSRF-Token": actor.csrf_token},
+        )
+        assert response.status_code == (204 if expected_status is None else expected_status)
+    finally:
+        app.dependency_overrides.pop(get_file_storage, None)
+
+
+@pytest.mark.parametrize(
     ("method", "body", "success_status"),
     [
         ("PATCH", {"body": "Edited"}, 200),
@@ -648,6 +812,7 @@ async def test_matrix_row_respects_required_permission(
     client: AsyncClient,
     fake_verifier,
     db_session,
+    tmp_path,
     role: Role,
     method: str,
     path: str,
@@ -676,14 +841,30 @@ async def test_matrix_row_respects_required_permission(
         task = await make_task(db_session, organization=actor.organization, created_by=target)
         await db_session.commit()
         resolved_path = resolved_path.replace("{task_id}", str(task.id))
-    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
-    response = await client.request(method, resolved_path, json=body, headers=headers)
+        if "{attachment_id}" in resolved_path:
+            # Download is authorized by the parent task's read rule alone
+            # (ADR-0008) — a real stored blob proves every role can
+            # genuinely download it, not just that a phantom lookup
+            # happens not to 404 into a 403.
+            storage = LocalFileStorage(tmp_path)
+            app.dependency_overrides[get_file_storage] = lambda: storage
+            attachment = await make_task_attachment(
+                db_session, task=task, uploaded_by=target, storage=storage
+            )
+            await db_session.commit()
+            resolved_path = resolved_path.replace("{attachment_id}", str(attachment.id))
 
-    if permission in ROLE_PERMISSIONS[role]:
-        assert response.status_code != 403, (
-            f"{role} unexpectedly forbidden on {method} {path}: {response.text}"
-        )
-    else:
-        assert response.status_code == 403, (
-            f"{role} unexpectedly allowed on {method} {path}: {response.text}"
-        )
+    try:
+        headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+        response = await client.request(method, resolved_path, json=body, headers=headers)
+
+        if permission in ROLE_PERMISSIONS[role]:
+            assert response.status_code != 403, (
+                f"{role} unexpectedly forbidden on {method} {path}: {response.text}"
+            )
+        else:
+            assert response.status_code == 403, (
+                f"{role} unexpectedly allowed on {method} {path}: {response.text}"
+            )
+    finally:
+        app.dependency_overrides.pop(get_file_storage, None)

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy import JSON, ForeignKey, Index, text
+from sqlalchemy import JSON, ForeignKey, ForeignKeyConstraint, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,6 +46,39 @@ class ActivityEvent(OrgScoped, Base):
     __table_args__ = (
         Index("ix_activity_org_created", "organization_id", sa.text("created_at DESC")),
         Index("ix_activity_entity", "organization_id", "entity_type", "entity_id"),
+    )
+
+
+class FileObject(OrgScoped, Base):
+    """ADR-0008/DATABASE.md §3 (platform). Metadata only — the blob lives in
+    whatever `FileStorage` backend is configured. `storage_key` is globally
+    unique (it already embeds `organization_id`, per platform/files.py's
+    `{org_id}/{uuid7}{ext}` format, so a per-org constraint would be no
+    stricter)."""
+
+    __tablename__ = "file_objects"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid7)
+    storage_key: Mapped[str] = mapped_column(sa.Text, unique=True, nullable=False)
+    filename: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(nullable=False)
+    checksum_sha256: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+
+    __table_args__ = (
+        # Required by organizations.logo_file_id's and
+        # task_attachments.file_id's composite FKs (DATABASE.md §5.1).
+        UniqueConstraint("organization_id", "id", name="uq_file_objects_org_id"),
+        ForeignKeyConstraint(
+            ["organization_id", "uploaded_by"],
+            ["memberships.organization_id", "memberships.user_id"],
+            name="fk_file_objects_org_uploaded_by_memberships",
+            # Non-nullable authorship column (DATABASE.md §5.2): RESTRICT.
+            ondelete="RESTRICT",
+        ),
+        Index("ix_file_objects_org_uploaded_by", "organization_id", "uploaded_by"),
     )
 
 

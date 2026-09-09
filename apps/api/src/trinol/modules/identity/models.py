@@ -6,7 +6,7 @@ from enum import StrEnum
 
 import sqlalchemy as sa
 from sqlalchemy import Enum as PgEnum
-from sqlalchemy import ForeignKey, ForeignKeyConstraint, Index, UniqueConstraint, text
+from sqlalchemy import FetchedValue, ForeignKey, ForeignKeyConstraint, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import CITEXT, INET
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,12 +45,34 @@ class Organization(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid7)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     slug: Mapped[str] = mapped_column(sa.Text, unique=True, nullable=False)
-    # logo_file_id deferred: it needs the composite FK
-    # (id, logo_file_id) -> file_objects(organization_id, id) from
-    # DATABASE.md §5.1/§3, and file_objects doesn't exist until a later
-    # phase adds attachments. Add both together then.
+    # Restored now that file_objects exists (Stage 6) — deferred since
+    # Stage 1/3 for exactly that reason.
+    logo_file_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+    # server_onupdate: trg_organizations_updated_at (migration 0001) already
+    # refreshes this on every UPDATE; no route updates Organization yet, so
+    # this was harmlessly wrong until now — fixed proactively while this
+    # class is open anyway, same trigger-refresh fix Codex's Phase 2 review
+    # applied to Project/Task/TaskComment, before a future org-settings
+    # route could independently rediscover it.
+    updated_at: Mapped[datetime] = mapped_column(
+        _TZ, server_default=text("now()"), server_onupdate=FetchedValue()
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["id", "logo_file_id"],
+            ["file_objects.organization_id", "file_objects.id"],
+            name="fk_organizations_id_logo_file_id_file_objects",
+            # DATABASE.md §3: NOT "SET NULL" — on a composite FK, Postgres
+            # nulls every referencing column, and `id` is this table's
+            # primary key, which can never be null. The service clears
+            # logo_file_id itself before deleting a file_objects row
+            # currently in use as a logo; a missing logo is still meant to
+            # be cosmetic, just not enforced by the FK's own cascade.
+            ondelete="RESTRICT",
+        ),
+    )
 
 
 class User(Base):
