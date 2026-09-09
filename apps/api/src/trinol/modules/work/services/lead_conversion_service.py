@@ -69,12 +69,23 @@ async def convert_lead(
     transaction creates the Client and Project, stamps the lead's
     conversion fields, transitions its stage to WON, and records all three
     activity events (client.created/project.created ordinary feed,
-    lead.converted audit) — all committed together."""
+    lead.converted audit) — all committed together.
+
+    Codex P1: the archived/already-converted check was a bare check-then-
+    write with no lock, so two concurrent conversions of the same lead
+    could both pass it, each create their own Client+Project, then race to
+    stamp `converted_client_id` — one client/project orphaned, conversion
+    no longer one-to-one. `for_update=True` takes a row lock on the lead
+    first; the second request blocks until the first commits, then
+    (Postgres re-fetches the row under `FOR UPDATE` per READ COMMITTED)
+    sees `converted_client_id` already set and 409s instead of racing."""
     ensure_actor_in_org(actor, organization_id)
     if actor.role not in _MANAGER_UP:
         raise ForbiddenError("Insufficient role to convert this lead")
 
-    lead = await get_lead_in_org(db, organization_id=organization_id, lead_id=lead_id)
+    lead = await get_lead_in_org(
+        db, organization_id=organization_id, lead_id=lead_id, for_update=True
+    )
     if lead.archived_at is not None:
         raise ConflictError("Lead is archived")
     if lead.converted_client_id is not None:

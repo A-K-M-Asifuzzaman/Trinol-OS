@@ -1389,6 +1389,31 @@ checks; dashboard sales tiles show real counts.
       apps/api/src/trinol/modules/crm` confirms `crm` still never imports
       `work`, even after this stage.
 
+      **Codex P1 (real, fixed):** `convert_lead`'s archived/already-
+      converted check was a bare check-then-write with no lock — two
+      concurrent conversions of the same lead could both pass it, each
+      create their own `Client`+`Project`, then race to stamp
+      `converted_client_id`, orphaning one client/project and breaking
+      the one-to-one invariant. Fixed by adding `for_update: bool = False`
+      to `lead_service.get_lead_in_org` (chains `.with_for_update()`) and
+      passing `for_update=True` from `convert_lead` — the second
+      concurrent request blocks on the lead row's lock instead of racing,
+      then (Postgres re-fetches the row under `FOR UPDATE` per READ
+      COMMITTED) sees `converted_client_id` already set and 409s. Same
+      shape as `organization_lock.py`'s existing lock, just scoped to one
+      row instead of the whole org — locking the org here would
+      needlessly serialize unrelated leads' conversions too.
+      `test_concurrent_conversion_of_the_same_lead_only_one_succeeds`:
+      two genuinely independent DB sessions (not two SAVEPOINTs sharing
+      one transaction — the point is Postgres actually serializing them),
+      mirroring `test_invitations.py`'s existing duplicate-invitation race
+      test exactly; asserts exactly one success, one `ConflictError`, and
+      exactly one `Client`/`Project` row survives. Passed 5/5 on repeat.
+
+      625 tests passing (was 624). `make check` green end to end (no
+      OpenAPI diff this round — the fix is internal locking, no API shape
+      change).
+
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings
 - [ ] Notes

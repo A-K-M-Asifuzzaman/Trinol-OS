@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -7,8 +9,12 @@ from sqlalchemy import select
 from tests.factories import make_lead, make_membership, make_organization, make_user
 from tests.helpers import login_as
 from trinol.core.authz.permissions import Role
+from trinol.core.db.engine import get_session_factory
+from trinol.core.errors import ConflictError
 from trinol.modules.crm.models import Client, Lead, LeadStage, LeadStageEvent
+from trinol.modules.identity.models import Membership
 from trinol.modules.work.models import Project, ProjectMember
+from trinol.modules.work.services.lead_conversion_service import convert_lead
 from trinol.platform.models import ActivityEvent
 
 pytestmark = pytest.mark.usefixtures("db_session")
@@ -129,6 +135,80 @@ async def test_converting_an_archived_lead_conflicts(
         f"/api/v1/leads/{lead.id}/convert", headers={"X-CSRF-Token": actor.csrf_token}
     )
     assert response.status_code == 409
+
+
+async def test_concurrent_conversion_of_the_same_lead_only_one_succeeds() -> None:
+    """Codex P1: convert_lead's archived/already-converted check raced a
+    concurrent call with no lock — two simultaneous conversions of the
+    same lead could both pass it and each create their own Client+Project.
+    Needs two genuinely independent DB connections, not two SAVEPOINTs
+    sharing one transaction — the point is Postgres actually serializing
+    the two via the lead row's own FOR UPDATE lock (lead_service.
+    get_lead_in_org's for_update=True), same approach and reason as
+    test_invitations.py's duplicate-invitation race test. Real commits,
+    no test fixtures — this needs sessions outside the fixture's rollback
+    boundary."""
+    session_factory = get_session_factory()
+
+    setup_session = session_factory()
+    try:
+        org = await make_organization(setup_session)
+        manager_user = await make_user(setup_session, email=f"manager-{org.id}@x.com")
+        manager = await make_membership(
+            setup_session, organization=org, user=manager_user, role=Role.MANAGER
+        )
+        lead = await make_lead(setup_session, organization=org, email=f"race-{org.id}@x.com")
+        await setup_session.commit()
+        org_id, manager_id, lead_id = org.id, manager.id, lead.id
+    finally:
+        await setup_session.close()
+
+    session_1 = session_factory()
+    session_2 = session_factory()
+    try:
+        actor_1 = (
+            await session_1.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == manager_id
+                )
+            )
+        ).scalar_one()
+        actor_2 = (
+            await session_2.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == manager_id
+                )
+            )
+        ).scalar_one()
+
+        results = await asyncio.gather(
+            convert_lead(session_1, organization_id=org_id, actor=actor_1, lead_id=lead_id),
+            convert_lead(session_2, organization_id=org_id, actor=actor_2, lead_id=lead_id),
+            return_exceptions=True,
+        )
+
+        successes = [r for r in results if not isinstance(r, Exception)]
+        failures = [r for r in results if isinstance(r, Exception)]
+        assert len(successes) == 1, f"expected exactly one success, got: {results}"
+        assert len(failures) == 1
+        assert isinstance(failures[0], ConflictError)
+
+        clients_remaining = (
+            (await session_1.execute(select(Client).where(Client.organization_id == org_id)))
+            .scalars()
+            .all()
+        )
+        assert len(clients_remaining) == 1, "the race must never produce two clients"
+
+        projects_remaining = (
+            (await session_1.execute(select(Project).where(Project.organization_id == org_id)))
+            .scalars()
+            .all()
+        )
+        assert len(projects_remaining) == 1, "the race must never produce two projects"
+    finally:
+        await session_1.close()
+        await session_2.close()
 
 
 async def test_converting_a_lead_in_another_org_is_404(

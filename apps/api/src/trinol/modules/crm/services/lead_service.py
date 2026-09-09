@@ -61,15 +61,22 @@ async def _get_active_membership_by_user(
 
 
 async def get_lead_in_org(
-    db: AsyncSession, *, organization_id: uuid.UUID, lead_id: uuid.UUID
+    db: AsyncSession, *, organization_id: uuid.UUID, lead_id: uuid.UUID, for_update: bool = False
 ) -> Lead:
     """Org-scoped lookup — 404s a cross-org id exactly like a missing one
-    (RBAC.md §4)."""
-    result = await db.execute(
+    (RBAC.md §4). `for_update`: takes a row lock so a caller's own
+    check-then-write on this lead (lead_conversion_service.convert_lead)
+    serializes against a concurrent one instead of racing — same reason
+    and shape as organization_lock.py's lock, just scoped to one row
+    instead of the whole org."""
+    stmt = (
         select(Lead)
         .where(Lead.organization_id == organization_id, Lead.id == lead_id)
         .execution_options(populate_existing=True)
     )
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
     lead = result.scalar_one_or_none()
     if lead is None:
         raise NotFoundError("Lead not found")
