@@ -1414,6 +1414,22 @@ checks; dashboard sales tiles show real counts.
       OpenAPI diff this round — the fix is internal locking, no API shape
       change).
 
+      **Codex P2 (real, fixed):** the new race test commits real rows
+      against the real dev database via two independent sessions (the
+      whole point — a rolled-back `db_session` fixture can't observe two
+      genuinely concurrent transactions) but had no cleanup, so repeated
+      local runs would accumulate orphaned organizations/leads/clients/
+      projects. Added the same explicit FK-ordered cleanup
+      `test_invitations.py`'s matching race test already establishes:
+      `activity_events` first (needs the migrator role — `trinol_app` has
+      no UPDATE/DELETE grant there, ADR-0006), then `lead_stage_events`/
+      `project_members` (children), then `projects`/`leads`, then
+      `clients`, then `memberships`/`users`/`organizations`. Verified
+      empirically, not just reasoned about: captured exact row counts
+      across all nine affected tables via a direct `asyncpg` query,
+      reran the race test three more times, confirmed the counts were
+      bit-for-bit identical after.
+
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings
 - [ ] Notes

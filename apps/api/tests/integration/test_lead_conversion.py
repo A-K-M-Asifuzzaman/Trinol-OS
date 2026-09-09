@@ -3,16 +3,19 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from dotenv import dotenv_values
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.factories import make_lead, make_membership, make_organization, make_user
 from tests.helpers import login_as
 from trinol.core.authz.permissions import Role
+from trinol.core.config import _ENV_FILE
 from trinol.core.db.engine import get_session_factory
 from trinol.core.errors import ConflictError
 from trinol.modules.crm.models import Client, Lead, LeadStage, LeadStageEvent
-from trinol.modules.identity.models import Membership
+from trinol.modules.identity.models import Membership, Organization, User
 from trinol.modules.work.models import Project, ProjectMember
 from trinol.modules.work.services.lead_conversion_service import convert_lead
 from trinol.platform.models import ActivityEvent
@@ -147,7 +150,7 @@ async def test_concurrent_conversion_of_the_same_lead_only_one_succeeds() -> Non
     get_lead_in_org's for_update=True), same approach and reason as
     test_invitations.py's duplicate-invitation race test. Real commits,
     no test fixtures — this needs sessions outside the fixture's rollback
-    boundary."""
+    boundary, cleaned up explicitly at the end."""
     session_factory = get_session_factory()
 
     setup_session = session_factory()
@@ -160,6 +163,7 @@ async def test_concurrent_conversion_of_the_same_lead_only_one_succeeds() -> Non
         lead = await make_lead(setup_session, organization=org, email=f"race-{org.id}@x.com")
         await setup_session.commit()
         org_id, manager_id, lead_id = org.id, manager.id, lead.id
+        manager_user_id = manager_user.id
     finally:
         await setup_session.close()
 
@@ -209,6 +213,44 @@ async def test_concurrent_conversion_of_the_same_lead_only_one_succeeds() -> Non
     finally:
         await session_1.close()
         await session_2.close()
+
+        # See test_invitations.py's matching cleanup: trinol_app is
+        # REVOKEd from UPDATE/DELETE on activity_events (ADR-0006), so the
+        # winning convert_lead call's three activity rows need the
+        # migrator role to clean up.
+        migration_url = dotenv_values(_ENV_FILE)["DATABASE_MIGRATION_URL"]
+        assert migration_url is not None
+        migrator_engine = create_async_engine(migration_url)
+        try:
+            async with migrator_engine.begin() as conn:
+                await conn.execute(
+                    ActivityEvent.__table__.delete().where(ActivityEvent.organization_id == org_id)
+                )
+        finally:
+            await migrator_engine.dispose()
+
+        # FK-ordered: LeadStageEvent/ProjectMember (children) before
+        # Project/Lead, then Client, then Membership/User/Organization —
+        # mirrors the composite-FK RESTRICT chain in DATABASE.md §5.1/§5.2.
+        cleanup_session = session_factory()
+        try:
+            await cleanup_session.execute(
+                delete(LeadStageEvent).where(LeadStageEvent.organization_id == org_id)
+            )
+            await cleanup_session.execute(
+                delete(ProjectMember).where(ProjectMember.organization_id == org_id)
+            )
+            await cleanup_session.execute(delete(Project).where(Project.organization_id == org_id))
+            await cleanup_session.execute(delete(Lead).where(Lead.organization_id == org_id))
+            await cleanup_session.execute(delete(Client).where(Client.organization_id == org_id))
+            await cleanup_session.execute(
+                delete(Membership).where(Membership.organization_id == org_id)
+            )
+            await cleanup_session.execute(delete(User).where(User.id == manager_user_id))
+            await cleanup_session.execute(delete(Organization).where(Organization.id == org_id))
+            await cleanup_session.commit()
+        finally:
+            await cleanup_session.close()
 
 
 async def test_converting_a_lead_in_another_org_is_404(
