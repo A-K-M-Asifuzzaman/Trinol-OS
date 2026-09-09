@@ -98,9 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-8 complete.**
-Stage 9 (security matrices extended) is next. See the audit and decisions
-below for the reasoning each stage builds on.
+Status: **Implementation plan approved (11 stages). Stages 1-9 complete.**
+Stage 10 (seed script extended) is next. See the audit and decisions below
+for the reasoning each stage builds on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -799,7 +799,7 @@ module in full, and nothing found in this audit requires changing it:
       `ponytail:` follow-up if a report ever needs one). 20 frontend
       tests passing (was 19); ESLint, `tsc --noEmit`, Vitest, `next
       build` re-verified green.
-- [ ] Stage 9 — Security matrices extended: the authz-matrix meta-assertion
+- [x] Stage 9 — Security matrices extended: the authz-matrix meta-assertion
       (Phase 1 Stage 11) already fails the suite if any new Project/Task
       route has no row, so this is enforced structurally, not by discipline
       alone. Explicitly includes project-member-management rows (decision 6)
@@ -808,6 +808,62 @@ module in full, and nothing found in this audit requires changing it:
       route-only check would have missed), a `MEMBER` who doesn't own it
       (403), and the isolation-matrix row (org B's member, owner or not,
       against org A's project — 404).
+
+      **Audit first, then fill the actual gap.** The authz-matrix side was
+      already complete going into this stage: every ownership-split route
+      (project-member management, task write, checklist items, attachment
+      upload/delete, comment author-only edit/ADMIN-delete) already had a
+      dedicated multi-way test covering the real cases — including a
+      `cross_org` row — built incrementally during Stages 2–7's own review
+      rounds, not deferred to here. `test_matrix_covers_every_permission_
+      gated_route`'s meta-assertion was already green with 438 tests
+      passing before this stage touched anything, confirming no route was
+      silently missing a row. The actual gap was `test_isolation_matrix.py`
+      itself: it only had Team's routes (Phase 1 Stage 11) — every Phase 2
+      resource's cross-org check so far lived as a single-role (usually
+      ADMIN) spot-check inside that resource's own integration test file
+      (`test_projects.py`, `test_tasks.py`, etc.), never broadened to
+      "every role, not just the one that happened to be convenient," the
+      way Team's own `test_every_role_in_org_b_gets_404_for_org_as_
+      membership` already was.
+
+      Added `test_work_resources_isolated_across_orgs` (15 routes ×
+      4 roles): project/board/members/milestones reads, task read/write/
+      delete, comment CRUD, checklist-item CRUD — every org-B role against
+      an org-A project/task/comment/checklist item, asserting 404.
+      `test_attachment_routes_isolated_across_orgs` (4 roles) covers
+      upload/download/delete separately, since upload is multipart and
+      needs the `FileStorage` dependency override (ADR-0008), not a
+      `json=` body like the rest.
+
+      **A real, if narrow, finding surfaced while writing the generic
+      table**: `PATCH`/`DELETE /api/v1/projects/{id}` aren't like the
+      other routes here — `PROJECT_WRITE`/`PROJECT_DELETE` are hard
+      `MANAGER+`/`ADMIN+` role-tier gates with no `MEMBER`-tier
+      reachability at all (unlike every ownership-split route, which
+      *is* reachable by every role at the route layer and relies on the
+      service to split further). Running the generic "every role, 404"
+      assertion against them meant a `MANAGER` (for `DELETE`) or `MEMBER`
+      (for either) got a legitimate 403 — they lack the permission
+      outright, in *any* org, not just org B — which the test flagged as
+      a failure even though nothing was actually wrong. Not a security
+      bug: testing isolation with a role that can't reach the route at
+      all doesn't test isolation, it just re-proves the role/permission
+      table. Split into `test_project_write_routes_isolated_across_orgs`,
+      parametrized over only `ADMIN`/`OWNER` (the roles that actually hold
+      `PROJECT_DELETE`, the stricter of the two), with the two routes
+      removed from the generic table and a comment there explaining why.
+
+      Activity feed isolation isn't a new test here — `test_activity_
+      feed.py`'s `test_activity_feed_is_org_scoped` (Stage 7) already
+      covers it; a list route's "never leaks another org's rows" shape
+      doesn't fit the per-resource-404 table anyway (same reasoning
+      Team's own list-isolation test predates this file's per-resource
+      rows for the same reason).
+
+      506 tests passing (was 438 — 68 new: 15×4 generic + 4 attachment +
+      4 project-write). No backend logic changed, no migrations, no
+      OpenAPI diff (test-only stage). Ruff, mypy, full suite all green.
 - [ ] Stage 10 — `scripts/seed.py` extended (decision 4 above)
 - [ ] Stage 11 — E2E foundation (Playwright) — first real page with content
       to click through; TESTING.md §5 already scopes this to
