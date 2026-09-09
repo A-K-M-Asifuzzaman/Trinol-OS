@@ -143,6 +143,16 @@ async def create_task(
         completed_at=_completed_at_for_status(status),
     )
     org_session.add(task)
+    # ROADMAP.md Phase 2 decision 2: ordinary feed content, is_audit=false.
+    await record(
+        db,
+        organization_id=organization_id,
+        event="task.created",
+        entity_type="task",
+        entity_id=task.id,
+        actor_id=actor.user_id,
+        metadata={"title": task.title},
+    )
     await db.commit()
     return task
 
@@ -226,10 +236,37 @@ async def update_task(
             db, organization_id=organization_id, user_id=updates["assignee_id"]
         )
 
+    previous_status = task.status
     for field, value in updates.items():
         setattr(task, field, value)
     if "status" in updates:
         task.completed_at = _completed_at_for_status(updates["status"])
+
+    if "status" in updates and task.status != previous_status:
+        # ROADMAP.md Phase 2 decision 2: a transition *to* DONE is its own
+        # named event (task.completed), not also a generic status_changed
+        # — the two are distinct entries in the approved event list, not
+        # one general "field changed" event with different metadata.
+        if task.status == TaskStatus.DONE:
+            await record(
+                db,
+                organization_id=organization_id,
+                event="task.completed",
+                entity_type="task",
+                entity_id=task.id,
+                actor_id=actor.user_id,
+                metadata={"from": previous_status.value},
+            )
+        else:
+            await record(
+                db,
+                organization_id=organization_id,
+                event="task.status_changed",
+                entity_type="task",
+                entity_id=task.id,
+                actor_id=actor.user_id,
+                metadata={"from": previous_status.value, "to": task.status.value},
+            )
 
     await db.commit()
     return await get_task_in_org(db, organization_id=organization_id, task_id=task_id)

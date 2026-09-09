@@ -62,6 +62,16 @@ async def create_comment(
     org_session = OrgSession(db, organization_id=organization_id)
     comment = TaskComment(id=uuid7(), task_id=task_id, author_id=actor.user_id, body=body)
     org_session.add(comment)
+    # ROADMAP.md Phase 2 decision 2: ordinary feed content, is_audit=false.
+    await record(
+        db,
+        organization_id=organization_id,
+        event="comment.created",
+        entity_type="task_comment",
+        entity_id=comment.id,
+        actor_id=actor.user_id,
+        metadata={"task_id": str(task_id)},
+    )
     await db.commit()
     return comment
 

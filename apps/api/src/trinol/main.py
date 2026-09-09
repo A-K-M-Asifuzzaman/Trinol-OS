@@ -23,6 +23,7 @@ from trinol.modules.identity.routes.invitations import router as invitations_rou
 from trinol.modules.identity.routes.team import router as team_router
 from trinol.modules.work.routes.projects import router as projects_router
 from trinol.modules.work.routes.tasks import router as tasks_router
+from trinol.platform.routes.activity import router as activity_router
 
 _ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(team_router)
     app.include_router(projects_router)
     app.include_router(tasks_router)
+    app.include_router(activity_router)
 
     @app.get("/health", tags=["meta"])
     @public

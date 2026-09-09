@@ -19,6 +19,7 @@ from trinol.modules.work.services.project_service import (
     get_active_membership_by_user,
     get_project_in_org,
 )
+from trinol.platform.activity import record
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +110,20 @@ async def add_project_member(
     )
     org_session.add(member)
     try:
+        # RBAC.md §3 / ROADMAP.md Phase 2 decision 2: adding a project
+        # member changes who can see the project (guard 6's "permission-
+        # relevant... change") — always is_audit=true, never ordinary feed
+        # content, unlike project.created/task.created above.
+        await record(
+            db,
+            organization_id=organization_id,
+            event="project_member.added",
+            entity_type="project_member",
+            entity_id=member.id,
+            actor_id=actor.user_id,
+            metadata={"project_id": str(project_id), "user_id": str(user_id)},
+            audit=True,
+        )
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -160,5 +175,18 @@ async def remove_project_member(
         # visibility for an owner with no roster row.
         raise ConflictError("Cannot remove the project owner; reassign ownership first")
 
+    member_id_for_event = member.id
+    removed_user_id = member.user_id
+    # Same guard 6 reasoning as add_project_member: always is_audit=true.
+    await record(
+        db,
+        organization_id=organization_id,
+        event="project_member.removed",
+        entity_type="project_member",
+        entity_id=member_id_for_event,
+        actor_id=actor.user_id,
+        metadata={"project_id": str(project_id), "user_id": str(removed_user_id)},
+        audit=True,
+    )
     await db.delete(member)
     await db.commit()

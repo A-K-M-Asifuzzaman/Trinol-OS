@@ -221,6 +221,11 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         Permission.TASK_READ,
         None,
     ),
+    # ROADMAP.md Phase 2 Stage 7: org-wide feed, no per-resource restriction
+    # (MASTER_PROMPT §21's "Recent activity" dashboard widget) — reuses
+    # PROJECT_READ rather than a new permission, same org-wide transparency
+    # shape as the task-read rows above.
+    ("GET", "/api/v1/activity", Permission.PROJECT_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

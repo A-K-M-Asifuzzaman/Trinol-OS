@@ -27,6 +27,7 @@ from trinol.modules.work.models import (
     ProjectStatus,
     RoleOnProject,
 )
+from trinol.platform.activity import record
 
 _MANAGER_UP = (Role.MANAGER, Role.ADMIN, Role.OWNER)
 _PROJECT_CODE_CONSTRAINT = "uq_project_org_code"
@@ -189,6 +190,16 @@ async def create_project(
                 role_on_project=RoleOnProject.LEAD,
             )
         )
+        # ROADMAP.md Phase 2 decision 2: ordinary feed content, is_audit=false.
+        await record(
+            db,
+            organization_id=organization_id,
+            event="project.created",
+            entity_type="project",
+            entity_id=project.id,
+            actor_id=actor.user_id,
+            metadata={"name": project.name, "project_code": project.project_code},
+        )
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
@@ -272,8 +283,21 @@ async def update_project(
     ):
         raise UnprocessableEntityError("deadline must be on or after start_date")
 
+    previous_status = project.status
     for field, value in updates.items():
         setattr(project, field, value)
+
+    if "status" in updates and project.status != previous_status:
+        # ROADMAP.md Phase 2 decision 2: ordinary feed content, is_audit=false.
+        await record(
+            db,
+            organization_id=organization_id,
+            event="project.status_changed",
+            entity_type="project",
+            entity_id=project.id,
+            actor_id=actor.user_id,
+            metadata={"from": previous_status.value, "to": project.status.value},
+        )
 
     try:
         await db.commit()

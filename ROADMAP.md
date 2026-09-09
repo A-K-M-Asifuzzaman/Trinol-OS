@@ -98,10 +98,9 @@ matrices green in CI.
 
 ## Phase 2 — Projects + Tasks
 
-Status: **Implementation plan approved (11 stages). Stages 1-6 complete.**
-Stage 7 (activity feed events wired) is next. See the audit and decisions
-below for the reasoning each stage builds
-on.
+Status: **Implementation plan approved (11 stages). Stages 1-7 complete.**
+Stage 8 (Frontend: Projects/Tasks/Kanban/dashboard tiles) is next. See the
+audit and decisions below for the reasoning each stage builds on.
 
 Exit criteria: an ADMIN/OWNER can create a project and its tasks; any member
 can see their own work, drag a task across a Kanban board, and get a 403/404
@@ -628,12 +627,84 @@ module in full, and nothing found in this audit requires changing it:
 
       Re-verified: full suite (422 tests), ruff, mypy, `alembic check`
       clean, frontend lint/typecheck/test/build, OpenAPI diff all green.
-- [ ] Stage 7 — Activity feed events wired for task/project changes
+- [x] Stage 7 — Activity feed events wired for task/project changes
       (decision 2 above); first real exercise of `platform.activity.
       list_feed` (built Stage 7 of Phase 1, never called by a route until
       now). `project_member.added`/`removed` write `is_audit=true` instead
       (decision 2 above, RBAC.md §3) — covered by an activity-writer-style
       test, not the feed test.
+
+      **Implementation.** `record()` calls added inside each service's
+      existing transaction (never a separate commit, per ADR-0006):
+      `create_project`/`update_project` write `project.created` and, only
+      when `status` is actually among the changed fields and differs from
+      the prior value, `project.status_changed` (`{"from", "to"}`
+      metadata) — an unrelated field update writes nothing. `create_task`
+      writes `task.created`; `update_task` writes `task.completed`
+      (`{"from"}` metadata) when a status change lands on `DONE`, else
+      `task.status_changed` (`{"from", "to"}`) for any other status
+      change, and nothing for a non-status update — same conditional
+      pattern as projects. `create_comment` writes `comment.created`.
+      `add_project_member`/`remove_project_member` write `project_member.
+      added`/`removed` with `audit=True`, unchanged from decision 2's
+      original reasoning (a project-membership change is
+      permission-relevant, not feed content — RBAC.md §3 guard 6).
+
+      New `platform/routes/activity.py`: `GET /api/v1/activity`, the first
+      route either `list_feed` or the new `count_feed()` (added
+      alongside it — `list_feed`/`list_audit`'s own signatures are
+      untouched, to avoid touching Phase 1's `test_activity_writer.py`)
+      has ever had. Org-wide, not project-nested — `list_feed` takes no
+      project filter, and MASTER_PROMPT §21 lists "Recent activity" as a
+      **Dashboard** widget, not a project-detail one. Gated by
+      `Permission.PROJECT_READ` (reused, not invented): the closest
+      existing MEMBER-tier "work visibility" permission, matching this
+      route's org-wide-transparency shape (same as `GET /api/v1/tasks`).
+      `platform/schemas.py` (new file): `ActivityEventResponse`/
+      `ActivityFeedResponse` (`{items, total}`, ADR-0005) — Pydantic's
+      `BaseModel` does **not** reserve the field name `metadata` (unlike
+      SQLAlchemy's `DeclarativeBase`, which does — the reason the ORM
+      column is `event_metadata`/`"metadata"` in the first place);
+      confirmed both by mypy and by the route's own tests actually
+      exercising response serialization, not assumed.
+
+      **Verification snag, not a review finding:** two pre-existing
+      `test_projects.py` tests (`test_concurrent_duplicate_project_code_
+      only_one_succeeds`, `test_update_and_archive_return_trigger_
+      refreshed_updated_at`) run outside the per-test rollback wrapper —
+      real cross-connection commits, needed to exercise genuine DB-level
+      concurrency — and hand-clean their own rows afterward, including a
+      `DELETE FROM organizations`. Once `create_project`/`update_project`
+      started writing activity_events rows, that delete started failing:
+      `activity_events.organization_id` is `ON DELETE RESTRICT` (Phase 1
+      migration 0001, ADR-0006's append-only guarantee), and — the actual
+      blocker — `trinol_app` has `UPDATE`/`DELETE` revoked on
+      `activity_events` entirely, so even deleting the activity_events
+      rows first isn't an option available to the app role the test suite
+      runs as. Fixed by no longer attempting to delete the `Organization`
+      row in either test's cleanup (each test uses a fresh `uuid7` org id,
+      so the orphaned row causes no collision on rerun) — a documented,
+      deliberate gap, not a workaround for a bug.
+
+      Added 16 new tests (422 → 438): 8 activity-writer-style tests in
+      `test_activity_writer.py` (one per event above, plus the
+      no-status-change-writes-nothing negative case for both projects and
+      tasks, plus the project-member add/remove/audit-only/not-in-feed
+      case decision 2 calls for), a new `test_activity_feed.py` (3 tests:
+      items+total shape, project_member events excluded from the feed,
+      org isolation), and the new authz-matrix row's 4-role parametrized
+      expansion (`× list(Role)`, same as every other row). Multi-event
+      assertions compare by event-name
+      set/dict rather than list order — `created_at`'s `server_default
+      text("now()")` is Postgres transaction time, not statement time, so
+      two `record()` calls inside one test's single transaction can tie
+      on it; list order on a tie isn't guaranteed by
+      `ORDER BY created_at DESC` alone. Added a new `test_authz_matrix.py`
+      row for `GET /api/v1/activity` (`PROJECT_READ`, org-wide, no
+      ownership split — same shape as the task-read rows already there).
+
+      Full suite (438 tests, was 422 going into this stage), ruff, mypy,
+      frontend lint/typecheck/test/build, OpenAPI diff all green.
 - [ ] Stage 8 — Frontend: Projects list/detail, Tasks list/detail, Kanban
       board (drag-and-drop UI for decision 1), `/tasks/my` page + backend
       support (decision 5 above — a real route, not a query-param

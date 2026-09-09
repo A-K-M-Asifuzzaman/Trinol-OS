@@ -18,7 +18,7 @@ from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import Role
 from trinol.core.db.engine import get_session_factory
 from trinol.core.errors import ConflictError
-from trinol.modules.identity.models import Membership, Organization, User
+from trinol.modules.identity.models import Membership, User
 from trinol.modules.work.models import Project, ProjectHealth, ProjectMember, ProjectStatus
 from trinol.modules.work.services.project_service import (
     archive_project,
@@ -222,7 +222,13 @@ async def test_concurrent_duplicate_project_code_only_one_succeeds(
             await cleanup.execute(delete(Project).where(Project.organization_id == org_id))
             await cleanup.execute(delete(Membership).where(Membership.organization_id == org_id))
             await cleanup.execute(delete(User).where(User.id == user_id))
-            await cleanup.execute(delete(Organization).where(Organization.id == org_id))
+            # Organization (and its activity_events rows) is deliberately left
+            # in place: Stage 7 now writes an activity_events row on project
+            # create/update, and that table's append-only guarantee (migration
+            # 0001) revokes UPDATE/DELETE from trinol_app entirely, which the
+            # organizations FK (ON DELETE RESTRICT) then blocks anyway. Each
+            # test uses a fresh uuid7 org id, so the orphaned row causes no
+            # collision on rerun.
             await cleanup.commit()
         finally:
             await cleanup.close()
@@ -407,7 +413,13 @@ async def test_update_and_archive_return_trigger_refreshed_updated_at() -> None:
             await cleanup.execute(delete(Project).where(Project.organization_id == org_id))
             await cleanup.execute(delete(Membership).where(Membership.organization_id == org_id))
             await cleanup.execute(delete(User).where(User.id == user_id))
-            await cleanup.execute(delete(Organization).where(Organization.id == org_id))
+            # Organization (and its activity_events rows) is deliberately left
+            # in place: Stage 7 now writes an activity_events row on project
+            # create/update, and that table's append-only guarantee (migration
+            # 0001) revokes UPDATE/DELETE from trinol_app entirely, which the
+            # organizations FK (ON DELETE RESTRICT) then blocks anyway. Each
+            # test uses a fresh uuid7 org id, so the orphaned row causes no
+            # collision on rerun.
             await cleanup.commit()
         finally:
             await cleanup.close()

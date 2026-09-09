@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.db.org_session import OrgSession
@@ -53,9 +54,10 @@ async def record(
 async def list_feed(
     db: AsyncSession, *, organization_id: uuid.UUID, limit: int = 50, offset: int = 0
 ) -> list[ActivityEvent]:
-    """§21's activity feed (is_audit=false). No route calls this yet in
-    Phase 1 — enforcing ADR-0005's 200-item cap is that future route's job,
-    not this function's, until there's an actual HTTP boundary to defend."""
+    """§21's activity feed (is_audit=false). Enforcing ADR-0005's 200-item
+    cap is the route's job (Stage 7 of Phase 2, `platform/routes/
+    activity.py`), not this function's — it has no HTTP boundary of its
+    own to defend."""
     org_session = OrgSession(db, organization_id=organization_id)
     stmt = (
         org_session.select(ActivityEvent)
@@ -66,6 +68,20 @@ async def list_feed(
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_feed(db: AsyncSession, *, organization_id: uuid.UUID) -> int:
+    """Separate from `list_feed` rather than folding into one dataclass
+    return (like every `work` module list_* function) — this predates that
+    convention (Phase 1 Stage 7) and `list_feed`/`list_audit`'s existing
+    signature is already exercised by `test_activity_writer.py`; adding a
+    function is less invasive than changing one both call sites depend on."""
+    result = await db.execute(
+        select(func.count())
+        .select_from(ActivityEvent)
+        .where(ActivityEvent.organization_id == organization_id, ActivityEvent.is_audit.is_(False))
+    )
+    return result.scalar_one()
 
 
 async def list_audit(

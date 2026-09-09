@@ -5,12 +5,32 @@ from datetime import timedelta
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from tests.factories import make_invitation, make_membership, make_organization, make_user
+from tests.factories import (
+    make_invitation,
+    make_membership,
+    make_organization,
+    make_project,
+    make_user,
+)
 from trinol.core.authz.permissions import Role
 from trinol.core.ids import uuid7
 from trinol.modules.identity.identity_verifier import VerifiedIdentity
 from trinol.modules.identity.models import MembershipStatus
 from trinol.modules.identity.services.membership_service import change_role, remove_member
+from trinol.modules.work.models import (
+    ProjectHealth,
+    ProjectStatus,
+    RoleOnProject,
+    TaskPriority,
+    TaskStatus,
+)
+from trinol.modules.work.services.project_member_service import (
+    add_project_member,
+    remove_project_member,
+)
+from trinol.modules.work.services.project_service import create_project, update_project
+from trinol.modules.work.services.task_comment_service import create_comment
+from trinol.modules.work.services.task_service import create_task, update_task
 from trinol.platform.activity import list_audit, list_feed, record
 from trinol.platform.models import ActivityEvent
 
@@ -218,3 +238,268 @@ async def test_member_removal_writes_an_audit_event(db_session) -> None:
     assert [row.event for row in rows] == ["membership.removed"]
     assert rows[0].entity_id == target.id
     assert rows[0].event_metadata == {"role": "MEMBER"}
+
+
+# ROADMAP.md Phase 2 Stage 7 decision 2: ordinary feed content (is_audit=false)
+# below; project_member add/remove stays audit-only (RBAC.md §3 guard 6) and
+# must not show up in the feed.
+
+
+async def test_create_project_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="proj-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+
+    project = await create_project(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        project_code="FEED",
+        name="Feed Project",
+        description=None,
+        status=ProjectStatus.PLANNING,
+        health=ProjectHealth.ON_TRACK,
+        owner_id=None,
+        start_date=None,
+        deadline=None,
+        budget=None,
+        currency="USD",
+        repository_url=None,
+        production_url=None,
+        staging_url=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["project.created"]
+    assert rows[0].entity_type == "project"
+    assert rows[0].entity_id == project.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_project_status_change_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="proj-status@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+    project = await make_project(db_session, organization=org, owner=actor)
+    await db_session.commit()
+
+    await update_project(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        project_id=project.id,
+        updates={"status": ProjectStatus.ACTIVE},
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["project.status_changed"]
+    assert rows[0].event_metadata == {"from": "PLANNING", "to": "ACTIVE"}
+
+
+async def test_project_update_without_status_change_writes_no_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="proj-noop@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+    project = await make_project(db_session, organization=org, owner=actor)
+    await db_session.commit()
+
+    await update_project(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        project_id=project.id,
+        updates={"name": "Renamed"},
+    )
+
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+
+async def test_create_task_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="task-create@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    await db_session.commit()
+
+    task = await create_task(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        project_id=None,
+        title="Feed Task",
+        description=None,
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        assignee_id=None,
+        milestone_id=None,
+        due_date=None,
+        start_date=None,
+        estimated_hours=None,
+        actual_hours=None,
+        tags=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["task.created"]
+    assert rows[0].entity_type == "task"
+    assert rows[0].entity_id == task.id
+
+
+async def test_task_status_change_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="task-status@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    await db_session.commit()
+    task = await create_task(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        project_id=None,
+        title="Status Task",
+        description=None,
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        assignee_id=None,
+        milestone_id=None,
+        due_date=None,
+        start_date=None,
+        estimated_hours=None,
+        actual_hours=None,
+        tags=None,
+    )
+
+    await update_task(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        task_id=task.id,
+        updates={"status": TaskStatus.IN_PROGRESS},
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in rows}
+    assert set(by_event) == {"task.created", "task.status_changed"}
+    assert by_event["task.status_changed"].event_metadata == {"from": "TODO", "to": "IN_PROGRESS"}
+
+
+async def test_task_completion_writes_a_completed_event_not_status_changed(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="task-done@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    await db_session.commit()
+    task = await create_task(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        project_id=None,
+        title="Done Task",
+        description=None,
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        assignee_id=None,
+        milestone_id=None,
+        due_date=None,
+        start_date=None,
+        estimated_hours=None,
+        actual_hours=None,
+        tags=None,
+    )
+
+    await update_task(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        task_id=task.id,
+        updates={"status": TaskStatus.DONE},
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in rows}
+    assert set(by_event) == {"task.created", "task.completed"}
+    assert by_event["task.completed"].event_metadata == {"from": "TODO"}
+
+
+async def test_create_comment_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="comment-create@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    await db_session.commit()
+    task = await create_task(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        project_id=None,
+        title="Commented Task",
+        description=None,
+        status=TaskStatus.TODO,
+        priority=TaskPriority.MEDIUM,
+        assignee_id=None,
+        milestone_id=None,
+        due_date=None,
+        start_date=None,
+        estimated_hours=None,
+        actual_hours=None,
+        tags=None,
+    )
+
+    comment = await create_comment(
+        db_session, organization_id=org.id, actor=actor, task_id=task.id, body="Hello"
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in rows}
+    assert set(by_event) == {"task.created", "comment.created"}
+    assert by_event["comment.created"].entity_type == "task_comment"
+    assert by_event["comment.created"].entity_id == comment.id
+    assert by_event["comment.created"].event_metadata == {"task_id": str(task.id)}
+
+
+async def test_project_member_add_and_remove_write_audit_events_not_feed(db_session) -> None:
+    org = await make_organization(db_session)
+    owner_user = await make_user(db_session, email="member-owner@x.com")
+    owner = await make_membership(db_session, organization=org, user=owner_user, role=Role.OWNER)
+    target_user = await make_user(db_session, email="member-target@x.com")
+    await make_membership(db_session, organization=org, user=target_user, role=Role.MEMBER)
+    await db_session.commit()
+    project = await make_project(db_session, organization=org, owner=owner)
+    await db_session.commit()
+
+    member = await add_project_member(
+        db_session,
+        organization_id=org.id,
+        actor=owner,
+        project_id=project.id,
+        user_id=target_user.id,
+        role_on_project=RoleOnProject.CONTRIBUTOR,
+    )
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    assert [row.event for row in audit_rows] == ["project_member.added"]
+    assert audit_rows[0].entity_type == "project_member"
+    assert audit_rows[0].entity_id == member.id
+    assert audit_rows[0].event_metadata == {
+        "project_id": str(project.id),
+        "user_id": str(target_user.id),
+    }
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+    await remove_project_member(
+        db_session,
+        organization_id=org.id,
+        actor=owner,
+        project_id=project.id,
+        member_id=member.id,
+    )
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in audit_rows}
+    assert set(by_event) == {"project_member.added", "project_member.removed"}
+    assert by_event["project_member.removed"].entity_id == member.id
+    assert by_event["project_member.removed"].event_metadata == {
+        "project_id": str(project.id),
+        "user_id": str(target_user.id),
+    }
+    assert await list_feed(db_session, organization_id=org.id) == []
