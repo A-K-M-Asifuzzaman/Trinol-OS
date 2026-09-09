@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+  <body style="margin:0; padding:0; background:#f4f4f5; font-family: Arial, Helvetica, sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5; padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
+            <tr>
+              <td style="padding:32px 40px 16px; font-size:20px; font-weight:bold; color:#111827;">TrinolIT</td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px 24px; color:#111827; font-size:16px; line-height:1.5;">
+                <p>New lead from the website contact form.</p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; font-size:14px;">
+                  <tr><td style="padding:4px 0; color:#6b7280;">Name</td><td style="padding:4px 0;">{{ name }}</td></tr>
+                  <tr><td style="padding:4px 0; color:#6b7280;">Email</td><td style="padding:4px 0;">{{ email }}</td></tr>
+                  {% if phone %}<tr><td style="padding:4px 0; color:#6b7280;">Phone</td><td style="padding:4px 0;">{{ phone }}</td></tr>{% endif %}
+                  {% if company %}<tr><td style="padding:4px 0; color:#6b7280;">Company</td><td style="padding:4px 0;">{{ company }}</td></tr>{% endif %}
+                  {% if service %}<tr><td style="padding:4px 0; color:#6b7280;">Service</td><td style="padding:4px 0;">{{ service }}</td></tr>{% endif %}
+                  {% if budget %}<tr><td style="padding:4px 0; color:#6b7280;">Budget</td><td style="padding:4px 0;">{{ budget }}</td></tr>{% endif %}
+                  <tr><td style="padding:4px 0; color:#6b7280;">Reference</td><td style="padding:4px 0;">{{ reference_number }}</td></tr>
+                </table>
+                <p style="white-space:pre-wrap;">{{ message }}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 40px; border-top:1px solid #e5e7eb; color:#6b7280; font-size:12px;">
+                TrinolIT &middot; <a href="https://www.trinolit.com" style="color:#6b7280;">www.trinolit.com</a> &middot; hello@trinolit.com
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

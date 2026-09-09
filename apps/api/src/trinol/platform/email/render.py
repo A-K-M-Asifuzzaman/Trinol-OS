@@ -39,3 +39,42 @@ def render_invitation_email(
     html_body = _env.get_template("invitation.html.jinja").render(context)
     text_body = _env.get_template("invitation.txt.jinja").render(context)
     return html_body, text_body
+
+
+def render_new_lead_notification_email(
+    *,
+    name: str,
+    email: str,
+    phone: str | None,
+    company: str | None,
+    service: str | None,
+    budget: str | None,
+    message: str,
+    reference_number: str,
+) -> tuple[str, str]:
+    """Returns (html_body, text_body). EMAIL.md §5: sent to hello@trinolit.com
+    on every non-spam contact submission."""
+    context = {
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "company": company,
+        "service": service,
+        "budget": budget,
+        "message": message,
+        "reference_number": reference_number,
+    }
+    html_body = _env.get_template("new_lead_notification.html.jinja").render(context)
+    text_body = _env.get_template("new_lead_notification.txt.jinja").render(context)
+    return html_body, text_body
+
+
+def render_contact_confirmation_email(
+    *, name: str, reference_number: str, message: str
+) -> tuple[str, str]:
+    """Returns (html_body, text_body). EMAIL.md §5: sent to the customer,
+    carrying the reference number and an echo of their message."""
+    context = {"name": name, "reference_number": reference_number, "message": message}
+    html_body = _env.get_template("contact_confirmation.html.jinja").render(context)
+    text_body = _env.get_template("contact_confirmation.txt.jinja").render(context)
+    return html_body, text_body

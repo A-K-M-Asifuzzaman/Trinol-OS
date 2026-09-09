@@ -510,6 +510,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Contact Route */
+        post: operations["submit_contact_route_api_public_contact_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -701,6 +718,47 @@ export interface components {
             status?: "ACTIVE" | "INACTIVE";
             /** Owner Id */
             owner_id?: string | null;
+        };
+        /**
+         * ContactSubmitRequest
+         * @description `POST /api/public/contact` — the one unauthenticated write in the
+         *     system (SECURITY.md §5).
+         */
+        ContactSubmitRequest: {
+            /** Name */
+            name: string;
+            /** Email */
+            email: string;
+            /** Phone */
+            phone?: string | null;
+            /** Company */
+            company?: string | null;
+            /** Service */
+            service?: string | null;
+            /** Budget */
+            budget?: string | null;
+            /** Message */
+            message: string;
+            /**
+             * Website
+             * @default
+             */
+            website: string;
+            /**
+             * Rendered At
+             * Format: date-time
+             */
+            rendered_at: string;
+        };
+        /**
+         * ContactSubmitResponse
+         * @description Generic on purpose (SECURITY.md §5): "does not reveal whether a lead
+         *     was created" — the same 202 + reference_number shape whether the
+         *     submission was real or silently flagged as spam.
+         */
+        ContactSubmitResponse: {
+            /** Reference Number */
+            reference_number: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -3197,6 +3255,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadConversionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_contact_route_api_public_contact_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactSubmitResponse"];
                 };
             };
             /** @description Validation Error */

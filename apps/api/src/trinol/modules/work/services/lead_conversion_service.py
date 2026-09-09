@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -58,8 +59,14 @@ def _project_code_from_lead(lead: Lead) -> str:
     # short name slug plus a random suffix is unique enough in practice
     # that a real collision surfaces as a 409 instead of needing a retry
     # loop; add one if this ever actually fires.
+    #
+    # secrets.token_hex, not uuid7().hex[:6]: found while building Stage 6's
+    # own reference-number generator (same pattern, copied from here) that
+    # a UUIDv7's hex is mostly its time-ordered high bits — truncating it
+    # keeps almost no real randomness, proven by a genuine collision in a
+    # same-millisecond test loop over there. Real random bits here instead.
     slug = re.sub(r"[^A-Z0-9]", "", lead.name.upper())[:6] or "LEAD"
-    return f"{slug}-{uuid7().hex[:6].upper()}"
+    return f"{slug}-{secrets.token_hex(3).upper()}"
 
 
 async def convert_lead(

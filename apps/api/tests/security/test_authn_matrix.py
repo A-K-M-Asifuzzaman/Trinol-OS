@@ -22,6 +22,15 @@ _TRULY_PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/v1/invitations/{token}"),
         ("GET", "/health"),
         ("GET", "/ready"),
+        # Phase 3 Stage 6: the one genuinely unauthenticated write
+        # (SECURITY.md §5) — needs its own dedicated coverage in
+        # test_contact.py, not this generic test. A bare client.request
+        # here sends the default app_origin header, which OriginCheckMiddleware
+        # rejects with 403 the moment PUBLIC_CONTACT_ORIGIN is configured to
+        # something else (as it already is in this env's .env) — 403 before
+        # any auth check runs, so this test's 401 assertion would never even
+        # be a meaningful check for this route either way.
+        ("POST", "/api/public/contact"),
     }
 )
 

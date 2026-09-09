@@ -53,9 +53,28 @@ class UnprocessableEntityError(AppError):
     code = "VALIDATION_ERROR"
 
 
+class PayloadTooLargeError(AppError):
+    status_code = status.HTTP_413_CONTENT_TOO_LARGE
+    code = "PAYLOAD_TOO_LARGE"
+
+
 class RateLimitedError(AppError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "RATE_LIMITED"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        super().__init__(message, details=details)
+        # SECURITY.md §5: the public contact endpoint's 429 must carry
+        # Retry-After. One optional field, not a redesign — every other
+        # RateLimitedError raiser (e.g. the login exchange limiter) simply
+        # never sets it, so its response is unchanged.
+        self.retry_after_seconds = retry_after_seconds
 
 
 def _envelope(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -72,8 +91,13 @@ def _envelope(code: str, message: str, details: dict[str, Any] | None = None) ->
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        headers = None
+        if isinstance(exc, RateLimitedError) and exc.retry_after_seconds is not None:
+            headers = {"Retry-After": str(exc.retry_after_seconds)}
         return JSONResponse(
-            _envelope(exc.code, exc.message, exc.details), status_code=exc.status_code
+            _envelope(exc.code, exc.message, exc.details),
+            status_code=exc.status_code,
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

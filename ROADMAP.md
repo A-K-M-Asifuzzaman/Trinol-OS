@@ -1071,8 +1071,8 @@ module in full, and nothing found in this audit requires changing it:
 
 ## Phase 3 — CRM
 
-Status: **Implementation plan approved (11 stages). Stages 1-5 complete.**
-Stage 6 (Public contact endpoint) is next.
+Status: **Implementation plan approved (11 stages). Stages 1-6 complete.**
+Stage 7 (Activity feed wiring for CRM events) is next.
 
 Unlike Phase 1 (new architecture) and even Phase 2 (which still had to
 invent one new permission mid-plan), Phase 3 needed zero new architecture
@@ -1429,6 +1429,130 @@ checks; dashboard sales tiles show real counts.
       across all nine affected tables via a direct `asyncpg` query,
       reran the race test three more times, confirmed the counts were
       bit-for-bit identical after.
+- [x] Stage 6 — Public contact endpoint, the one unauthenticated write in
+      the system (SECURITY.md §5). `modules/crm/schemas.py`:
+      `ContactSubmitRequest` (honeypot `website` field, client-echoed
+      `rendered_at` for a minimum-fill-duration check, `message` capped at
+      5000 chars) / `ContactSubmitResponse` (`{reference_number}` only —
+      deliberately generic, "does not reveal whether a lead was created").
+      `modules/crm/services/contact_service.py`: `submit_contact`, in
+      order — three `check_rate_limit` calls (5/hr IP, 20/hr email, 100/hr
+      global; SECURITY.md §5's exact numbers), each followed by its own
+      `db.commit()` per `platform/rate_limit.py`'s own documented contract
+      (an attacker about to be rejected is still throttled) — then store
+      the raw `ContactSubmission` unconditionally, then create a `Lead`
+      only for a real (non-spam) submission, commit, then build (never
+      send — the route sends) the two emails. `modules/crm/routes/
+      public.py`: `POST /api/public/contact`, `@public`, registered in
+      `main.py`. Two new Jinja template pairs
+      (`new_lead_notification.{html,txt}.jinja`,
+      `contact_confirmation.{html,txt}.jinja`) and their `render_*`
+      functions in `platform/email/render.py`, following
+      `invitation.{html,txt}.jinja`'s exact existing pattern.
+
+      `core/errors.py`: added `RateLimitedError.retry_after_seconds`
+      (optional field, not a redesign — every other raiser simply never
+      sets it) and a new `PayloadTooLargeError` (413) for the body cap
+      below; the exception handler attaches `Retry-After` when present.
+      `platform/rate_limit.py`'s `check_rate_limit` now sets
+      `retry_after_seconds` to the fixed window's full length when it
+      raises — an approximation (this limiter doesn't track precise
+      remaining time), fine for a hint header.
+
+      **A real error in this plan's own Stage 6 text, caught by re-reading
+      SECURITY.md/DATABASE.md directly before writing code (the same
+      discipline Stage 5's module-boundary error taught):** the plan said
+      "the app's existing global cap is looser than this route needs" —
+      there is no existing body-size cap anywhere in the app at all
+      (confirmed directly by grep). Added one: `_enforce_body_size_cap`
+      reads the real request bytes (not `Content-Length`, which a client
+      can omit or lie about) via `await request.body()` — Starlette caches
+      the body after that call, so FastAPI's own Pydantic-parsing
+      dependency downstream reads the same cached bytes, never the stream
+      twice — and 413s past 8 KiB, ahead of Pydantic parsing as
+      SECURITY.md requires.
+
+      **A second real deviation, also verified rather than assumed:**
+      DATABASE.md's literal wording for resolving `organization_id` from
+      `PUBLIC_CONTACT_ORG_SLUG` is "resolved once at startup, failing the
+      boot if it does not exist" — `create_app()` has no async lifespan
+      hook to run that DB round trip against, and the setting is
+      legitimately expected to stay unset in dev/test (confirmed: CI's own
+      `env:` block in `.github/workflows/ci.yml` sets only `APP_ORIGIN`/
+      `DATABASE_URL`/`DATABASE_MIGRATION_URL`, never
+      `PUBLIC_CONTACT_ORG_SLUG`) — a true boot-time hard fail would break
+      every environment that hasn't configured it. `get_
+      public_contact_organization_id` instead resolves lazily on first
+      real request, cached in a module-level singleton (mirrors
+      `get_email_sender`'s own pattern) — still fails loudly the first
+      time the route is actually hit if the slug is unset or doesn't match
+      a real org, just not at process boot. Two dedicated tests call the
+      real function directly (bypassing the dependency override every
+      other test uses) to prove both failure modes still work.
+
+      **A third, environment-specific finding:** this repo's own `.env`
+      (copied from `.env.example`, which ships `PUBLIC_CONTACT_ORIGIN=
+      https://www.trinolit.com` as its committed default) already has the
+      origin-check exception active, while CI's `env:` block never sets
+      it — meaning `_allowed_origin_for("POST", "/api/public/contact")`
+      genuinely returns a *different* value depending on which environment
+      is running the suite. Every contact test computes its Origin header
+      the same way `origin_check.py` itself resolves it (`public_contact_
+      origin or app_origin`) rather than hardcoding either value, so the
+      suite passes identically in both. This same discrepancy broke an
+      *existing* test on first run: `test_authn_matrix.py`'s generic
+      "every non-public route 401s without a session" test hit this route
+      with the default `app_origin` header and got a 403 `ORIGIN_MISMATCH`
+      instead (correct behavior — this env's `.env` really does restrict
+      this path to a different origin) — added the route to that test's
+      explicit `_TRULY_PUBLIC_ROUTES` exclusion list, since it has its own
+      dedicated coverage in `test_contact.py` and a generic same-origin
+      client was never going to test it meaningfully either way.
+
+      **A fourth real bug, found empirically by a test failure, not
+      reasoning:** the reference-number generator, `f"TRI-C-
+      {uuid7().hex[:8].upper()}"`, produced a genuine duplicate-key
+      constraint violation inside the six-requests-in-a-loop rate-limit
+      test — because a UUIDv7's hex is mostly its time-ordered high bits,
+      truncating it to 8 characters keeps almost no real randomness for
+      calls made within the same millisecond. Replaced with
+      `secrets.token_hex(4)` (genuinely random). Stage 5's
+      `_project_code_from_lead` used the identical flawed pattern
+      (`uuid7().hex[:6]`) — never caught there because no Stage 5 test
+      happened to create two projects in quick succession — fixed
+      identically (`secrets.token_hex(3)`) once the same bug class was
+      understood, even though Stage 5 is already closed.
+
+      Also found and fixed, empirically (not by inspection): a bare
+      `background_tasks.add_task(sender.send, message)` — the exact
+      pattern `invitation_service.py`/`routes/invitations.py` already use
+      — does NOT actually guarantee "a mail failure never fails the HTTP
+      response" (SECURITY.md §5's explicit requirement for this route).
+      Proved this directly with a minimal repro: a background task's
+      exception propagates through Starlette's `TestClient`/`ASGITransport`
+      and re-raises into the calling test, because that harness has no
+      real network boundary to swallow it the way a real ASGI server
+      (uvicorn) does after the response is already on the wire. Added
+      `_send_and_log_failures`, wrapping every `sender.send()` call in a
+      try/except that logs instead of re-raising — makes the property
+      structurally true regardless of which server drives the app, rather
+      than true by accident of uvicorn's behavior. (The invitation flow's
+      own bare pattern is left as-is — it has no equivalent documented
+      "must never fail" requirement, and retrofitting it is out of scope
+      here.)
+
+      `tests/integration/test_contact.py`: happy path (creates
+      `ContactSubmission` + `Lead` in that order, exactly 2 emails queued
+      with correct `reply_to`); honeypot-filled and too-fast submissions
+      (`spam_score` set, no `Lead`, no emails, still `202`); oversized body
+      (>8 KiB) 413s before Pydantic parsing; a mocked always-raising
+      `EmailSender` still returns `202`; a 6th request from the same
+      (simulated) IP within the hour 429s with a positive `Retry-After`;
+      both organization-resolver failure modes. `test_authn_matrix.py`
+      updated for the route's origin-exception behavior (above).
+
+      633 tests passing (was 625). `make openapi` regenerated for the new
+      contact operation. `make check` green end to end.
 
 ## Phase 4 — Meetings + Calendar
 - [ ] Meetings

@@ -264,3 +264,33 @@ class PipelineBoardResponse(BaseModel):
     columns: list[PipelineColumn]
     total: int
     truncated: bool
+
+
+class ContactSubmitRequest(BaseModel):
+    """`POST /api/public/contact` — the one unauthenticated write in the
+    system (SECURITY.md §5)."""
+
+    name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=1, max_length=320)
+    phone: str | None = Field(default=None, max_length=32)
+    company: str | None = Field(default=None, max_length=200)
+    service: str | None = Field(default=None, max_length=200)
+    budget: str | None = Field(default=None, max_length=100)
+    message: str = Field(min_length=1, max_length=5000)
+    # Honeypot (SECURITY.md §5): a real visitor never sees or fills this —
+    # CSS-hidden on the actual form (Stage 8's frontend work, not built
+    # yet). Any non-empty value is treated as spam.
+    website: str = Field(default="", max_length=200)
+    # The client echoes when the form was rendered, so the server can
+    # enforce a minimum fill duration (SECURITY.md §5) — a bot submitting
+    # instantly can't fake a plausible elapsed time without also delaying
+    # its own request.
+    rendered_at: datetime
+
+
+class ContactSubmitResponse(BaseModel):
+    """Generic on purpose (SECURITY.md §5): "does not reveal whether a lead
+    was created" — the same 202 + reference_number shape whether the
+    submission was real or silently flagged as spam."""
+
+    reference_number: str

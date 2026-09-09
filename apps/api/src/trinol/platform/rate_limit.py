@@ -53,4 +53,11 @@ async def check_rate_limit(
     )
     count = result.scalar_one()
     if count > limit:
-        raise RateLimitedError(f"Rate limit exceeded for {key}")
+        # int(window.total_seconds()): the fixed window's full length, not
+        # the precise remaining time (this limiter doesn't track that) — a
+        # deliberately conservative approximation, fine for a Retry-After
+        # hint (SECURITY.md §5's public contact endpoint is the one caller
+        # that reads this field today).
+        raise RateLimitedError(
+            f"Rate limit exceeded for {key}", retry_after_seconds=int(window.total_seconds())
+        )
