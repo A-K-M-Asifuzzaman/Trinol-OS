@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 
 from httpx import AsyncClient
 from sqlalchemy import select
 
 from tests.factories import (
+    make_client,
     make_invitation,
+    make_invoice,
     make_lead,
     make_meeting,
     make_meeting_action,
@@ -21,6 +24,25 @@ from trinol.core.ids import uuid7
 from trinol.modules.crm.models import ClientStatus, LeadSource, LeadStage
 from trinol.modules.crm.services.client_service import create_client
 from trinol.modules.crm.services.lead_service import create_lead, update_lead
+from trinol.modules.finance.models import ExpenseCategory, InvoiceStatus
+from trinol.modules.finance.services.expense_service import (
+    create_expense,
+    delete_expense,
+    update_expense,
+)
+from trinol.modules.finance.services.income_service import (
+    create_income,
+    delete_income,
+    update_income,
+)
+from trinol.modules.finance.services.invoice_service import (
+    LineItemInput,
+    cancel_invoice,
+    create_invoice,
+    send_invoice,
+    update_invoice,
+)
+from trinol.modules.finance.services.payment_service import record_payment
 from trinol.modules.identity.identity_verifier import VerifiedIdentity
 from trinol.modules.identity.models import MembershipStatus
 from trinol.modules.identity.services.membership_service import change_role, remove_member
@@ -55,6 +77,7 @@ from trinol.modules.work.services.project_service import create_project, update_
 from trinol.modules.work.services.task_comment_service import create_comment
 from trinol.modules.work.services.task_service import create_task, update_task
 from trinol.platform.activity import list_audit, list_feed, record
+from trinol.platform.file_storage.local import LocalFileStorage
 from trinol.platform.models import ActivityEvent
 
 # ADR-0006: one append-only table serving both the activity feed
@@ -874,4 +897,360 @@ async def test_promote_action_writes_both_as_feed_events(db_session) -> None:
     assert set(by_event) == {"meeting_action.promoted", "task.created"}
     assert by_event["meeting_action.promoted"].entity_id == action.id
     assert by_event["task.created"].entity_id == task.id
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+# Phase 5 Stage 9: every finance event named in the plan (income/expense
+# create+delete, invoice create/send/cancel, payment.recorded) was wired
+# inline in its own stage rather than deferred to a retrofit pass here
+# (Phase 2's pattern, not Phase 3's — same decision Phase 4 Stage 2 already
+# made for meeting.created). This is the verification pass the plan itself
+# calls for, not new wiring.
+
+
+async def test_create_income_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="income-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+
+    income = await create_income(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        amount=Decimal("100.00"),
+        currency="USD",
+        source="Feed income",
+        client_id=None,
+        project_id=None,
+        invoice_id=None,
+        received_on=date.today(),
+        payment_method="cash",
+        reference=None,
+        notes=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["income.created"]
+    assert rows[0].entity_type == "income"
+    assert rows[0].entity_id == income.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_income_update_writes_no_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="income-noop@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+    income = await create_income(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        amount=Decimal("100.00"),
+        currency="USD",
+        source="Original",
+        client_id=None,
+        project_id=None,
+        invoice_id=None,
+        received_on=date.today(),
+        payment_method="cash",
+        reference=None,
+        notes=None,
+    )
+
+    await update_income(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        income_id=income.id,
+        updates={"notes": "Reconciled"},
+    )
+
+    # The create above already wrote one feed row — assert the update added
+    # no *additional* row rather than asserting an empty feed outright.
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["income.created"]
+
+
+async def test_delete_income_writes_an_audit_event_not_feed(db_session) -> None:
+    """ADR-0011: income is not one of the four soft-deleted entities — a
+    hard delete, the audit event is the only remaining record."""
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="income-deleter@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+    income = await create_income(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        amount=Decimal("50.00"),
+        currency="USD",
+        source="To delete",
+        client_id=None,
+        project_id=None,
+        invoice_id=None,
+        received_on=date.today(),
+        payment_method="cash",
+        reference=None,
+        notes=None,
+    )
+    income_id = income.id
+
+    await delete_income(db_session, organization_id=org.id, actor=actor, income_id=income_id)
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in audit_rows}
+    assert set(by_event) == {"income.deleted"}
+    assert by_event["income.deleted"].entity_id == income_id
+    feed_rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in feed_rows] == ["income.created"]
+
+
+async def test_create_expense_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="expense-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+
+    expense = await create_expense(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        amount=Decimal("40.00"),
+        currency="USD",
+        category=ExpenseCategory.SOFTWARE,
+        description="Feed expense",
+        vendor=None,
+        spent_on=date.today(),
+        payment_method="card",
+        notes=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["expense.created"]
+    assert rows[0].entity_type == "expense"
+    assert rows[0].entity_id == expense.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_expense_update_writes_no_additional_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="expense-noop@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+    expense = await create_expense(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        amount=Decimal("40.00"),
+        currency="USD",
+        category=ExpenseCategory.SOFTWARE,
+        description="Original",
+        vendor=None,
+        spent_on=date.today(),
+        payment_method="card",
+        notes=None,
+    )
+
+    await update_expense(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        expense_id=expense.id,
+        updates={"notes": "Reconciled"},
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["expense.created"]
+
+
+async def test_delete_expense_writes_an_audit_event_not_feed(db_session, tmp_path) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="expense-deleter@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    await db_session.commit()
+    expense = await create_expense(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        amount=Decimal("40.00"),
+        currency="USD",
+        category=ExpenseCategory.SOFTWARE,
+        description="To delete",
+        vendor=None,
+        spent_on=date.today(),
+        payment_method="card",
+        notes=None,
+    )
+    expense_id = expense.id
+
+    await delete_expense(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        expense_id=expense_id,
+        storage=LocalFileStorage(tmp_path),
+    )
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in audit_rows}
+    assert set(by_event) == {"expense.deleted"}
+    assert by_event["expense.deleted"].entity_id == expense_id
+    feed_rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in feed_rows] == ["expense.created"]
+
+
+async def test_create_invoice_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="invoice-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    client = await make_client(db_session, organization=org)
+    await db_session.commit()
+
+    pair = await create_invoice(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        client_id=client.id,
+        project_id=None,
+        issue_date=date(2026, 1, 1),
+        due_date=date(2026, 1, 15),
+        currency="USD",
+        items=[
+            LineItemInput(description="Work", quantity=Decimal("1"), unit_price=Decimal("100.00"))
+        ],
+        discount_amount=Decimal("0"),
+        tax_amount=Decimal("0"),
+        notes=None,
+        terms=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["invoice.created"]
+    assert rows[0].entity_type == "invoice"
+    assert rows[0].entity_id == pair.invoice.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_invoice_update_writes_no_additional_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="invoice-noop@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    client = await make_client(db_session, organization=org)
+    await db_session.commit()
+    pair = await create_invoice(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        client_id=client.id,
+        project_id=None,
+        issue_date=date(2026, 1, 1),
+        due_date=date(2026, 1, 15),
+        currency="USD",
+        items=[
+            LineItemInput(description="Work", quantity=Decimal("1"), unit_price=Decimal("100.00"))
+        ],
+        discount_amount=Decimal("0"),
+        tax_amount=Decimal("0"),
+        notes=None,
+        terms=None,
+    )
+
+    await update_invoice(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        invoice_id=pair.invoice.id,
+        updates={"notes": "Revised"},
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["invoice.created"]
+
+
+async def test_send_invoice_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="invoice-sender@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    client = await make_client(db_session, organization=org, email="client@x.com")
+    await db_session.commit()
+    pair = await create_invoice(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        client_id=client.id,
+        project_id=None,
+        issue_date=date(2026, 1, 1),
+        due_date=date(2026, 1, 15),
+        currency="USD",
+        items=[
+            LineItemInput(description="Work", quantity=Decimal("1"), unit_price=Decimal("100.00"))
+        ],
+        discount_amount=Decimal("0"),
+        tax_amount=Decimal("0"),
+        notes=None,
+        terms=None,
+    )
+
+    await send_invoice(db_session, organization_id=org.id, actor=actor, invoice_id=pair.invoice.id)
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["invoice.created", "invoice.sent"]
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_cancel_invoice_writes_an_audit_event_not_feed(db_session) -> None:
+    """ADR-0007: 'Cancellation is a status change with an audit event,
+    never a delete.'"""
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="invoice-canceller@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    client = await make_client(db_session, organization=org)
+    invoice = await make_invoice(db_session, organization=org, client=client, created_by=actor)
+    await db_session.commit()
+
+    await cancel_invoice(db_session, organization_id=org.id, actor=actor, invoice_id=invoice.id)
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in audit_rows}
+    assert set(by_event) == {"invoice.cancelled"}
+    assert by_event["invoice.cancelled"].entity_id == invoice.id
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+
+async def test_record_payment_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="payment-recorder@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.OWNER)
+    client = await make_client(db_session, organization=org)
+    invoice = await make_invoice(
+        db_session,
+        organization=org,
+        client=client,
+        created_by=actor,
+        subtotal=Decimal("100.00"),
+        status=InvoiceStatus.SENT,
+    )
+    await db_session.commit()
+
+    payment = await record_payment(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        invoice_id=invoice.id,
+        amount=Decimal("100.00"),
+        currency="USD",
+        paid_on=date.today(),
+        method="cash",
+        reference=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["payment.recorded"]
+    assert rows[0].entity_type == "payment"
+    assert rows[0].entity_id == payment.id
+    assert rows[0].is_audit is False
     assert await list_audit(db_session, organization_id=org.id) == []

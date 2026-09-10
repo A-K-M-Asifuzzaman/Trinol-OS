@@ -3201,7 +3201,35 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       typecheck`/`lint`/`exec prettier --check`/`test` (60 tests)/`build`
       all green. `make openapi` regenerated `apps/web/lib/api/
       types.gen.ts` cleanly.
-- [ ] Stage 9 — Activity feed wiring
+- [x] Stage 9 — Activity feed wiring. No new production code: every
+      finance event named in the plan (`income.created`/`.deleted`,
+      `expense.created`/`.deleted`, `invoice.created`/`.sent`/
+      `.cancelled`, `payment.recorded`) was already wired inline in its
+      own stage (Phase 2's pattern, not Phase 3's retrofit — the same
+      decision Phase 4 Stage 2 already made for `meeting.created`),
+      confirmed by grepping every `finance/services/*.py` file for
+      `record(...)` calls before writing a single test. This stage is
+      purely the verification pass the plan itself calls for.
+
+      Extended `tests/integration/test_activity_writer.py` with 11 new
+      tests, same shape as the file's own CRM/meetings sections: each
+      create writes exactly one ordinary feed row (`is_audit=False`);
+      `invoice.cancelled` writes an audit row and nothing to the feed
+      (ADR-0007: cancellation is a status change with an audit event,
+      never a delete — same treatment `meeting.deleted`/`invoice_
+      participant` removal already get); `income.deleted`/`expense.
+      deleted` write an audit row (ADR-0011: neither is one of the four
+      soft-deleted entities — a hard delete, the audit event is the only
+      remaining record); a plain `update_income`/`update_expense`/
+      `update_invoice` call (no status transition) writes no additional
+      event at all, mirroring `test_project_update_without_status_
+      change_writes_no_feed_event`'s own precedent — confirmed directly
+      that none of the three `update_*` functions call `record(...)`
+      anywhere, so there was no gap to fix, only to prove.
+
+      Full backend suite (1161 tests, up from 1150), ruff, ruff format,
+      and mypy all clean. No `make openapi` diff — no route or schema
+      changed this stage.
 - [ ] Stage 10 — Frontend
 - [ ] Stage 11 — Security matrices
 - [ ] Stage 12 — Seed script + E2E, final stage
