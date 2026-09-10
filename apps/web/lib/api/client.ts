@@ -546,13 +546,182 @@ export async function promoteMeetingAction(
   );
 }
 
-// Phase 5 Stage 8: only the dashboard aggregate this stage needs — the
-// rest of the finance module's own types/fetchers (income/expenses/
-// invoices/payments) land in Stage 10's frontend build.
 export type FinanceStats = components["schemas"]["FinanceStatsResponse"];
 
 export async function fetchFinanceStats(
   cookie?: string,
 ): Promise<FinanceStats> {
   return apiFetch<FinanceStats>("/api/v1/finance/stats", { cookie });
+}
+
+export type Income = components["schemas"]["IncomeResponse"];
+export type IncomeList = components["schemas"]["IncomeListResponse"];
+export type IncomeCreateRequest = components["schemas"]["IncomeCreateRequest"];
+
+export async function fetchIncome(
+  options: { limit?: number; offset?: number; cookie?: string } = {},
+): Promise<IncomeList> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<IncomeList>(
+    `/api/v1/finance/income${query ? `?${query}` : ""}`,
+    { cookie: options.cookie },
+  );
+}
+
+export async function createIncome(body: IncomeCreateRequest): Promise<Income> {
+  return apiFetch<Income>("/api/v1/finance/income", { method: "POST", body });
+}
+
+export async function deleteIncome(incomeId: string): Promise<void> {
+  return apiFetch<void>(`/api/v1/finance/income/${incomeId}`, {
+    method: "DELETE",
+  });
+}
+
+export type Expense = components["schemas"]["ExpenseResponse"];
+export type ExpenseList = components["schemas"]["ExpenseListResponse"];
+export type ExpenseCategory = components["schemas"]["ExpenseCategory"];
+export type ExpenseCreateRequest =
+  components["schemas"]["ExpenseCreateRequest"];
+
+export async function fetchExpenses(
+  options: { limit?: number; offset?: number; cookie?: string } = {},
+): Promise<ExpenseList> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<ExpenseList>(
+    `/api/v1/finance/expenses${query ? `?${query}` : ""}`,
+    { cookie: options.cookie },
+  );
+}
+
+export async function createExpense(
+  body: ExpenseCreateRequest,
+): Promise<Expense> {
+  return apiFetch<Expense>("/api/v1/finance/expenses", {
+    method: "POST",
+    body,
+  });
+}
+
+export async function deleteExpense(expenseId: string): Promise<void> {
+  return apiFetch<void>(`/api/v1/finance/expenses/${expenseId}`, {
+    method: "DELETE",
+  });
+}
+
+// Multipart upload — apiFetch always JSON-encodes its body, so this makes
+// its own fetch call rather than going through it, mirroring apiFetch's
+// own cookie/CSRF conventions by hand (AUTH.md §10 / ARCHITECTURE.md §1).
+export async function uploadExpenseReceipt(
+  expenseId: string,
+  file: File,
+): Promise<Expense> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers: Record<string, string> = {};
+  if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+  const response = await fetch(
+    resolveUrl(`/api/v1/finance/expenses/${expenseId}/receipt`),
+    { method: "POST", headers, credentials: "include", body: formData },
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: ErrorEnvelope;
+    } | null;
+    if (payload?.error) throw new ApiError(response.status, payload.error);
+    throw new ApiError(response.status, {
+      code: "UNKNOWN_ERROR",
+      message: response.statusText || "Upload failed",
+      request_id: null,
+      details: {},
+    });
+  }
+  return (await response.json()) as Expense;
+}
+
+export async function deleteExpenseReceipt(expenseId: string): Promise<void> {
+  return apiFetch<void>(`/api/v1/finance/expenses/${expenseId}/receipt`, {
+    method: "DELETE",
+  });
+}
+
+export type Invoice = components["schemas"]["InvoiceResponse"];
+export type InvoiceList = components["schemas"]["InvoiceListResponse"];
+export type InvoiceStatus = components["schemas"]["InvoiceStatus"];
+export type InvoiceLineItemInput =
+  components["schemas"]["InvoiceLineItemInput"];
+export type InvoiceCreateRequest =
+  components["schemas"]["InvoiceCreateRequest"];
+
+export async function fetchInvoices(
+  options: { limit?: number; offset?: number; cookie?: string } = {},
+): Promise<InvoiceList> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<InvoiceList>(
+    `/api/v1/finance/invoices${query ? `?${query}` : ""}`,
+    { cookie: options.cookie },
+  );
+}
+
+export async function fetchInvoice(
+  invoiceId: string,
+  cookie?: string,
+): Promise<Invoice> {
+  return apiFetch<Invoice>(`/api/v1/finance/invoices/${invoiceId}`, {
+    cookie,
+  });
+}
+
+export async function createInvoice(
+  body: InvoiceCreateRequest,
+): Promise<Invoice> {
+  return apiFetch<Invoice>("/api/v1/finance/invoices", {
+    method: "POST",
+    body,
+  });
+}
+
+export async function sendInvoice(invoiceId: string): Promise<Invoice> {
+  return apiFetch<Invoice>(`/api/v1/finance/invoices/${invoiceId}/send`, {
+    method: "POST",
+  });
+}
+
+export async function cancelInvoice(invoiceId: string): Promise<Invoice> {
+  return apiFetch<Invoice>(`/api/v1/finance/invoices/${invoiceId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export type Payment = components["schemas"]["PaymentResponse"];
+export type PaymentList = components["schemas"]["PaymentListResponse"];
+export type PaymentCreateRequest =
+  components["schemas"]["PaymentCreateRequest"];
+
+export async function fetchPayments(invoiceId: string): Promise<PaymentList> {
+  return apiFetch<PaymentList>(
+    `/api/v1/finance/invoices/${invoiceId}/payments`,
+  );
+}
+
+export async function recordPayment(
+  invoiceId: string,
+  body: PaymentCreateRequest,
+): Promise<Payment> {
+  return apiFetch<Payment>(`/api/v1/finance/invoices/${invoiceId}/payments`, {
+    method: "POST",
+    body,
+  });
 }

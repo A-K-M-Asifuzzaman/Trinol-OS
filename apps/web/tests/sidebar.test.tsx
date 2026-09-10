@@ -55,4 +55,24 @@ describe("Sidebar", () => {
     const calendar = screen.getByText("Calendar");
     expect(calendar).toHaveAttribute("aria-disabled", "true");
   });
+
+  it("shows Overview/Income/Expenses/Invoices as real links for ADMIN+ (Phase 5 Stage 10)", () => {
+    render(<Sidebar role="ADMIN" />);
+    expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute(
+      "href",
+      "/finance",
+    );
+    expect(screen.getByRole("link", { name: "Income" })).toHaveAttribute(
+      "href",
+      "/finance/income",
+    );
+    expect(screen.getByRole("link", { name: "Expenses" })).toHaveAttribute(
+      "href",
+      "/finance/expenses",
+    );
+    expect(screen.getByRole("link", { name: "Invoices" })).toHaveAttribute(
+      "href",
+      "/invoices",
+    );
+  });
 });

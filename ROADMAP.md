@@ -3230,7 +3230,72 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       Full backend suite (1161 tests, up from 1150), ruff, ruff format,
       and mypy all clean. No `make openapi` diff — no route or schema
       changed this stage.
-- [ ] Stage 10 — Frontend
+- [x] Stage 10 — Frontend. MASTER_PROMPT §19's five routes, verbatim:
+      `/finance` (overview — the six dashboard tiles plus revenue-trend/
+      expense-breakdown breakdowns, reusing `fetchFinanceStats`),
+      `/finance/income`, `/finance/expenses`, `/invoices`, `/invoices/
+      [id]`. `lib/api/client.ts` extended with the full Income/Expense/
+      Invoice/Payment types+fetchers Stage 8 deliberately deferred; a new
+      `uploadExpenseReceipt` makes its own `fetch` call with `FormData`
+      rather than going through `apiFetch` (which always JSON-encodes),
+      mirroring its cookie/CSRF conventions by hand.
+
+      Same client-rendered four-state pattern as Leads/Meetings
+      throughout. No edit UI for a DRAFT invoice's fields, or for income/
+      expense rows, this stage (ponytail — the plan's own exit criteria
+      only asks for create/send/cancel/pay, not an edit form; the
+      backend's PATCH routes already exist for a later stage to build a
+      UI against). No client-side permission pre-check anywhere — every
+      mutation attempts the call and surfaces whatever `ApiError` comes
+      back, same as every prior phase's frontend stage. Sidebar: enabled
+      the four FINANCE group hrefs that were already scaffolded with
+      `restrictedToAdminPlus: true` since Phase 1 — confirmed directly
+      that flag already correctly hides the whole group for MEMBER/
+      MANAGER, no new gating code needed.
+
+      The invoice detail page's Send/Cancel/Record-payment controls key
+      off the invoice's own `status` (`DRAFT` → Send only; non-terminal →
+      Cancel; `SENT`/`PARTIALLY_PAID` → the payment form) and its
+      `is_overdue` flag renders `OVERDUE` in place of the stored status,
+      matching ADR-0007's own derivation. The PDF is a plain `<a href>`
+      to `GET .../pdf`, not a fetch — a same-origin browser navigation
+      already sends cookies, so no client wrapper was needed.
+
+      Verification: 22 new component tests across `finance-income.
+      test.tsx`, `finance-expenses.test.tsx`, `invoices.test.tsx`, and
+      `invoice-detail.test.tsx` (loading/error/empty/populated states,
+      the receipt Upload-vs-View control switching on `receipt_file_id`,
+      `is_overdue` overriding the displayed status, and each invoice
+      status correctly showing/hiding Send/Cancel/payment-form), plus 1
+      new sidebar test for the four newly-enabled links — 83 frontend
+      tests total (up from 60). `pnpm typecheck`/`lint`/`exec prettier
+      --check`/`test`/`build` all green; `make openapi` confirmed no
+      schema-surface change (no backend file touched this stage).
+
+      **Manual `make dev` walkthrough** (temporary alternate ports 8010/
+      3010, `E2E_TEST_MODE`/`NEXT_PUBLIC_E2E_TEST_MODE`, reverted after —
+      same established pattern as Phase 4 Stage 7's own walkthrough):
+      logged in as the seeded founder, created a real invoice against the
+      seeded "Acme Corp" client with a rounding-exposing line item (3 ×
+      33.33), and confirmed the invoice detail page's own displayed total
+      is exactly `99.99` — the literal check this stage's plan named.
+      Also exercised income creation, expense creation, and the finance
+      overview page's own stats rendering end-to-end through the real
+      browser (all passed); the send/pay/cancel button clicks were
+      independently confirmed working via the real backend logs
+      (`POST .../send` → `200 OK`, a real console-backend email logged)
+      during an earlier pass of the same script, though the walkthrough
+      script's own list-ordering assumption made two later scripted runs
+      unreliable — that unreliability is in the throwaway verification
+      script, not the product; `send`/`cancel`/`record payment`'s own
+      click-behavior and status-gating are independently covered by the
+      component tests above, and their business logic already has full
+      backend test coverage from Stages 5 and 7 (including the concurrent-
+      request race tests). All rows created during the walkthrough
+      (4 invoices, 4 income rows, 3 expense rows, matched by name/
+      description) were deleted in FK-safe order in the same turn;
+      confirmed via `psql` that zero remain. `.env`/`apps/web/.env.local`
+      reverted, scratch scripts deleted, both dev servers stopped.
 - [ ] Stage 11 — Security matrices
 - [ ] Stage 12 — Seed script + E2E, final stage
 - [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md)) — manual DBA exercise, not a code deliverable
