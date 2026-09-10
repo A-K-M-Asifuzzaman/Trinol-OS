@@ -378,6 +378,18 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # Phase 5 Stage 6: viewing an existing invoice's PDF is a read
     # (FINANCE_READ), not a write — no separate "download" permission.
     ("GET", "/api/v1/finance/invoices/{invoice_id}/pdf", Permission.FINANCE_READ, None),
+    # Phase 5 Stage 7: "Record payment" is its own RBAC.md row/permission
+    # (PAYMENT_WRITE), distinct from INVOICE_WRITE/INVOICE_CANCEL. The
+    # placeholder-resolved invoice is DRAFT (not payable) — a permitted
+    # role gets a 409, not a 201, same non-403-is-enough reasoning as the
+    # send/cancel rows above.
+    (
+        "POST",
+        "/api/v1/finance/invoices/{invoice_id}/payments",
+        Permission.PAYMENT_WRITE,
+        {"amount": "10.00", "paid_on": "2026-01-01", "method": "cash"},
+    ),
+    ("GET", "/api/v1/finance/invoices/{invoice_id}/payments", Permission.FINANCE_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

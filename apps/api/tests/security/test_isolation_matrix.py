@@ -774,17 +774,25 @@ async def test_finance_expense_receipt_routes_isolated_across_orgs(
         app.dependency_overrides.pop(get_file_storage, None)
 
 
-# Phase 5 Stage 4/5/6. Same shape/reasoning as _FINANCE_ISOLATION_ROUTES/
+# Phase 5 Stage 4/5/6/7. Same shape/reasoning as _FINANCE_ISOLATION_ROUTES/
 # _FINANCE_EXPENSE_ISOLATION_ROUTES above — no DELETE row (no archive/
 # delete-invoice endpoint this phase, ROADMAP.md Phase 5 decision 1).
-# send/cancel (Stage 5) and pdf (Stage 6) hit the same org-scoped lookup
-# as GET/PATCH, so they belong in this same generic table.
+# send/cancel (Stage 5), pdf (Stage 6), and payments (Stage 7) all hit the
+# same org-scoped invoice lookup as GET/PATCH — the org-scope 404 fires
+# before any status/payability check, so the placeholder invoice's DRAFT
+# status doesn't matter for these two payment rows either.
 _FINANCE_INVOICE_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] = [
     ("GET", "/api/v1/finance/invoices/{invoice_id}", None),
     ("PATCH", "/api/v1/finance/invoices/{invoice_id}", {"notes": "Hijacked"}),
     ("POST", "/api/v1/finance/invoices/{invoice_id}/send", None),
     ("POST", "/api/v1/finance/invoices/{invoice_id}/cancel", None),
     ("GET", "/api/v1/finance/invoices/{invoice_id}/pdf", None),
+    (
+        "POST",
+        "/api/v1/finance/invoices/{invoice_id}/payments",
+        {"amount": "10.00", "paid_on": "2026-01-01", "method": "cash"},
+    ),
+    ("GET", "/api/v1/finance/invoices/{invoice_id}/payments", None),
 ]
 
 

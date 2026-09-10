@@ -885,6 +885,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/invoices/{invoice_id}/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Payments Route */
+        get: operations["list_payments_route_api_v1_finance_invoices__invoice_id__payments_get"];
+        put?: never;
+        /** Record Payment Route */
+        post: operations["record_payment_route_api_v1_finance_invoices__invoice_id__payments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2092,6 +2110,76 @@ export interface components {
             completed_at: string | null;
             /** Position */
             position: number;
+        };
+        /**
+         * PaymentCreateRequest
+         * @description Append-only (ADR-0007) — there is no `PaymentUpdateRequest`; a
+         *     payment, once recorded, is never edited or deleted.
+         */
+        PaymentCreateRequest: {
+            /** Amount */
+            amount: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /** Method */
+            method: string;
+            /** Reference */
+            reference?: string | null;
+        };
+        /** PaymentListResponse */
+        PaymentListResponse: {
+            /** Items */
+            items: components["schemas"]["PaymentResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * PaymentResponse
+         * @description `amount` is a plain `Decimal`, not `BudgetDecimal` — same reasoning
+         *     as `IncomeResponse.amount`.
+         */
+        PaymentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Invoice Id
+             * Format: uuid
+             */
+            invoice_id: string;
+            /** Amount */
+            amount: string;
+            /** Currency */
+            currency: string;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /** Method */
+            method: string;
+            /** Reference */
+            reference: string | null;
+            /**
+             * Recorded By
+             * Format: uuid
+             */
+            recorded_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * PipelineBoardResponse
@@ -5565,6 +5653,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvoiceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_payments_route_api_v1_finance_invoices__invoice_id__payments_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_payment_route_api_v1_finance_invoices__invoice_id__payments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaymentCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentResponse"];
                 };
             };
             /** @description Validation Error */

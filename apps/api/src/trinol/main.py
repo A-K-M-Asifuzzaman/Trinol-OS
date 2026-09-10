@@ -25,6 +25,7 @@ from trinol.modules.crm.routes.public import router as public_router
 from trinol.modules.finance.routes.expenses import router as expenses_router
 from trinol.modules.finance.routes.income import router as income_router
 from trinol.modules.finance.routes.invoices import router as invoices_router
+from trinol.modules.finance.routes.payments import router as payments_router
 from trinol.modules.identity.csrf import verify_csrf
 from trinol.modules.identity.routes.auth import router as auth_router
 from trinol.modules.identity.routes.invitations import router as invitations_router
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(income_router)
     app.include_router(expenses_router)
     app.include_router(invoices_router)
+    app.include_router(payments_router)
 
     @app.get("/health", tags=["meta"])
     @public

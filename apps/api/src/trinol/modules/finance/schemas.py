@@ -305,3 +305,34 @@ class InvoiceResponse(BaseModel):
 class InvoiceListResponse(BaseModel):
     items: list[InvoiceResponse]
     total: int
+
+
+class PaymentCreateRequest(BaseModel):
+    """Append-only (ADR-0007) — there is no `PaymentUpdateRequest`; a
+    payment, once recorded, is never edited or deleted."""
+
+    amount: BudgetDecimal
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    paid_on: date
+    method: str = Field(min_length=1, max_length=100)
+    reference: str | None = Field(default=None, max_length=200)
+
+
+class PaymentResponse(BaseModel):
+    """`amount` is a plain `Decimal`, not `BudgetDecimal` — same reasoning
+    as `IncomeResponse.amount`."""
+
+    id: uuid.UUID
+    invoice_id: uuid.UUID
+    amount: Decimal
+    currency: str
+    paid_on: date
+    method: str
+    reference: str | None
+    recorded_by: uuid.UUID
+    created_at: datetime
+
+
+class PaymentListResponse(BaseModel):
+    items: list[PaymentResponse]
+    total: int

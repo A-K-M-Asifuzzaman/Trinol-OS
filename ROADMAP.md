@@ -3092,7 +3092,60 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       override for `xhtml2pdf.*`, same treatment as `firebase_admin`/
       `boto3` — it ships no type stubs either). `make openapi`
       regenerated `apps/web/lib/api/types.gen.ts` cleanly.
-- [ ] Stage 7 — Payments (concurrent-payment test)
+- [x] Stage 7 — Payments (concurrent-payment test). `modules/finance/
+      schemas.py` extended with `PaymentCreateRequest`/`Response`/
+      `ListResponse` — no `PaymentUpdateRequest` (ADR-0007: append-only,
+      no update/delete route at all). `modules/finance/services/
+      payment_service.py::record_payment`: takes `SELECT ... FOR UPDATE`
+      on the invoice row (via `get_invoice_in_org(..., for_update=True)`)
+      *before* even reading the existing payment sum — the exact ordering
+      ADR-0007 prescribes, so a second concurrent request blocks until
+      the first commits and then sees the already-updated sum instead of
+      racing against a stale one (same fix shape as Stage 5's
+      `send_invoice`/`cancel_invoice`). Rejects a non-`SENT`/`PARTIALLY_
+      PAID` invoice (409) — `DRAFT` (never sent) and `CANCELLED` need
+      their own explicit guard; an already-`PAID` invoice is naturally
+      caught by the overpayment check below instead (any further payment
+      necessarily exceeds a total already fully paid). `amount_paid` is
+      recomputed as `SELECT sum(amount) FROM payments WHERE invoice_id =
+      ...` (the actual source of truth), not `invoice.amount_paid + new
+      amount` — matching ADR-0007's own "recomputes amount_paid as the
+      sum of payments" wording literally. Status derives to `PAID` once
+      the sum reaches the total, `PARTIALLY_PAID` otherwise.
+      `modules/finance/routes/payments.py`: a router nested under
+      `/finance/invoices/{invoice_id}/payments` (a payment always belongs
+      to exactly one invoice, DATABASE.md §3) — `POST` gated by its own
+      `PAYMENT_WRITE` permission (RBAC.md's separate "Record payment"
+      row, distinct from `INVOICE_WRITE`/`INVOICE_CANCEL`), `GET` gated
+      `FINANCE_READ`. No `PATCH`/`DELETE` route at all. Registered in
+      `main.py`.
+
+      Added authz-matrix rows (`PAYMENT_WRITE` for POST, `FINANCE_READ`
+      for GET) and isolation-matrix rows (both fit the existing generic
+      `{invoice_id}`-keyed table — the org-scope 404 fires before any
+      payability check, so the placeholder invoice's DRAFT status doesn't
+      matter here either) in this same commit.
+
+      Verification: 15 new integration tests in `tests/integration/
+      test_payments.py` — partial and full payment, two sequential
+      partial payments completing an invoice, overpayment rejected both
+      as a single too-large payment and as a second payment that would
+      push the sum over the total, non-positive-amount rejection,
+      rejection against `DRAFT`/`CANCELLED`/already-`PAID` invoices, list,
+      cross-org 404, and role gating. A dedicated concurrent-payment test
+      (two genuinely independent DB sessions, `asyncio.gather`, real
+      commits, full FK-ordered cleanup mirroring `test_lead_conversion.
+      py`'s own race test and Stage 5's send/cancel concurrency tests) —
+      a SENT $100 invoice, two concurrent $60 payments, proves exactly
+      one succeeds and the invoice's own `amount_paid` ends at $60.00, not
+      $120.00 or a lost update — the literal test ADR-0007's own
+      consequences section requires ("Concurrent-payment tests are
+      required to prove that two requests cannot both pass the balance
+      check against the same prior amount"); re-run 3 times standalone to
+      rule out flakiness, all green, confirmed via `psql` that no rows
+      were left behind. Full backend suite (1140 tests, up from 1112),
+      ruff, ruff format, and mypy all clean. `make openapi` regenerated
+      `apps/web/lib/api/types.gen.ts` cleanly.
 - [ ] Stage 8 — Finance dashboard aggregates
 - [ ] Stage 9 — Activity feed wiring
 - [ ] Stage 10 — Frontend
