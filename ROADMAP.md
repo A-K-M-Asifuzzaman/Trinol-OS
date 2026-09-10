@@ -3296,7 +3296,41 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       description) were deleted in FK-safe order in the same turn;
       confirmed via `psql` that zero remain. `.env`/`apps/web/.env.local`
       reverted, scratch scripts deleted, both dev servers stopped.
-- [ ] Stage 11 — Security matrices
+- [x] Stage 11 — Security matrices. No new code: every finance route's
+      authz-matrix and isolation-matrix row was already added inline in
+      its own stage (Stages 2-9), the same "wire it as you build it"
+      discipline Stage 9 already established for activity events —
+      unlike Phase 3/4, where security matrices were their own dedicated
+      late-phase addition. This stage is the audit the plan itself calls
+      for, not new wiring.
+
+      Confirmed by direct introspection of the live FastAPI app
+      (`iter_api_routes`, the same helper `startup_audit.py`'s own boot-
+      time check and the matrix test's meta-assertion both use), not
+      just by the meta-assertion passing: exactly 23 non-public finance/
+      invoice routes exist, and all 23 have an authz-matrix row — 5 for
+      income, 8 for expenses (including the receipt sub-resource), 7 for
+      invoices (including send/cancel/pdf), 2 for payments, 1 for stats.
+      Zero of them are in `_OWNERSHIP_SPLIT_ROUTES` — confirmed by
+      grepping that set directly — matching ROADMAP.md Phase 5 decision 2
+      (RBAC.md §3 has no finance ownership-split rule at all, so every
+      row is a plain permission check, none of Phase 3/4's own "route
+      permission passes for everyone, service enforces the real rule"
+      shape).
+
+      Isolation-matrix coverage audited the same way: 16 of the 23 routes
+      have a cross-org 404 test (every `GET`/`PATCH`/`DELETE`/action route
+      that takes an existing resource's id); the other 7 (the three
+      `POST .../income`|`.../expenses`|`.../invoices` creates, the two
+      bare list `GET`s, and `GET /finance/stats`) are correctly excluded —
+      a create has no existing target to attempt cross-org access
+      against, a list's own org-scoping is enforced by the query filter
+      itself rather than a per-id lookup, and `/finance/stats` has no
+      parent resource at all, same reasoning `/leads/stats` already
+      established. 16 + 7 = 23, no gaps.
+
+      Full backend suite (1161 tests, unchanged — no new tests needed,
+      only re-verified), ruff, and mypy all clean.
 - [ ] Stage 12 — Seed script + E2E, final stage
 - [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md)) — manual DBA exercise, not a code deliverable
 - [ ] Codex audit
