@@ -774,12 +774,16 @@ async def test_finance_expense_receipt_routes_isolated_across_orgs(
         app.dependency_overrides.pop(get_file_storage, None)
 
 
-# Phase 5 Stage 4. Same shape/reasoning as _FINANCE_ISOLATION_ROUTES/
+# Phase 5 Stage 4/5. Same shape/reasoning as _FINANCE_ISOLATION_ROUTES/
 # _FINANCE_EXPENSE_ISOLATION_ROUTES above — no DELETE row (no archive/
 # delete-invoice endpoint this phase, ROADMAP.md Phase 5 decision 1).
+# send/cancel (Stage 5) hit the same org-scoped lookup as GET/PATCH, so
+# they belong in this same generic table.
 _FINANCE_INVOICE_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] = [
     ("GET", "/api/v1/finance/invoices/{invoice_id}", None),
     ("PATCH", "/api/v1/finance/invoices/{invoice_id}", {"notes": "Hijacked"}),
+    ("POST", "/api/v1/finance/invoices/{invoice_id}/send", None),
+    ("POST", "/api/v1/finance/invoices/{invoice_id}/cancel", None),
 ]
 
 

@@ -78,3 +78,33 @@ def render_contact_confirmation_email(
     html_body = _env.get_template("contact_confirmation.html.jinja").render(context)
     text_body = _env.get_template("contact_confirmation.txt.jinja").render(context)
     return html_body, text_body
+
+
+def render_invoice_email(
+    *,
+    organization_name: str,
+    client_name: str,
+    invoice_number: str,
+    issue_date: str,
+    due_date: str,
+    currency: str,
+    total: str,
+    view_url: str,
+) -> tuple[str, str]:
+    """Returns (html_body, text_body). ROADMAP.md's own tech-debt row ("No
+    persistent email outbox | ADR-0010 | Phase 5 invoice delivery") — sent
+    synchronously via the same `EmailSender` pipeline every other email
+    already uses, no queue."""
+    context = {
+        "organization_name": organization_name,
+        "client_name": client_name,
+        "invoice_number": invoice_number,
+        "issue_date": issue_date,
+        "due_date": due_date,
+        "currency": currency,
+        "total": total,
+        "view_url": view_url,
+    }
+    html_body = _env.get_template("invoice_sent.html.jinja").render(context)
+    text_body = _env.get_template("invoice_sent.txt.jinja").render(context)
+    return html_body, text_body

@@ -2975,7 +2975,49 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       left behind. Full backend suite (1072 tests, up from 1035), ruff,
       ruff format, and mypy all clean. `make openapi` regenerated
       `apps/web/lib/api/types.gen.ts` cleanly.
-- [ ] Stage 5 — Invoice lifecycle: send + cancel
+- [x] Stage 5 — Invoice lifecycle: send + cancel. New `platform/email/
+      templates/invoice_sent.{html,txt}.jinja` and `render.
+      render_invoice_email` — same `Environment`/autoescape pattern as
+      `render_invitation_email`, addressing ROADMAP.md's own tech-debt
+      row ("No persistent email outbox | ADR-0010 | Phase 5 invoice
+      delivery"): sent synchronously through the existing `EmailSender`
+      pipeline, no queue. `invoice_service.send_invoice`: DRAFT → SENT,
+      sets `sent_at`, rejects a client with no email on file (422) before
+      doing any work, records `invoice.sent` (ordinary feed), and returns
+      an `InvoiceSendResult` pairing the invoice with a pre-built (not
+      yet sent) `EmailMessage` — same shape as identity's own
+      `CreatedInvitation`, so the route dispatches it via `BackgroundTasks`
+      *after* the commit (EMAIL.md §3), mirroring `identity.routes.
+      invitations.invite_member` exactly. `invoice_service.cancel_invoice`:
+      any non-terminal status (everything except `PAID`/`CANCELLED`) →
+      `CANCELLED`, records `invoice.cancelled` with `audit=True` (ADR-0007:
+      "a status change with an audit event, never a delete"). Gated by its
+      own `INVOICE_CANCEL` permission, distinct from `INVOICE_WRITE` per
+      RBAC.md's separate "Invoice: cancel" row — send stays on
+      `INVOICE_WRITE`, sharing RBAC.md's single "Invoices: create/send"
+      row with `create_invoice`. `routes/invoices.py`: `POST .../send` and
+      `POST .../cancel`, registered under the existing router.
+
+      Added authz-matrix rows (send under `INVOICE_WRITE`, cancel under
+      its own `INVOICE_CANCEL`) and isolation-matrix rows (both share the
+      existing `{invoice_id}`-keyed generic table, same org-scoped lookup
+      shape as GET/PATCH) in this same commit. Extended `tests/factories.
+      make_client` with an `email` parameter (previously unset) since
+      `send_invoice`'s own client-email requirement needed a way to
+      construct a client with one.
+
+      Verification: 11 new integration tests in `tests/integration/
+      test_invoices.py` — send transitions status and dispatches exactly
+      one email (asserted via the existing `fake_email_sender` fixture,
+      to/subject/body checked), rejects a client with no email (422, and
+      confirms nothing was sent), rejects sending a non-DRAFT invoice
+      (409); cancel succeeds from every non-terminal status and is
+      rejected from both terminal ones (`PAID`/`CANCELLED`), is recorded
+      via `list_audit` and confirmed absent from `list_feed`, and is
+      ADMIN+-only (tested same-org, not cross-org, to isolate the role-
+      tier check from an org-scoping one). Full backend suite (1097
+      tests, up from 1073), ruff, ruff format, and mypy all clean.
+      `make openapi` regenerated `apps/web/lib/api/types.gen.ts` cleanly.
 - [ ] Stage 6 — Invoice PDF generation (xhtml2pdf)
 - [ ] Stage 7 — Payments (concurrent-payment test)
 - [ ] Stage 8 — Finance dashboard aggregates

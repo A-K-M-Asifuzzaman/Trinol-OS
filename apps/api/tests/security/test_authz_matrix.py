@@ -366,6 +366,15 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         Permission.INVOICE_WRITE,
         {"notes": "Matrix note"},
     ),
+    # Phase 5 Stage 5: send shares INVOICE_WRITE with create (RBAC.md's
+    # single "Invoices: create/send" row); cancel gets its own INVOICE_
+    # CANCEL permission (RBAC.md's separate "Invoice: cancel" row). The
+    # placeholder-resolved invoice's client has no email (same {invoice_id}
+    # branch as the PATCH row above) — a permitted role gets a 422, not a
+    # 200, which the assertion below treats identically to any other
+    # non-403.
+    ("POST", "/api/v1/finance/invoices/{invoice_id}/send", Permission.INVOICE_WRITE, None),
+    ("POST", "/api/v1/finance/invoices/{invoice_id}/cancel", Permission.INVOICE_CANCEL, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

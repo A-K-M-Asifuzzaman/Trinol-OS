@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <body style="margin:0; padding:0; background:#f4f4f5; font-family: Arial, Helvetica, sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5; padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
+            <tr>
+              <td style="padding:32px 40px 16px; font-size:20px; font-weight:bold; color:#111827;">{{ organization_name }}</td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px 24px; color:#111827; font-size:16px; line-height:1.5;">
+                <p>Hi {{ client_name }},</p>
+                <p>Invoice <strong>{{ invoice_number }}</strong> is ready.</p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0; font-size:14px; color:#374151;">
+                  <tr><td style="padding:4px 0;">Issue date</td><td align="right">{{ issue_date }}</td></tr>
+                  <tr><td style="padding:4px 0;">Due date</td><td align="right">{{ due_date }}</td></tr>
+                  <tr><td style="padding:4px 0; font-weight:bold;">Amount due</td><td align="right" style="font-weight:bold;">{{ currency }} {{ total }}</td></tr>
+                </table>
+                <p style="margin:24px 0;">
+                  <a href="{{ view_url }}" style="background:#111827; color:#ffffff; padding:12px 24px; border-radius:6px; text-decoration:none; display:inline-block;">View invoice</a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 40px; border-top:1px solid #e5e7eb; color:#6b7280; font-size:12px;">
+                TrinolIT &middot; <a href="https://www.trinolit.com" style="color:#6b7280;">www.trinolit.com</a> &middot; hello@trinolit.com
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

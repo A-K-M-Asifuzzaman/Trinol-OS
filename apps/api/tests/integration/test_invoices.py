@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.factories import make_client, make_invoice, make_membership, make_organization, make_user
-from tests.helpers import login_as
+from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import Role
 from trinol.core.config import _ENV_FILE
 from trinol.core.db.engine import get_session_factory
@@ -19,6 +19,7 @@ from trinol.modules.crm.models import Client
 from trinol.modules.finance.models import Invoice, InvoiceCounter, InvoiceItem, InvoiceStatus
 from trinol.modules.finance.services.invoice_service import LineItemInput, create_invoice
 from trinol.modules.identity.models import Membership, Organization, User
+from trinol.platform.activity import list_audit, list_feed
 from trinol.platform.models import ActivityEvent
 
 pytestmark = pytest.mark.usefixtures("db_session")
@@ -306,6 +307,189 @@ async def test_update_non_draft_invoice_is_rejected(
         headers={"X-CSRF-Token": actor.csrf_token},
     )
     assert response.status_code == 409
+
+
+async def test_send_invoice_transitions_status_and_dispatches_email(
+    client: AsyncClient, fake_verifier, db_session, fake_email_sender
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    client_row = await make_client(
+        db_session, organization=actor.organization, email="client@x.com"
+    )
+    await db_session.commit()
+
+    create_response = await client.post(
+        "/api/v1/finance/invoices",
+        json=_client_payload(client_id=str(client_row.id)),
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    invoice_id = create_response.json()["id"]
+
+    response = await client.post(
+        f"/api/v1/finance/invoices/{invoice_id}/send",
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "SENT"
+    assert body["sent_at"] is not None
+
+    assert len(fake_email_sender.sent) == 1
+    message = fake_email_sender.sent[0]
+    assert message.to == "client@x.com"
+    assert body["invoice_number"] in message.subject
+    assert body["invoice_number"] in message.text_body
+
+
+async def test_send_invoice_rejects_client_with_no_email(
+    client: AsyncClient, fake_verifier, db_session, fake_email_sender
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=actor.organization)
+    assert client_row.email is None
+    await db_session.commit()
+
+    create_response = await client.post(
+        "/api/v1/finance/invoices",
+        json=_client_payload(client_id=str(client_row.id)),
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    invoice_id = create_response.json()["id"]
+
+    response = await client.post(
+        f"/api/v1/finance/invoices/{invoice_id}/send",
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 422
+    assert fake_email_sender.sent == []
+
+
+async def test_sending_a_non_draft_invoice_is_rejected(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=actor.organization, email="c@x.com")
+    sent_invoice = await make_invoice(
+        db_session,
+        organization=actor.organization,
+        client=client_row,
+        created_by=actor.membership,
+        status=InvoiceStatus.SENT,
+    )
+    await db_session.commit()
+
+    response = await client.post(
+        f"/api/v1/finance/invoices/{sent_invoice.id}/send",
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize(
+    "status", [InvoiceStatus.DRAFT, InvoiceStatus.SENT, InvoiceStatus.PARTIALLY_PAID]
+)
+async def test_cancel_invoice_from_non_terminal_status(
+    client: AsyncClient, fake_verifier, db_session, status: InvoiceStatus
+) -> None:
+    """ADR-0007: 'Cancellation is a status change with an audit event,
+    never a delete' — every non-terminal status may transition to
+    CANCELLED."""
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=actor.organization)
+    invoice = await make_invoice(
+        db_session,
+        organization=actor.organization,
+        client=client_row,
+        created_by=actor.membership,
+        status=status,
+    )
+    await db_session.commit()
+
+    response = await client.post(
+        f"/api/v1/finance/invoices/{invoice.id}/cancel",
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "CANCELLED"
+
+
+@pytest.mark.parametrize("status", [InvoiceStatus.PAID, InvoiceStatus.CANCELLED])
+async def test_cancel_invoice_from_terminal_status_is_rejected(
+    client: AsyncClient, fake_verifier, db_session, status: InvoiceStatus
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=actor.organization)
+    invoice = await make_invoice(
+        db_session,
+        organization=actor.organization,
+        client=client_row,
+        created_by=actor.membership,
+        status=status,
+    )
+    await db_session.commit()
+
+    response = await client.post(
+        f"/api/v1/finance/invoices/{invoice.id}/cancel",
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 409
+
+
+async def test_cancel_invoice_is_audited_and_absent_from_ordinary_feed(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=actor.organization)
+    invoice = await make_invoice(
+        db_session, organization=actor.organization, client=client_row, created_by=actor.membership
+    )
+    await db_session.commit()
+
+    response = await client.post(
+        f"/api/v1/finance/invoices/{invoice.id}/cancel",
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 200
+
+    audit_rows = await list_audit(db_session, organization_id=actor.organization.id)
+    cancelled_events = [row for row in audit_rows if row.event == "invoice.cancelled"]
+    assert len(cancelled_events) == 1
+    assert str(cancelled_events[0].entity_id) == str(invoice.id)
+
+    feed_result = await list_feed(db_session, organization_id=actor.organization.id)
+    feed_events = [row for row in feed_result if row.event == "invoice.cancelled"]
+    assert feed_events == []
+
+
+@pytest.mark.parametrize("role", [Role.MEMBER, Role.MANAGER])
+async def test_member_and_manager_cannot_cancel_invoice(
+    client: AsyncClient, fake_verifier, db_session, role: Role
+) -> None:
+    """Same org as the invoice — proves the 403 is the role-tier check
+    (INVOICE_CANCEL is ADMIN+-only), not merely a cross-org 404 in
+    disguise."""
+    org = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"cancel-owner-{org.id}@x.com")
+    owner = await make_membership(db_session, organization=org, user=owner_user, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=org)
+    invoice = await make_invoice(db_session, organization=org, client=client_row, created_by=owner)
+    await db_session.commit()
+
+    actor_user = await make_user(db_session, email=f"cancel-actor-{org.id}-{role.value}@x.com")
+    actor_membership = await make_membership(
+        db_session, organization=org, user=actor_user, role=role
+    )
+    await db_session.commit()
+    actor = await login_as_existing(
+        client, fake_verifier, user=actor_user, membership=actor_membership, organization=org
+    )
+
+    response = await client.post(
+        f"/api/v1/finance/invoices/{invoice.id}/cancel",
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 403
 
 
 async def test_invoice_in_another_org_is_404(

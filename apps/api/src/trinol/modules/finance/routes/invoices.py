@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Permission
@@ -21,13 +21,17 @@ from trinol.modules.finance.schemas import (
 from trinol.modules.finance.services.invoice_service import (
     InvoiceWithItems,
     LineItemInput,
+    cancel_invoice,
     create_invoice,
     get_invoice,
     list_invoices,
+    send_invoice,
     update_invoice,
 )
 from trinol.modules.identity.deps import get_current_membership
 from trinol.modules.identity.models import Membership
+from trinol.platform.email.deps import get_email_sender
+from trinol.platform.email.protocol import EmailSender
 
 router = APIRouter(prefix="/api/v1/finance/invoices", tags=["finance"])
 
@@ -169,5 +173,43 @@ async def update_invoice_route(
         actor=membership,
         invoice_id=invoice_id,
         updates=updates,
+    )
+    return invoice_to_response(pair)
+
+
+@router.post(
+    "/{invoice_id}/send",
+    response_model=InvoiceResponse,
+    dependencies=[Depends(require(Permission.INVOICE_WRITE))],
+)
+async def send_invoice_route(
+    invoice_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+    sender: EmailSender = Depends(get_email_sender),
+) -> InvoiceResponse:
+    result = await send_invoice(
+        db, organization_id=membership.organization_id, actor=membership, invoice_id=invoice_id
+    )
+    # EMAIL.md §3: dispatched only after send_invoice's own commit above,
+    # never blocking or failing this response — same pattern as
+    # identity.routes.invitations.invite_member.
+    background_tasks.add_task(sender.send, result.email_message)
+    return invoice_to_response(result.invoice_with_items)
+
+
+@router.post(
+    "/{invoice_id}/cancel",
+    response_model=InvoiceResponse,
+    dependencies=[Depends(require(Permission.INVOICE_CANCEL))],
+)
+async def cancel_invoice_route(
+    invoice_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> InvoiceResponse:
+    pair = await cancel_invoice(
+        db, organization_id=membership.organization_id, actor=membership, invoice_id=invoice_id
     )
     return invoice_to_response(pair)

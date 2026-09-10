@@ -168,6 +168,7 @@ async def make_client(
     *,
     organization: Organization,
     name: str = "Test Client",
+    email: str | None = None,
     owner: Membership | None = None,
     status: ClientStatus = ClientStatus.ACTIVE,
 ) -> Client:
@@ -175,6 +176,7 @@ async def make_client(
         id=uuid7(),
         organization_id=organization.id,
         name=name,
+        email=email,
         status=status,
         owner_id=owner.user_id if owner is not None else None,
     )

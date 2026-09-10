@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.db.org_session import OrgSession
+from trinol.core.deps import get_settings
 from trinol.core.errors import (
     ConflictError,
     ForbiddenError,
@@ -21,9 +22,11 @@ from trinol.core.ids import uuid7
 from trinol.modules.crm.services.client_service import get_client_in_org
 from trinol.modules.finance.models import Invoice, InvoiceItem, InvoiceStatus
 from trinol.modules.finance.services.invoice_counter_service import next_invoice_number
-from trinol.modules.identity.models import Membership
+from trinol.modules.identity.models import Membership, Organization
 from trinol.modules.work.services.project_service import get_project_in_org
 from trinol.platform.activity import record
+from trinol.platform.email.protocol import EmailMessage
+from trinol.platform.email.render import render_invoice_email
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +50,18 @@ class InvoiceWithItems:
 class InvoiceList:
     items: list[InvoiceWithItems]
     total: int
+
+
+@dataclass(frozen=True, slots=True)
+class InvoiceSendResult:
+    """Pairs the now-SENT invoice with its pre-built (never yet sent)
+    email — same shape as identity.services.invitation_service's own
+    `CreatedInvitation`. The route dispatches `email_message` via
+    `BackgroundTasks` *after* this function's own commit (EMAIL.md §3);
+    this function only builds the message, never sends it."""
+
+    invoice_with_items: InvoiceWithItems
+    email_message: EmailMessage
 
 
 def ensure_actor_in_org(actor: Membership, organization_id: uuid.UUID) -> None:
@@ -385,6 +400,107 @@ async def update_invoice(
                 )
             )
 
+    await db.commit()
+    return await _load_invoice_with_items(
+        db, organization_id=organization_id, invoice_id=invoice_id
+    )
+
+
+async def send_invoice(
+    db: AsyncSession, *, organization_id: uuid.UUID, actor: Membership, invoice_id: uuid.UUID
+) -> InvoiceSendResult:
+    """ADR-0007: 'Once SENT, financial fields are frozen' — `update_invoice`
+    already enforces that once `status != DRAFT`. RBAC.md's "Invoices:
+    create/send" is one row/one permission (`INVOICE_WRITE`) covering both
+    this and `create_invoice`. The email is rendered and the entity
+    committed here; the route dispatches it via `BackgroundTasks`
+    (ROADMAP.md's own tech-debt row: no persistent email outbox, no queue,
+    same synchronous `EmailSender` pipeline every other email uses)."""
+    ensure_actor_in_org(actor, organization_id)
+    invoice = await get_invoice_in_org(db, organization_id=organization_id, invoice_id=invoice_id)
+    if invoice.status != InvoiceStatus.DRAFT:
+        raise ConflictError("Only a DRAFT invoice can be sent")
+
+    client = await get_client_in_org(
+        db, organization_id=organization_id, client_id=invoice.client_id
+    )
+    if not client.email:
+        raise UnprocessableEntityError(
+            "This client has no email address on file — add one before sending"
+        )
+
+    org_result = await db.execute(select(Organization).where(Organization.id == organization_id))
+    organization = org_result.scalar_one()
+
+    invoice.status = InvoiceStatus.SENT
+    invoice.sent_at = datetime.now(UTC)
+
+    await record(
+        db,
+        organization_id=organization_id,
+        event="invoice.sent",
+        entity_type="invoice",
+        entity_id=invoice.id,
+        actor_id=actor.user_id,
+        metadata={"invoice_number": invoice.invoice_number},
+    )
+
+    settings = get_settings()
+    html_body, text_body = render_invoice_email(
+        organization_name=organization.name,
+        client_name=client.name,
+        invoice_number=invoice.invoice_number,
+        issue_date=invoice.issue_date.isoformat(),
+        due_date=invoice.due_date.isoformat(),
+        currency=invoice.currency,
+        total=str(invoice.total),
+        view_url=f"{settings.app_origin}/invoices/{invoice.id}",
+    )
+    email_message = EmailMessage(
+        to=client.email,
+        subject=f"Invoice {invoice.invoice_number} from {organization.name}",
+        html_body=html_body,
+        text_body=text_body,
+    )
+
+    await db.commit()
+    pair = await _load_invoice_with_items(
+        db, organization_id=organization_id, invoice_id=invoice_id
+    )
+    return InvoiceSendResult(invoice_with_items=pair, email_message=email_message)
+
+
+# Cancellable: everything except the two terminal states — an invoice that
+# is already fully PAID or already CANCELLED can't be cancelled again.
+_TERMINAL_STATUSES = (InvoiceStatus.PAID, InvoiceStatus.CANCELLED)
+
+
+async def cancel_invoice(
+    db: AsyncSession, *, organization_id: uuid.UUID, actor: Membership, invoice_id: uuid.UUID
+) -> InvoiceWithItems:
+    """ADR-0007: 'Cancellation is a status change with an audit event,
+    never a delete.' Gated by its own `INVOICE_CANCEL` permission
+    (RBAC.md's own separate 'Invoice: cancel' row), distinct from
+    `INVOICE_WRITE`."""
+    ensure_actor_in_org(actor, organization_id)
+    invoice = await get_invoice_in_org(db, organization_id=organization_id, invoice_id=invoice_id)
+    if invoice.status in _TERMINAL_STATUSES:
+        raise ConflictError(
+            f"An invoice that is already {invoice.status.value} cannot be cancelled"
+        )
+
+    invoice.status = InvoiceStatus.CANCELLED
+
+    await record(
+        db,
+        organization_id=organization_id,
+        event="invoice.cancelled",
+        entity_type="invoice",
+        entity_id=invoice.id,
+        actor_id=actor.user_id,
+        metadata={"invoice_number": invoice.invoice_number},
+        audit=True,
+    )
     await db.commit()
     return await _load_invoice_with_items(
         db, organization_id=organization_id, invoice_id=invoice_id
