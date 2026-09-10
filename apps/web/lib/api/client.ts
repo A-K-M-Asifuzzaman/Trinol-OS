@@ -545,3 +545,14 @@ export async function promoteMeetingAction(
     { method: "POST" },
   );
 }
+
+// Phase 5 Stage 8: only the dashboard aggregate this stage needs — the
+// rest of the finance module's own types/fetchers (income/expenses/
+// invoices/payments) land in Stage 10's frontend build.
+export type FinanceStats = components["schemas"]["FinanceStatsResponse"];
+
+export async function fetchFinanceStats(
+  cookie?: string,
+): Promise<FinanceStats> {
+  return apiFetch<FinanceStats>("/api/v1/finance/stats", { cookie });
+}

@@ -3146,7 +3146,61 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       were left behind. Full backend suite (1140 tests, up from 1112),
       ruff, ruff format, and mypy all clean. `make openapi` regenerated
       `apps/web/lib/api/types.gen.ts` cleanly.
-- [ ] Stage 8 — Finance dashboard aggregates
+- [x] Stage 8 — Finance dashboard aggregates. `modules/finance/services/
+      dashboard_service.py::get_finance_stats` mirrors `crm.lead_service.
+      get_lead_stats`'s exact shape — one service function, a handful of
+      aggregate queries, a small dataclass, the same multi-currency
+      `ponytail:` disclaimer. MASTER_PROMPT §19's six tiles, per ROADMAP.md
+      Phase 5 decision 5's own settled data sources: revenue/expenses this
+      month (`sum(amount)` over the calendar month, computed via Python
+      month-boundary arithmetic — no stdlib month-add exists, so a small
+      `_add_months` helper does it); net cash flow (subtracted in Python,
+      not its own query); outstanding invoices (`count`/`sum(total -
+      amount_paid)` where `status IN (SENT, PARTIALLY_PAID)`, defensively
+      filtering `archived_at.is_(None)` per ADR-0011); revenue trend
+      (`GROUP BY date_trunc('month', received_on)` over a fixed 6-month
+      window); expense breakdown (`GROUP BY category` over the current
+      month, same window as the "expenses this month" tile).
+
+      **Found and fixed while writing the first test, not by Codex**:
+      `date_trunc('month', date)` resolves through an implicit cast to
+      `timestamptz`, so the truncation happens in whatever timezone the
+      *executing session* is set to — confirmed empirically that a
+      Dhaka-timezone (`+06`) session and this app's own UTC-reading
+      connection disagreed by a full calendar day on the exact same row.
+      Fixed by casting `received_on` to a plain (zoneless) `timestamp`
+      before truncating, making it a pure calendar operation immune to
+      any session's timezone setting — verified directly via `psql`
+      (`pg_typeof`) before and after the fix, not assumed.
+
+      `modules/finance/routes/dashboard.py`: `GET /finance/stats`, its own
+      router (not nested under income/expenses/invoices — the aggregate
+      spans all three, same reasoning `leads/stats` gets its own static
+      route rather than living under one entity's prefix), gated
+      `FINANCE_READ`. No isolation-matrix row needed — a static path with
+      no parent resource to isolate against, same as `/leads/stats`'s own
+      precedent. Frontend: `dashboard/page.tsx` gained one more
+      `getFinanceStats()` call in its existing `Promise.all`, reusing the
+      identical per-tile try/catch-returns-null pattern every other tile
+      already uses — confirmed directly (Phase 5 planning) that no
+      separate backend aggregator exists to patch, so RBAC.md's "omitted
+      from the API response, not filtered in the browser" requirement is
+      satisfied automatically: a MEMBER/MANAGER's own server-side fetch
+      403s, caught by the same try/catch, and the two finance tiles are
+      omitted entirely (not shown with a "—" placeholder like every other
+      tile's own not-yet-known state) rather than hidden client-side.
+
+      Verification: 5 new integration tests in `tests/integration/
+      test_finance_dashboard.py` — a realistic multi-row scenario across
+      income/expenses/invoices asserting every one of the six tiles'
+      exact computed values (including the revenue-trend month key and
+      expense-breakdown-by-category), an all-zero/empty baseline with no
+      data, cross-org exclusion, and role gating. Added the authz-matrix
+      row in this same commit. Full backend suite (1150 tests, up from
+      1140), ruff, ruff format, and mypy all clean. Frontend: `pnpm
+      typecheck`/`lint`/`exec prettier --check`/`test` (60 tests)/`build`
+      all green. `make openapi` regenerated `apps/web/lib/api/
+      types.gen.ts` cleanly.
 - [ ] Stage 9 — Activity feed wiring
 - [ ] Stage 10 — Frontend
 - [ ] Stage 11 — Security matrices

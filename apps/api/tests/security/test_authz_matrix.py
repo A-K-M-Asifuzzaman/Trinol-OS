@@ -390,6 +390,10 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         {"amount": "10.00", "paid_on": "2026-01-01", "method": "cash"},
     ),
     ("GET", "/api/v1/finance/invoices/{invoice_id}/payments", Permission.FINANCE_READ, None),
+    # Phase 5 Stage 8: the dashboard aggregate, same FINANCE_READ tier as
+    # every other read in this module — no placeholder to resolve, a
+    # static path with no parent resource.
+    ("GET", "/api/v1/finance/stats", Permission.FINANCE_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

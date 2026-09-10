@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  fetchFinanceStats,
   fetchLeads,
   fetchLeadStats,
   fetchProjects,
@@ -45,23 +46,52 @@ async function getLeadStats(): Promise<{
   }
 }
 
+// RBAC.md §3: "Finance is invisible to MEMBER and MANAGER — not merely
+// hidden in navigation... the dashboard's finance widgets are omitted
+// from the API response rather than filtered in the browser." A MEMBER/
+// MANAGER's own server-side fetch here 403s, caught by this same
+// try/catch every other tile's own fetcher already uses (ROADMAP.md
+// Phase 5 Stage 8 decision) — no separate backend aggregator or
+// client-side role check needed.
+async function getFinanceStats(): Promise<{
+  netCashFlow: string | null;
+  outstandingInvoicesTotal: string | null;
+} | null> {
+  try {
+    const stats = await fetchFinanceStats(await getServerCookieHeader());
+    return {
+      netCashFlow: stats.net_cash_flow,
+      outstandingInvoicesTotal: stats.outstanding_invoices_total,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default async function DashboardPage() {
-  const [teamCount, taskCount, projectCount, leadCount, leadStats] =
-    await Promise.all([
-      getCount(fetchTeamMembers),
-      // `ponytail: total task/project count, not a status-filtered one — the
-      // list endpoints have no status filter for projects and only a single
-      // equality filter for tasks, so a true filtered count needs either a
-      // dedicated count endpoint or several requests; add when a real report
-      // needs it` (MASTER_PROMPT §21's own "Recent activity" widget is the
-      // richer version of this, already built in Stage 7). Tile labels below
-      // say "Total", not "Open"/"Active", so they stay honest about what's
-      // actually counted (Codex Stage 8 review P2).
-      getCount(fetchTasks),
-      getCount(fetchProjects),
-      getCount(fetchLeads),
-      getLeadStats(),
-    ]);
+  const [
+    teamCount,
+    taskCount,
+    projectCount,
+    leadCount,
+    leadStats,
+    financeStats,
+  ] = await Promise.all([
+    getCount(fetchTeamMembers),
+    // `ponytail: total task/project count, not a status-filtered one — the
+    // list endpoints have no status filter for projects and only a single
+    // equality filter for tasks, so a true filtered count needs either a
+    // dedicated count endpoint or several requests; add when a real report
+    // needs it` (MASTER_PROMPT §21's own "Recent activity" widget is the
+    // richer version of this, already built in Stage 7). Tile labels below
+    // say "Total", not "Open"/"Active", so they stay honest about what's
+    // actually counted (Codex Stage 8 review P2).
+    getCount(fetchTasks),
+    getCount(fetchProjects),
+    getCount(fetchLeads),
+    getLeadStats(),
+    getFinanceStats(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -117,6 +147,22 @@ export default async function DashboardPage() {
               : String(leadStats.followUpsDue)
           }
         />
+        {/* RBAC.md §3: omitted entirely for MEMBER/MANAGER (whose own
+        server-side fetch above 403s), not shown with a "—" placeholder
+        like the tiles above — those are visible-but-unknown, this is
+        not-visible-at-all. */}
+        {financeStats && (
+          <>
+            <DashboardTile
+              label="Net cash flow"
+              value={financeStats.netCashFlow ?? "—"}
+            />
+            <DashboardTile
+              label="Outstanding invoices"
+              value={financeStats.outstandingInvoicesTotal ?? "—"}
+            />
+          </>
+        )}
       </div>
     </div>
   );

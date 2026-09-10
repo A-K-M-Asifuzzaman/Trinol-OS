@@ -903,6 +903,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Finance Stats Route */
+        get: operations["get_finance_stats_route_api_v1_finance_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1141,6 +1158,12 @@ export interface components {
             /** Reference Number */
             reference_number: string;
         };
+        /** ExpenseBreakdownPointResponse */
+        ExpenseBreakdownPointResponse: {
+            category: components["schemas"]["ExpenseCategory"];
+            /** Amount */
+            amount: string;
+        };
         /**
          * ExpenseCategory
          * @description MASTER_PROMPT §19's 10-value category list.
@@ -1254,6 +1277,27 @@ export interface components {
             payment_method?: string | null;
             /** Notes */
             notes?: string | null;
+        };
+        /**
+         * FinanceStatsResponse
+         * @description MASTER_PROMPT §19's six dashboard tiles. Every amount is a plain
+         *     `Decimal` — same reasoning as every other response in this module.
+         */
+        FinanceStatsResponse: {
+            /** Revenue This Month */
+            revenue_this_month: string;
+            /** Expenses This Month */
+            expenses_this_month: string;
+            /** Net Cash Flow */
+            net_cash_flow: string;
+            /** Outstanding Invoices Count */
+            outstanding_invoices_count: number;
+            /** Outstanding Invoices Total */
+            outstanding_invoices_total: string;
+            /** Revenue Trend */
+            revenue_trend: components["schemas"]["RevenueTrendPointResponse"][];
+            /** Expense Breakdown */
+            expense_breakdown: components["schemas"]["ExpenseBreakdownPointResponse"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2399,6 +2443,16 @@ export interface components {
             production_url?: string | null;
             /** Staging Url */
             staging_url?: string | null;
+        };
+        /** RevenueTrendPointResponse */
+        RevenueTrendPointResponse: {
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /** Amount */
+            amount: string;
         };
         /**
          * Role
@@ -5731,6 +5785,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_finance_stats_route_api_v1_finance_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinanceStatsResponse"];
                 };
             };
         };

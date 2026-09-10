@@ -336,3 +336,26 @@ class PaymentResponse(BaseModel):
 class PaymentListResponse(BaseModel):
     items: list[PaymentResponse]
     total: int
+
+
+class RevenueTrendPointResponse(BaseModel):
+    month: date
+    amount: Decimal
+
+
+class ExpenseBreakdownPointResponse(BaseModel):
+    category: ExpenseCategory
+    amount: Decimal
+
+
+class FinanceStatsResponse(BaseModel):
+    """MASTER_PROMPT §19's six dashboard tiles. Every amount is a plain
+    `Decimal` — same reasoning as every other response in this module."""
+
+    revenue_this_month: Decimal
+    expenses_this_month: Decimal
+    net_cash_flow: Decimal
+    outstanding_invoices_count: int
+    outstanding_invoices_total: Decimal
+    revenue_trend: list[RevenueTrendPointResponse]
+    expense_breakdown: list[ExpenseBreakdownPointResponse]
