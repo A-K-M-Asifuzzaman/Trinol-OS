@@ -353,3 +353,195 @@ export async function archiveClient(clientId: string): Promise<Client> {
 export async function fetchPipeline(cookie?: string): Promise<PipelineBoard> {
   return apiFetch<PipelineBoard>("/api/v1/pipeline", { cookie });
 }
+
+export type Meeting = components["schemas"]["MeetingResponse"];
+export type MeetingList = components["schemas"]["MeetingListResponse"];
+export type MeetingCreateRequest =
+  components["schemas"]["MeetingCreateRequest"];
+export type MeetingUpdateRequest =
+  components["schemas"]["MeetingUpdateRequest"];
+// Generated name is mangled — it collided with the model's own RSVP-status
+// enum (models.MeetingParticipantResponse), so openapi-typescript qualified
+// both by their Python module path instead of picking one.
+export type MeetingParticipant =
+  components["schemas"]["trinol__modules__meetings__schemas__MeetingParticipantResponse"];
+export type MeetingParticipantList =
+  components["schemas"]["MeetingParticipantListResponse"];
+export type MeetingParticipantAddRequest =
+  components["schemas"]["MeetingParticipantAddRequest"];
+export type MeetingParticipantResponseUpdateRequest =
+  components["schemas"]["MeetingParticipantResponseUpdateRequest"];
+export type MeetingDecision = components["schemas"]["MeetingDecisionResponse"];
+export type MeetingDecisionList =
+  components["schemas"]["MeetingDecisionListResponse"];
+export type MeetingDecisionCreateRequest =
+  components["schemas"]["MeetingDecisionCreateRequest"];
+export type MeetingAction = components["schemas"]["MeetingActionResponse"];
+export type MeetingActionList =
+  components["schemas"]["MeetingActionListResponse"];
+export type MeetingActionCreateRequest =
+  components["schemas"]["MeetingActionCreateRequest"];
+export type MeetingActionUpdateRequest =
+  components["schemas"]["MeetingActionUpdateRequest"];
+
+export async function fetchMeetings(
+  options: { limit?: number; offset?: number; cookie?: string } = {},
+): Promise<MeetingList> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<MeetingList>(`/api/v1/meetings${query ? `?${query}` : ""}`, {
+    cookie: options.cookie,
+  });
+}
+
+export async function fetchMeeting(
+  meetingId: string,
+  cookie?: string,
+): Promise<Meeting> {
+  return apiFetch<Meeting>(`/api/v1/meetings/${meetingId}`, { cookie });
+}
+
+export async function createMeeting(
+  body: MeetingCreateRequest,
+): Promise<Meeting> {
+  return apiFetch<Meeting>("/api/v1/meetings", { method: "POST", body });
+}
+
+export async function updateMeeting(
+  meetingId: string,
+  body: MeetingUpdateRequest,
+): Promise<Meeting> {
+  return apiFetch<Meeting>(`/api/v1/meetings/${meetingId}`, {
+    method: "PATCH",
+    body,
+  });
+}
+
+export async function deleteMeeting(meetingId: string): Promise<void> {
+  return apiFetch<void>(`/api/v1/meetings/${meetingId}`, { method: "DELETE" });
+}
+
+export async function fetchMeetingParticipants(
+  meetingId: string,
+  cookie?: string,
+): Promise<MeetingParticipantList> {
+  return apiFetch<MeetingParticipantList>(
+    `/api/v1/meetings/${meetingId}/participants`,
+    { cookie },
+  );
+}
+
+export async function addMeetingParticipant(
+  meetingId: string,
+  body: MeetingParticipantAddRequest,
+): Promise<MeetingParticipant> {
+  return apiFetch<MeetingParticipant>(
+    `/api/v1/meetings/${meetingId}/participants`,
+    { method: "POST", body },
+  );
+}
+
+export async function removeMeetingParticipant(
+  meetingId: string,
+  participantId: string,
+): Promise<void> {
+  return apiFetch<void>(
+    `/api/v1/meetings/${meetingId}/participants/${participantId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function updateMeetingParticipantResponse(
+  meetingId: string,
+  participantId: string,
+  body: MeetingParticipantResponseUpdateRequest,
+): Promise<MeetingParticipant> {
+  return apiFetch<MeetingParticipant>(
+    `/api/v1/meetings/${meetingId}/participants/${participantId}`,
+    { method: "PATCH", body },
+  );
+}
+
+export async function fetchMeetingDecisions(
+  meetingId: string,
+  cookie?: string,
+): Promise<MeetingDecisionList> {
+  return apiFetch<MeetingDecisionList>(
+    `/api/v1/meetings/${meetingId}/decisions`,
+    { cookie },
+  );
+}
+
+export async function createMeetingDecision(
+  meetingId: string,
+  body: MeetingDecisionCreateRequest,
+): Promise<MeetingDecision> {
+  return apiFetch<MeetingDecision>(`/api/v1/meetings/${meetingId}/decisions`, {
+    method: "POST",
+    body,
+  });
+}
+
+export async function deleteMeetingDecision(
+  meetingId: string,
+  decisionId: string,
+): Promise<void> {
+  return apiFetch<void>(
+    `/api/v1/meetings/${meetingId}/decisions/${decisionId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function fetchMeetingActions(
+  meetingId: string,
+  cookie?: string,
+): Promise<MeetingActionList> {
+  return apiFetch<MeetingActionList>(`/api/v1/meetings/${meetingId}/actions`, {
+    cookie,
+  });
+}
+
+export async function createMeetingAction(
+  meetingId: string,
+  body: MeetingActionCreateRequest,
+): Promise<MeetingAction> {
+  return apiFetch<MeetingAction>(`/api/v1/meetings/${meetingId}/actions`, {
+    method: "POST",
+    body,
+  });
+}
+
+export async function updateMeetingAction(
+  meetingId: string,
+  actionId: string,
+  body: MeetingActionUpdateRequest,
+): Promise<MeetingAction> {
+  return apiFetch<MeetingAction>(
+    `/api/v1/meetings/${meetingId}/actions/${actionId}`,
+    { method: "PATCH", body },
+  );
+}
+
+export async function deleteMeetingAction(
+  meetingId: string,
+  actionId: string,
+): Promise<void> {
+  return apiFetch<void>(`/api/v1/meetings/${meetingId}/actions/${actionId}`, {
+    method: "DELETE",
+  });
+}
+
+// Returns the newly created Task, not a MeetingAction — promote_action's
+// own response_model is TaskResponse (ROADMAP.md Phase 4 Stage 5).
+export async function promoteMeetingAction(
+  meetingId: string,
+  actionId: string,
+): Promise<Task> {
+  return apiFetch<Task>(
+    `/api/v1/meetings/${meetingId}/actions/${actionId}/promote`,
+    { method: "POST" },
+  );
+}

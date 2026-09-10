@@ -41,4 +41,18 @@ describe("Sidebar", () => {
       "/pipeline",
     );
   });
+
+  it("shows Meetings as a real link (Phase 4 Stage 7)", () => {
+    render(<Sidebar role="MEMBER" />);
+    expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute(
+      "href",
+      "/meetings",
+    );
+  });
+
+  it("still disables Calendar — no in-app calendar view this phase", () => {
+    render(<Sidebar role="MEMBER" />);
+    const calendar = screen.getByText("Calendar");
+    expect(calendar).toHaveAttribute("aria-disabled", "true");
+  });
 });

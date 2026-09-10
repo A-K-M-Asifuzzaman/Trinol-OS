@@ -2462,6 +2462,123 @@ four soft-deleted entities) with a same-transaction audit event.
       9 new backend tests (908 → 917); ruff, ruff format, mypy, `make
       openapi` (no diff — test-only stage) all green.
 
+- [x] Stage 7 — Frontend: Meetings pages, nav. First frontend stage this
+      phase — everything through Stage 6 was backend-only. Explored the
+      exact existing Leads/Clients patterns before writing anything
+      (`leads/page.tsx`'s four-state list + inline create form,
+      `clients/[id]/page.tsx`'s tab strip with empty-state-only tabs,
+      `role-context.tsx`, `lib/api/client.ts`'s wrapper shape), then
+      independently re-verified the highest-stakes claims directly rather
+      than trusting a research pass at face value: the sidebar's exact
+      `NAV_GROUPS` structure, `client.ts`'s Lead section, `role-context.tsx`
+      in full, and — the most surprising claim — `types.gen.ts`'s mangled
+      participant-response type name (confirmed by direct grep:
+      `trinol__modules__meetings__schemas__MeetingParticipantResponse` for
+      the response schema, `trinol__modules__meetings__models__
+      MeetingParticipantResponse` for the RSVP enum, `MeetingParticipant
+      Response-Input` for the request-side enum literal — three different
+      names for what the backend calls by only two, since
+      openapi-typescript had to disambiguate the schema/model name
+      collision Stage 3 introduced).
+
+      `lib/api/client.ts`: `Meeting`/`MeetingList`/`MeetingCreateRequest`/
+      `MeetingUpdateRequest` types and `fetchMeetings`/`fetchMeeting`/
+      `createMeeting`/`updateMeeting`/`deleteMeeting`, plus participant/
+      decision/action sub-resource wrappers and `promoteMeetingAction`
+      (typed to return `Task`, not a meeting-action type — `promote_
+      action`'s own `response_model` is `TaskResponse`, confirmed directly
+      in `types.gen.ts` before writing the wrapper, not assumed from the
+      name).
+
+      `app/(app)/meetings/page.tsx`: four-state list (loading/error/empty/
+      populated) mirroring `leads/page.tsx` exactly, plus an inline create
+      form (title, start/end `datetime-local` inputs converted to UTC ISO
+      via `new Date(...).toISOString()` — the standard, no custom
+      timezone handling needed). Unlike Leads/Clients, the "New meeting"
+      control is never role-gated — RBAC.md §2's "Meetings: create/edit
+      own" is granted to every role, confirmed directly rather than
+      reusing `useCanManageCrm` (which is CRM-specific by its own
+      docstring) or inventing a new hook.
+
+      `app/(app)/meetings/[id]/page.tsx`: the five MASTER_PROMPT §14 tabs.
+      Agenda and Notes are read-only, rendering the meeting's own
+      `description`/`notes` fields directly — Agenda has no backing field
+      anywhere in DATABASE.md (confirmed during planning), so this is the
+      closest honest fit, not a query. Attendees: list + add (team-member
+      picker via the existing `fetchTeamMembers`, or a plain external-email
+      input — the two identity paths `MeetingParticipantAddRequest` itself
+      models) + remove + per-row RSVP `<select>`. Decisions: list + create
+      + delete, no edit (append-only in spirit, matches the backend's own
+      Stage 4 decision). Action Items: list + create + delete + a
+      "Promote to task" button that becomes a "View task" link once
+      `task_id` is set. No edit UI for the meeting's own fields
+      (title/description/notes/etc.) or for action items — the plan's own
+      exit criteria never asked for one. `ponytail: read-only meeting
+      fields and action items, add edit forms when requested.` No
+      client-side permission pre-check anywhere (confirmed this is the
+      established pattern by reading `projects/[id]/page.tsx`'s
+      `handleMoveTask` directly) — every mutation attempts the call and
+      surfaces whatever `ApiError` comes back through a local `role="alert"`
+      message, same shape as every other mutation in this app.
+
+      `components/nav/sidebar.tsx`: added `href: "/meetings"` to the
+      COMPANY group's existing placeholder entry — confirmed via direct
+      read that this really is the only diff between disabled-placeholder
+      and live nav item (Team/Leads/Clients already prove the pattern).
+      `Calendar` (WORK group) deliberately left with no `href` — no in-app
+      calendar-grid view this phase (Phase 4 planning decision, ADR-0012).
+
+      `tests/meetings.test.tsx` (5 tests) and `tests/meeting-detail.test.tsx`
+      (5 tests): four-state list coverage, the always-visible create
+      control (no role gating to test, unlike Leads), delete-meeting error
+      handling, and one representative create-then-see-it-appear
+      interaction per tab (Attendees, Decisions, and the full
+      promote-then-link-to-task flow) — matching Phase 2/3's own
+      representative-not-exhaustive scope for detail-page tests. Two MSW
+      handlers needed a stateful call counter rather than two static
+      handlers for the same route (registering a second `server.use()` for
+      an already-matched path doesn't override the first the way two
+      sequential `.use()` calls might suggest — MSW checks the
+      most-recently-registered handler first for every request, not just
+      subsequent ones). `sidebar.test.tsx`: added "Meetings is a real link"
+      and "Calendar stays disabled" cases.
+
+      **Manual browser walkthrough**, per CLAUDE.md's own requirement and
+      this session's memory lesson about cleaning up such runs immediately.
+      Port 8000 was occupied by the unrelated sibling "Trinol Payment"
+      project exactly as a saved memory warned — confirmed via `curl .../
+      openapi.json`'s `info.title` before assuming anything, then ran the
+      backend/frontend on 8010/3010 instead. The bundled Playwright MCP
+      browser tool itself failed (no local Chrome install, no sudo
+      available to fix it non-interactively) — rather than treating that
+      as "E2E blocked" (the exact mistake a saved memory lesson already
+      warns against), wrote a small standalone script using this repo's
+      own already-installed `@playwright/test` Chromium (the same binary
+      Phase 3 Stage 11's E2E suite already uses) and drove the walkthrough
+      with that instead. End to end, against the real seeded
+      `founder@trinolit.com`: logged in → created a meeting → added an
+      external-email attendee → recorded a decision → added an action item
+      → promoted it → followed the resulting "View task" link and
+      confirmed the real task page, with the correct title/status/priority,
+      genuinely renders at `/tasks/{id}`. Screenshots captured at each step
+      confirmed visually (sidebar's Meetings/Calendar state, the tab
+      strip, the promoted action becoming a task link). Cleaned up
+      immediately in the same turn: the meeting/participant/decision/
+      action/task rows this walkthrough created in the real seeded
+      `trinolit` organization (not a throwaway org — this hit the actual
+      seed data, so cleanup was scoped to exactly these rows, not the
+      whole org), the temporary `.env`/`.env.local` port and
+      `E2E_TEST_MODE` overrides (reverted from a backup taken before
+      editing), the scratch walkthrough script, and both dev server
+      processes.
+
+      12 new frontend tests (48 → 60); `pnpm typecheck`, `pnpm lint`,
+      `pnpm exec prettier --check`, `pnpm test`, `pnpm build` all green.
+      Backend unaffected (917 tests unchanged, confirmed by re-running the
+      full suite) — no backend code touched this stage. `make check`
+      green end to end, confirmed with a clean exit code, not just no
+      visible error text.
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses
