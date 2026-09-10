@@ -2700,13 +2700,105 @@ verified. The phase-level Codex audit found no P0/P1 findings, closing
 Phase 4, mirroring how Phase 2 and Phase 3 each closed.
 
 ## Phase 5 — Finance
-- [ ] Income
-- [ ] Expenses
-- [ ] Invoices
-- [ ] Payments
-- [ ] PDF invoices
-- [ ] Finance dashboard
-- [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md))
+
+Status: **In progress.** Planned via a dedicated plan-mode session
+(mirroring how Phase 3 and Phase 4 each started); plan file:
+`reactive-dreaming-lantern.md`.
+
+DATABASE.md's `### finance` section already fully specified `income`,
+`expenses`, `invoices`, `invoice_items`, `payments`, `invoice_counters`;
+ADR-0007 already specified the full money/invoice-arithmetic model
+(`NUMERIC(14,2)`/`Decimal`, server-computed totals, row-locked invoice
+numbering, `SENT`+ immutability, append-only payments with a row-locked
+balance recompute); ARCHITECTURE.md §3 already pinned the module boundary
+(`finance → work/crm` allowed, no cross-module write needed); RBAC.md's
+five finance permissions were already all correctly tiered flat-ADMIN+ in
+`permissions.py` with **no ownership-split rule anywhere in §3** — the
+lightest authz shape of any module so far. Real decisions made explicitly
+during planning rather than invented mid-stage:
+
+- **No archive/delete-invoice endpoint this phase** (ADR-0011: an invoice
+  is cancelled, never deleted — that cancellation IS the ADR's own
+  "soft delete" for invoices). `archived_at` exists on the model (required
+  as the composite-FK-target unique constraint's own column) and list
+  queries filter it defensively, but no route ever sets it in V1.
+- **PDF library: `xhtml2pdf`** (user decision) — pure-Python, no system
+  dependencies (no libcairo/libpango), versus WeasyPrint's richer CSS
+  support at the cost of new system deps for MASTER_PROMPT §19's one-line
+  PDF requirement.
+- **Income and payment seed rows**, despite MASTER_PROMPT §36 literally
+  naming only "invoices"/"expenses" — a dashboard demo with invoices but
+  no income/payments would show a broken revenue tile and every invoice
+  stuck unpaid forever (same "spec is a floor" reasoning Phase 3/4 already
+  used).
+- **Dashboard tiles read straight off the existing `/dashboard` server
+  component's per-module-fetch-with-try-catch pattern** — no separate
+  backend aggregator exists or is needed; RBAC.md's "omitted from the
+  response, not filtered in the browser" rule is satisfied automatically
+  by a 403 being caught the same way every other tile's fetch already is.
+
+Exit criteria: an ADMIN+ can record income/expenses (with a receipt),
+create a DRAFT invoice with server-computed totals, send/cancel/pay it
+(status transitions correctly, `SENT`+ financial fields frozen); two
+concurrent payments or two concurrent invoice-creation requests can never
+double-spend a balance or a number (both proven by dedicated concurrency
+tests); a MEMBER/MANAGER gets 403 from every finance route and sees no
+finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
+
+- [x] Stage 1 — `finance` module schema. `modules/finance/models.py`:
+      `ExpenseCategory` (new StrEnum, MASTER_PROMPT §19's 10 values),
+      `InvoiceStatus` (5 stored values — `OVERDUE` deliberately absent,
+      derived on read per ADR-0007), `Income`, `Expense`, `Invoice`,
+      `InvoiceItem`, `Payment`, `InvoiceCounter` — exact columns from
+      DATABASE.md's `### finance` section. `uq_invoice_org_number`,
+      `uq_invoices_org_id`; `ck_invoice_amounts`/`ck_invoice_total`
+      (`total = subtotal - discount_amount + tax_amount`)/`ck_invoice_dates`
+      verbatim from ADR-0007; `ck_line_total` (`line_total = round(quantity
+      * unit_price, 2)`) on `invoice_items`; `ck_payment_positive` on
+      `payments`. Added `ck_income_amount_positive`/`ck_expense_amount_
+      positive` proactively — not spelled out in DATABASE.md but mirroring
+      `ck_payment_positive`'s own "a negative amount is a data-entry error"
+      reasoning. `InvoiceCounter`'s PK is `(organization_id, year)` itself
+      (via a table-level `PrimaryKeyConstraint`, not a surrogate `id` —
+      the first composite-PK table in the codebase; every other org-scoped
+      table so far uses a surrogate `id` + a separate unique constraint).
+      Every composite FK follows §5.1/§5.2 exactly (`income.client_id/
+      project_id/invoice_id`, `invoices.client_id/project_id`,
+      `payments.recorded_by`, `expenses.receipt_file_id` → `file_objects`
+      mirroring `task_attachments.file_id`'s RESTRICT reasoning).
+      `migrations/versions/0007_finance_schema.py`: hand-written raw SQL,
+      creation order `invoice_counters` → `invoices` → `invoice_items`/
+      `payments` → `income` → `expenses` (income's nullable `invoice_id`
+      FK needs `invoices` to already exist). Added the finance-module
+      import to `migrations/env.py` and `tests/security/
+      test_schema_integrity.py` in this same stage (Phase 4 Stage 1's own
+      lesson, applied proactively this time rather than reactively).
+      `tests/factories.py`: `make_income`, `make_expense`, `make_invoice`
+      (derives `total` the same way the service will, since
+      `ck_invoice_total` rejects anything else), `make_invoice_item`
+      (derives `line_total` the same way `ck_line_total` requires),
+      `make_payment`.
+
+      Verification: `alembic upgrade head`/`downgrade -1`/`upgrade head`
+      round-tripped clean; `alembic check` reports no drift. Proved the
+      schema-integrity FK test non-vacuous by deliberately replacing
+      `income`'s composite FK to `clients` with a single-column one via
+      `psql`, confirming `test_every_fk_between_org_scoped_tables_is_
+      composite` fails with the exact violation, then reverting and
+      re-confirming green. Full backend suite (917 tests), ruff, ruff
+      format, and mypy all clean.
+- [ ] Stage 2 — Income CRUD
+- [ ] Stage 3 — Expense CRUD + receipt attachment
+- [ ] Stage 4 — Invoice CRUD (DRAFT lifecycle)
+- [ ] Stage 5 — Invoice lifecycle: send + cancel
+- [ ] Stage 6 — Invoice PDF generation (xhtml2pdf)
+- [ ] Stage 7 — Payments (concurrent-payment test)
+- [ ] Stage 8 — Finance dashboard aggregates
+- [ ] Stage 9 — Activity feed wiring
+- [ ] Stage 10 — Frontend
+- [ ] Stage 11 — Security matrices
+- [ ] Stage 12 — Seed script + E2E, final stage
+- [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md)) — manual DBA exercise, not a code deliverable
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 

@@ -9,6 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trinol.core.authz.permissions import Role
 from trinol.core.ids import uuid7
 from trinol.modules.crm.models import Client, ClientStatus, Lead, LeadSource, LeadStage
+from trinol.modules.finance.models import (
+    Expense,
+    ExpenseCategory,
+    Income,
+    Invoice,
+    InvoiceItem,
+    InvoiceStatus,
+    Payment,
+)
 from trinol.modules.identity.models import (
     AuthProvider,
     Invitation,
@@ -434,3 +443,149 @@ async def make_task_attachment(
     db.add(attachment)
     await db.flush()
     return attachment
+
+
+async def make_invoice(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    client: Client,
+    created_by: Membership,
+    project: Project | None = None,
+    invoice_number: str | None = None,
+    issue_date: date | None = None,
+    due_date: date | None = None,
+    subtotal: Decimal = Decimal("100.00"),
+    discount_amount: Decimal = Decimal("0"),
+    tax_amount: Decimal = Decimal("0"),
+    status: InvoiceStatus = InvoiceStatus.DRAFT,
+) -> Invoice:
+    """`total` is derived here the same way the service always derives it
+    (`ck_invoice_total` would reject anything else) — a factory bypassing
+    invoice_service.create_invoice still has to satisfy the DB invariant."""
+    issued = issue_date or date.today()
+    invoice = Invoice(
+        id=uuid7(),
+        organization_id=organization.id,
+        invoice_number=invoice_number or f"TRI-TEST-{uuid7()}",
+        client_id=client.id,
+        project_id=project.id if project is not None else None,
+        issue_date=issued,
+        due_date=due_date or issued + timedelta(days=14),
+        subtotal=subtotal,
+        discount_amount=discount_amount,
+        tax_amount=tax_amount,
+        total=subtotal - discount_amount + tax_amount,
+        status=status,
+        created_by=created_by.user_id,
+    )
+    db.add(invoice)
+    await db.flush()
+    return invoice
+
+
+async def make_invoice_item(
+    db: AsyncSession,
+    *,
+    invoice: Invoice,
+    description: str = "Test line item",
+    quantity: Decimal = Decimal("1.000"),
+    unit_price: Decimal = Decimal("100.00"),
+    position: int = 0,
+) -> InvoiceItem:
+    item = InvoiceItem(
+        id=uuid7(),
+        organization_id=invoice.organization_id,
+        invoice_id=invoice.id,
+        description=description,
+        quantity=quantity,
+        unit_price=unit_price,
+        line_total=round(quantity * unit_price, 2),
+        position=position,
+    )
+    db.add(item)
+    await db.flush()
+    return item
+
+
+async def make_payment(
+    db: AsyncSession,
+    *,
+    invoice: Invoice,
+    recorded_by: Membership,
+    amount: Decimal = Decimal("50.00"),
+    paid_on: date | None = None,
+    method: str = "bank_transfer",
+) -> Payment:
+    payment = Payment(
+        id=uuid7(),
+        organization_id=invoice.organization_id,
+        invoice_id=invoice.id,
+        amount=amount,
+        paid_on=paid_on or date.today(),
+        method=method,
+        recorded_by=recorded_by.user_id,
+    )
+    db.add(payment)
+    await db.flush()
+    return payment
+
+
+async def make_income(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    created_by: Membership,
+    amount: Decimal = Decimal("100.00"),
+    source: str = "Test income",
+    client: Client | None = None,
+    project: Project | None = None,
+    invoice: Invoice | None = None,
+    received_on: date | None = None,
+    payment_method: str = "bank_transfer",
+) -> Income:
+    income = Income(
+        id=uuid7(),
+        organization_id=organization.id,
+        amount=amount,
+        source=source,
+        client_id=client.id if client is not None else None,
+        project_id=project.id if project is not None else None,
+        invoice_id=invoice.id if invoice is not None else None,
+        received_on=received_on or date.today(),
+        payment_method=payment_method,
+        created_by=created_by.user_id,
+    )
+    db.add(income)
+    await db.flush()
+    return income
+
+
+async def make_expense(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    created_by: Membership,
+    amount: Decimal = Decimal("50.00"),
+    category: ExpenseCategory = ExpenseCategory.SOFTWARE,
+    description: str = "Test expense",
+    vendor: str | None = None,
+    spent_on: date | None = None,
+    payment_method: str = "card",
+    receipt_file_id: uuid.UUID | None = None,
+) -> Expense:
+    expense = Expense(
+        id=uuid7(),
+        organization_id=organization.id,
+        amount=amount,
+        category=category,
+        description=description,
+        vendor=vendor,
+        spent_on=spent_on or date.today(),
+        payment_method=payment_method,
+        receipt_file_id=receipt_file_id,
+        created_by=created_by.user_id,
+    )
+    db.add(expense)
+    await db.flush()
+    return expense

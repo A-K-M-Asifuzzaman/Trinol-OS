@@ -24,6 +24,7 @@ from trinol.core.db.org_scoped import OrgScoped
 # Base.registry.mappers with only identity/platform imported did not
 # contain "clients"/"leads" at all.
 from trinol.modules.crm import models as crm_models  # noqa: F401
+from trinol.modules.finance import models as finance_models  # noqa: F401
 from trinol.modules.identity import models as identity_models  # noqa: F401
 from trinol.modules.meetings import models as meetings_models  # noqa: F401
 from trinol.modules.work import models as work_models  # noqa: F401
