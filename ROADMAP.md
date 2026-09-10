@@ -2272,6 +2272,73 @@ four soft-deleted entities) with a same-transaction audit event.
       796 backend tests unchanged (cleanup-only fix, no new test cases);
       ruff, ruff format, mypy all green.
 
+- [x] Stage 4 — Decisions + Actions. `modules/meetings/services/
+      meeting_decision_service.py` (own file, mirroring
+      `task_checklist_service.py`'s file-split precedent):
+      `create_decision`/`list_decisions`/`delete_decision`, all gated by
+      `can_write_meeting` (creator or MANAGER+ — no independent
+      permission, no author-only rule; there's no author concept on a
+      decision to hang comments' own rule on). No `update_decision` —
+      append-only in spirit, no `edited_at` in DATABASE.md's spec.
+      `modules/meetings/services/meeting_action_service.py`: same shape
+      plus `update_action` (`owner_id`/`description`/`due_date` only —
+      `task_id` is never in `MeetingActionUpdateRequest` at all, not just
+      excluded at the service layer, so there's no path by which a client
+      could set it; it's stamped exactly once by `promote_action`,
+      Stage 5). `owner_id` validated against an active membership via
+      `get_active_membership_by_user` on both create and update.
+
+      **A real decision verified against ADR-0011's actual text before
+      implementing, not assumed from the plan's own draft.** The plan
+      said decision/action creation should record ordinary feed content
+      (`meeting_decision.created`/`meeting_action.created`, `is_audit=
+      false`) but was silent on delete. Re-read ADR-0011 directly: "Every
+      thing else is a hard delete, with the deletion recorded as an audit
+      event" — a blanket rule, not limited to visibility-relevant deletes
+      (confirmed by reading `delete_checklist_item`'s own docstring, which
+      cites the same ADR for the identical reasoning). So
+      `delete_decision`/`delete_action` both record `audit=True` events,
+      matching `delete_checklist_item`/`delete_comment`'s precedent
+      exactly — a gap the plan's draft text didn't spell out, caught by
+      re-reading the source ADR rather than trusting the summary.
+
+      `modules/meetings/schemas.py`: `MeetingDecisionCreateRequest`/
+      `MeetingDecisionResponse`/`MeetingDecisionListResponse`,
+      `MeetingActionCreateRequest`/`MeetingActionUpdateRequest`/
+      `MeetingActionResponse`/`MeetingActionListResponse`. 7 new routes in
+      `routes/meetings.py` (`POST`/`GET /meetings/{id}/decisions`,
+      `DELETE /meetings/{id}/decisions/{decision_id}`, `POST`/`GET
+      /meetings/{id}/actions`, `PATCH`/`DELETE
+      /meetings/{id}/actions/{action_id}`).
+
+      `tests/integration/test_meeting_decisions.py` (11 tests) and
+      `test_meeting_actions.py` (17 tests): creator/MANAGER+ can
+      create/delete (and, for actions, update), a non-creator MEMBER
+      cannot; `owner_id` rejected if it's not an active membership in the
+      org; `task_id` proven to have no effect even when sent in a PATCH
+      body (Pydantic silently ignores an unmodeled field, so this checks
+      the actual response, not just that the schema "doesn't have" the
+      field); create records a feed event, delete records an audit event
+      (`is_audit=false`/`true` respectively, checked via
+      `platform.activity.list_feed`/`list_audit` directly); cross-org 404.
+
+      `tests/security/test_authz_matrix.py`: all 7 new routes added to
+      `_OWNERSHIP_SPLIT_ROUTES` and covered by one new dedicated
+      parametrized test,
+      `test_meeting_decision_and_action_routes_enforce_ownership_split`,
+      reusing the same "participant passes GET only" asymmetry established
+      for the participant roster routes — unlike the participant
+      response-update route, actions' own `PATCH` has no self-exception,
+      so it fits the same shape as `POST`/`DELETE` here.
+      `tests/security/test_isolation_matrix.py`:
+      `_MEETING_CONTENT_ISOLATION_ROUTES`/
+      `test_meeting_content_routes_isolated_across_orgs` — every role,
+      same reasoning the participant/meeting isolation tables already
+      established.
+
+      94 new backend tests (796 → 890); ruff, ruff format, mypy, `make
+      openapi` all green (frontend unaffected — no changes this stage).
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses

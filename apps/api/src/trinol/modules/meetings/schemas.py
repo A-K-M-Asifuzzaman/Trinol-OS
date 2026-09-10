@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import BaseModel, Field, WithJsonSchema, model_validator
@@ -127,4 +127,61 @@ class MeetingParticipantResponse(BaseModel):
 
 class MeetingParticipantListResponse(BaseModel):
     items: list[MeetingParticipantResponse]
+    total: int
+
+
+class MeetingDecisionCreateRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class MeetingDecisionResponse(BaseModel):
+    id: uuid.UUID
+    meeting_id: uuid.UUID
+    body: str
+    decided_by: uuid.UUID | None
+    created_at: datetime
+
+
+class MeetingDecisionListResponse(BaseModel):
+    items: list[MeetingDecisionResponse]
+    total: int
+
+
+class MeetingActionCreateRequest(BaseModel):
+    description: str = Field(min_length=1, max_length=2000)
+    owner_id: uuid.UUID | None = None
+    due_date: date | None = None
+
+
+class MeetingActionUpdateRequest(BaseModel):
+    """Partial update (`exclude_unset=True`) — `task_id` is deliberately
+    absent, never client-settable: it's set exactly once, by
+    `meetings.services.promote_action` (ARCHITECTURE.md §3, Stage 5)."""
+
+    description: Annotated[
+        str | None,
+        WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 2000}, mode="validation"),
+    ] = Field(default=None, min_length=1, max_length=2000)
+    owner_id: uuid.UUID | None = None
+    due_date: date | None = None
+
+    @model_validator(mode="after")
+    def _required_fields_not_null(self) -> MeetingActionUpdateRequest:
+        if "description" in self.model_fields_set and self.description is None:
+            raise ValueError("description may not be null")
+        return self
+
+
+class MeetingActionResponse(BaseModel):
+    id: uuid.UUID
+    meeting_id: uuid.UUID
+    description: str
+    owner_id: uuid.UUID | None
+    due_date: date | None
+    task_id: uuid.UUID | None
+    created_at: datetime
+
+
+class MeetingActionListResponse(BaseModel):
+    items: list[MeetingActionResponse]
     total: int

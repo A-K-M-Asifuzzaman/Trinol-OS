@@ -617,6 +617,77 @@ export interface paths {
         patch: operations["update_participant_response_route_api_v1_meetings__meeting_id__participants__participant_id__patch"];
         trace?: never;
     };
+    "/api/v1/meetings/{meeting_id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Decisions Route */
+        get: operations["list_decisions_route_api_v1_meetings__meeting_id__decisions_get"];
+        put?: never;
+        /** Create Decision Route */
+        post: operations["create_decision_route_api_v1_meetings__meeting_id__decisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meetings/{meeting_id}/decisions/{decision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Decision Route */
+        delete: operations["delete_decision_route_api_v1_meetings__meeting_id__decisions__decision_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meetings/{meeting_id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Actions Route */
+        get: operations["list_actions_route_api_v1_meetings__meeting_id__actions_get"];
+        put?: never;
+        /** Create Action Route */
+        post: operations["create_action_route_api_v1_meetings__meeting_id__actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meetings/{meeting_id}/actions/{action_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Action Route */
+        delete: operations["delete_action_route_api_v1_meetings__meeting_id__actions__action_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Action Route */
+        patch: operations["update_action_route_api_v1_meetings__meeting_id__actions__action_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1069,6 +1140,62 @@ export interface components {
             /** Board Position */
             board_position?: string;
         };
+        /** MeetingActionCreateRequest */
+        MeetingActionCreateRequest: {
+            /** Description */
+            description: string;
+            /** Owner Id */
+            owner_id?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+        };
+        /** MeetingActionListResponse */
+        MeetingActionListResponse: {
+            /** Items */
+            items: components["schemas"]["MeetingActionResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** MeetingActionResponse */
+        MeetingActionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Meeting Id
+             * Format: uuid
+             */
+            meeting_id: string;
+            /** Description */
+            description: string;
+            /** Owner Id */
+            owner_id: string | null;
+            /** Due Date */
+            due_date: string | null;
+            /** Task Id */
+            task_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * MeetingActionUpdateRequest
+         * @description Partial update (`exclude_unset=True`) — `task_id` is deliberately
+         *     absent, never client-settable: it's set exactly once, by
+         *     `meetings.services.promote_action` (ARCHITECTURE.md §3, Stage 5).
+         */
+        MeetingActionUpdateRequest: {
+            /** Description */
+            description?: string;
+            /** Owner Id */
+            owner_id?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+        };
         /** MeetingCreateRequest */
         MeetingCreateRequest: {
             /** Title */
@@ -1095,6 +1222,40 @@ export interface components {
             location?: string | null;
             /** Notes */
             notes?: string | null;
+        };
+        /** MeetingDecisionCreateRequest */
+        MeetingDecisionCreateRequest: {
+            /** Body */
+            body: string;
+        };
+        /** MeetingDecisionListResponse */
+        MeetingDecisionListResponse: {
+            /** Items */
+            items: components["schemas"]["MeetingDecisionResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** MeetingDecisionResponse */
+        MeetingDecisionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Meeting Id
+             * Format: uuid
+             */
+            meeting_id: string;
+            /** Body */
+            body: string;
+            /** Decided By */
+            decided_by: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * MeetingListResponse
@@ -3869,6 +4030,240 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["trinol__modules__meetings__schemas__MeetingParticipantResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_decisions_route_api_v1_meetings__meeting_id__decisions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingDecisionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_decision_route_api_v1_meetings__meeting_id__decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingDecisionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingDecisionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_decision_route_api_v1_meetings__meeting_id__decisions__decision_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_actions_route_api_v1_meetings__meeting_id__actions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingActionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_action_route_api_v1_meetings__meeting_id__actions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingActionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_action_route_api_v1_meetings__meeting_id__actions__action_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_action_route_api_v1_meetings__meeting_id__actions__action_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeetingActionUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingActionResponse"];
                 };
             };
             /** @description Validation Error */

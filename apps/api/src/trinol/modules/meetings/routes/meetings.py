@@ -10,9 +10,21 @@ from trinol.core.authz.require import require
 from trinol.core.db.engine import get_db_session
 from trinol.modules.identity.deps import get_current_membership
 from trinol.modules.identity.models import Membership
-from trinol.modules.meetings.models import Meeting, MeetingParticipant
+from trinol.modules.meetings.models import (
+    Meeting,
+    MeetingAction,
+    MeetingDecision,
+    MeetingParticipant,
+)
 from trinol.modules.meetings.schemas import (
+    MeetingActionCreateRequest,
+    MeetingActionListResponse,
+    MeetingActionResponse,
+    MeetingActionUpdateRequest,
     MeetingCreateRequest,
+    MeetingDecisionCreateRequest,
+    MeetingDecisionListResponse,
+    MeetingDecisionResponse,
     MeetingListResponse,
     MeetingParticipantAddRequest,
     MeetingParticipantListResponse,
@@ -20,6 +32,17 @@ from trinol.modules.meetings.schemas import (
     MeetingParticipantResponseUpdateRequest,
     MeetingResponse,
     MeetingUpdateRequest,
+)
+from trinol.modules.meetings.services.meeting_action_service import (
+    create_action,
+    delete_action,
+    list_actions,
+    update_action,
+)
+from trinol.modules.meetings.services.meeting_decision_service import (
+    create_decision,
+    delete_decision,
+    list_decisions,
 )
 from trinol.modules.meetings.services.meeting_participant_service import (
     add_participant,
@@ -253,4 +276,186 @@ async def remove_participant_route(
         actor=membership,
         meeting_id=meeting_id,
         participant_id=participant_id,
+    )
+
+
+def _decision_to_response(decision: MeetingDecision) -> MeetingDecisionResponse:
+    return MeetingDecisionResponse(
+        id=decision.id,
+        meeting_id=decision.meeting_id,
+        body=decision.body,
+        decided_by=decision.decided_by,
+        created_at=decision.created_at,
+    )
+
+
+@router.post(
+    "/{meeting_id}/decisions",
+    response_model=MeetingDecisionResponse,
+    status_code=201,
+    dependencies=[Depends(require(Permission.MEETING_WRITE_OWN))],
+)
+async def create_decision_route(
+    meeting_id: uuid.UUID,
+    payload: MeetingDecisionCreateRequest,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> MeetingDecisionResponse:
+    decision = await create_decision(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        meeting_id=meeting_id,
+        body=payload.body,
+    )
+    return _decision_to_response(decision)
+
+
+@router.get(
+    "/{meeting_id}/decisions",
+    response_model=MeetingDecisionListResponse,
+    dependencies=[Depends(require(Permission.MEETING_READ))],
+)
+async def list_decisions_route(
+    meeting_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> MeetingDecisionListResponse:
+    result = await list_decisions(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        meeting_id=meeting_id,
+        limit=limit,
+        offset=offset,
+    )
+    return MeetingDecisionListResponse(
+        items=[_decision_to_response(d) for d in result.items], total=result.total
+    )
+
+
+@router.delete(
+    "/{meeting_id}/decisions/{decision_id}",
+    status_code=204,
+    dependencies=[Depends(require(Permission.MEETING_WRITE_OWN))],
+)
+async def delete_decision_route(
+    meeting_id: uuid.UUID,
+    decision_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    await delete_decision(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        meeting_id=meeting_id,
+        decision_id=decision_id,
+    )
+
+
+def _action_to_response(action: MeetingAction) -> MeetingActionResponse:
+    return MeetingActionResponse(
+        id=action.id,
+        meeting_id=action.meeting_id,
+        description=action.description,
+        owner_id=action.owner_id,
+        due_date=action.due_date,
+        task_id=action.task_id,
+        created_at=action.created_at,
+    )
+
+
+@router.post(
+    "/{meeting_id}/actions",
+    response_model=MeetingActionResponse,
+    status_code=201,
+    dependencies=[Depends(require(Permission.MEETING_WRITE_OWN))],
+)
+async def create_action_route(
+    meeting_id: uuid.UUID,
+    payload: MeetingActionCreateRequest,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> MeetingActionResponse:
+    action = await create_action(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        meeting_id=meeting_id,
+        description=payload.description,
+        owner_id=payload.owner_id,
+        due_date=payload.due_date,
+    )
+    return _action_to_response(action)
+
+
+@router.get(
+    "/{meeting_id}/actions",
+    response_model=MeetingActionListResponse,
+    dependencies=[Depends(require(Permission.MEETING_READ))],
+)
+async def list_actions_route(
+    meeting_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> MeetingActionListResponse:
+    result = await list_actions(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        meeting_id=meeting_id,
+        limit=limit,
+        offset=offset,
+    )
+    return MeetingActionListResponse(
+        items=[_action_to_response(a) for a in result.items], total=result.total
+    )
+
+
+@router.patch(
+    "/{meeting_id}/actions/{action_id}",
+    response_model=MeetingActionResponse,
+    dependencies=[Depends(require(Permission.MEETING_WRITE_OWN))],
+)
+async def update_action_route(
+    meeting_id: uuid.UUID,
+    action_id: uuid.UUID,
+    payload: MeetingActionUpdateRequest,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> MeetingActionResponse:
+    updates = payload.model_dump(exclude_unset=True)
+    action = await update_action(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        meeting_id=meeting_id,
+        action_id=action_id,
+        updates=updates,
+    )
+    return _action_to_response(action)
+
+
+@router.delete(
+    "/{meeting_id}/actions/{action_id}",
+    status_code=204,
+    dependencies=[Depends(require(Permission.MEETING_WRITE_OWN))],
+)
+async def delete_action_route(
+    meeting_id: uuid.UUID,
+    action_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    await delete_action(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        meeting_id=meeting_id,
+        action_id=action_id,
     )

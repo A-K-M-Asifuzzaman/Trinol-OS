@@ -10,6 +10,8 @@ from tests.factories import (
     make_client,
     make_lead,
     make_meeting,
+    make_meeting_action,
+    make_meeting_decision,
     make_meeting_participant,
     make_membership,
     make_organization,
@@ -349,6 +351,16 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     # the plain creator/MANAGER+ shape the other three follow, so it gets
     # its own dedicated test below rather than sharing one with them.
     ("PATCH", "/api/v1/meetings/{meeting_id}/participants/{participant_id}"),
+    # Phase 4 Stage 4: decisions/actions inherit the meeting's own
+    # visibility (GET) / edit (POST, PATCH, DELETE) rule — same shape as
+    # the participant roster routes above, no independent permission.
+    ("POST", "/api/v1/meetings/{meeting_id}/decisions"),
+    ("GET", "/api/v1/meetings/{meeting_id}/decisions"),
+    ("DELETE", "/api/v1/meetings/{meeting_id}/decisions/{decision_id}"),
+    ("POST", "/api/v1/meetings/{meeting_id}/actions"),
+    ("GET", "/api/v1/meetings/{meeting_id}/actions"),
+    ("PATCH", "/api/v1/meetings/{meeting_id}/actions/{action_id}"),
+    ("DELETE", "/api/v1/meetings/{meeting_id}/actions/{action_id}"),
 }
 
 
@@ -1106,6 +1118,102 @@ async def test_update_participant_response_route_enforces_self_or_ownership_spli
         headers={"X-CSRF-Token": actor.csrf_token},
     )
     assert response.status_code == expected_status
+
+
+@pytest.mark.parametrize(
+    ("method", "path_suffix", "body", "success_status"),
+    [
+        ("POST", "/decisions", {"body": "Matrix decision"}, 201),
+        ("GET", "/decisions", None, 200),
+        ("DELETE", "/decisions/{target_decision_id}", None, 204),
+        ("POST", "/actions", {"description": "Matrix action"}, 201),
+        ("GET", "/actions", None, 200),
+        ("PATCH", "/actions/{target_action_id}", {"description": "Renamed"}, 200),
+        ("DELETE", "/actions/{target_action_id}", None, 204),
+    ],
+)
+@pytest.mark.parametrize(
+    ("access", "expected_status"),
+    [
+        ("manager", None),
+        ("creator", None),
+        # A participant can list (ensure_meeting_visible governs GET), but
+        # does not gain content-management rights merely by being invited
+        # (can_write_meeting governs POST/PATCH/DELETE) — same asymmetry
+        # as the participant roster routes above. Unlike the participant
+        # response-update route, actions' own PATCH has no self-exception:
+        # only the meeting's creator or a MANAGER+ may edit an action item.
+        ("participant", "method_dependent"),
+        ("unrelated_member", 403),
+        ("cross_org", 404),
+    ],
+)
+async def test_meeting_decision_and_action_routes_enforce_ownership_split(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_suffix: str,
+    body: dict[str, str] | None,
+    success_status: int,
+    access: str,
+    expected_status: int | str | None,
+) -> None:
+    """RBAC.md §3: meeting decisions/actions inherit the meeting's own
+    visibility (GET) / edit (POST/PATCH/DELETE) rule — no author concept,
+    not comments' independent author-only rule."""
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email=f"content-creator-{org.id}-{access}@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    meeting = await make_meeting(db_session, organization=org, created_by=creator)
+    target_decision = await make_meeting_decision(db_session, meeting=meeting, decided_by=creator)
+    target_action = await make_meeting_action(db_session, meeting=meeting, owner=creator)
+
+    if access == "creator":
+        actor_user, actor_membership, actor_org = creator_user, creator, org
+    elif access == "participant":
+        actor_user = await make_user(db_session, email=f"content-participant-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=org, user=actor_user, role=Role.MEMBER
+        )
+        await make_meeting_participant(db_session, meeting=meeting, user=actor_membership)
+        actor_org = org
+    elif access in ("manager", "unrelated_member"):
+        actor_user = await make_user(db_session, email=f"content-{access}-{org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session,
+            organization=org,
+            user=actor_user,
+            role=Role.MANAGER if access == "manager" else Role.MEMBER,
+        )
+        actor_org = org
+    else:
+        actor_org = await make_organization(db_session)
+        actor_user = await make_user(db_session, email=f"content-cross-{actor_org.id}@x.com")
+        actor_membership = await make_membership(
+            db_session, organization=actor_org, user=actor_user, role=Role.MEMBER
+        )
+    await db_session.commit()
+
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=actor_org,
+    )
+    path = f"/api/v1/meetings/{meeting.id}" + path_suffix.format(
+        target_decision_id=target_decision.id, target_action_id=target_action.id
+    )
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(method, path, json=body, headers=headers)
+    if expected_status == "method_dependent":
+        resolved_expected = success_status if method == "GET" else 403
+    else:
+        resolved_expected = success_status if expected_status is None else expected_status
+    assert response.status_code == resolved_expected
 
 
 def _live_permission_gated_routes() -> set[tuple[str, str]]:

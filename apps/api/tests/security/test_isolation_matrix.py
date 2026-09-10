@@ -9,6 +9,8 @@ from tests.factories import (
     make_client,
     make_lead,
     make_meeting,
+    make_meeting_action,
+    make_meeting_decision,
     make_meeting_participant,
     make_membership,
     make_organization,
@@ -525,6 +527,64 @@ async def test_meeting_participant_routes_isolated_across_orgs(
     )
 
     path = path_template.format(meeting_id=meeting.id, participant_id=participant.id)
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(method, path, json=body, headers=headers)
+    assert response.status_code == 404, (
+        f"{method} {path} as {role} in org B got {response.status_code}"
+    )
+
+
+# Phase 4 Stage 4. Same reasoning as _MEETING_PARTICIPANT_ISOLATION_ROUTES
+# above — every role reaches the service layer's org-scoped lookup for
+# decision/action routes too, since MEETING_READ/MEETING_WRITE_OWN are both
+# MEMBER-tier.
+_MEETING_CONTENT_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] = [
+    ("GET", "/api/v1/meetings/{meeting_id}/decisions", None),
+    ("POST", "/api/v1/meetings/{meeting_id}/decisions", {"body": "iso hijack"}),
+    ("DELETE", "/api/v1/meetings/{meeting_id}/decisions/{decision_id}", None),
+    ("GET", "/api/v1/meetings/{meeting_id}/actions", None),
+    ("POST", "/api/v1/meetings/{meeting_id}/actions", {"description": "iso hijack"}),
+    ("PATCH", "/api/v1/meetings/{meeting_id}/actions/{action_id}", {"description": "hijack"}),
+    ("DELETE", "/api/v1/meetings/{meeting_id}/actions/{action_id}", None),
+]
+
+
+@pytest.mark.parametrize("method,path_template,body", _MEETING_CONTENT_ISOLATION_ROUTES)
+@pytest.mark.parametrize("role", list(Role))
+async def test_meeting_content_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_template: str,
+    body: dict[str, str] | None,
+    role: Role,
+) -> None:
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"meeting-content-iso-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    meeting = await make_meeting(db_session, organization=org_a, created_by=owner)
+    decision = await make_meeting_decision(db_session, meeting=meeting, decided_by=owner)
+    action = await make_meeting_action(db_session, meeting=meeting, owner=owner)
+    await db_session.commit()
+
+    org_b = await make_organization(db_session)
+    actor_user = await make_user(
+        db_session, email=f"meeting-content-iso-actor-{org_b.id}-{role.value}@x.com"
+    )
+    actor_membership = await make_membership(
+        db_session, organization=org_b, user=actor_user, role=role
+    )
+    await db_session.commit()
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=org_b,
+    )
+
+    path = path_template.format(meeting_id=meeting.id, decision_id=decision.id, action_id=action.id)
     headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
     response = await client.request(method, path, json=body, headers=headers)
     assert response.status_code == 404, (
