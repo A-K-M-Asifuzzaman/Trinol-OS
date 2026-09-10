@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from dotenv import dotenv_values
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.factories import (
@@ -20,8 +20,8 @@ from trinol.core.authz.permissions import Role
 from trinol.core.config import _ENV_FILE
 from trinol.core.db.engine import get_session_factory
 from trinol.core.errors import ConflictError
-from trinol.modules.identity.models import Membership
-from trinol.modules.meetings.models import MeetingParticipant
+from trinol.modules.identity.models import Membership, Organization, User
+from trinol.modules.meetings.models import Meeting, MeetingParticipant
 from trinol.modules.meetings.services.meeting_participant_service import add_participant
 from trinol.platform.activity import list_audit, list_feed
 from trinol.platform.models import ActivityEvent
@@ -461,11 +461,18 @@ async def test_get_participant_in_another_org_meeting_is_404(
     assert response.status_code == 404
 
 
-async def _cleanup_activity_events(organization_id) -> None:
-    """See test_lead_conversion.py's matching cleanup: trinol_app is
-    REVOKEd from UPDATE/DELETE on activity_events (ADR-0006), so the
-    winning add_participant call's audit row needs the migrator role to
-    clean up."""
+async def _cleanup_race_test_rows(session_factory, *, organization_id, user_ids: list) -> None:
+    """Codex P1 (Stage 3 re-review): the concurrent-add tests below use
+    real commits outside any test fixture's rollback boundary — leaving
+    them behind pollutes the shared database for every later test run,
+    the same trap test_lead_conversion.py's own race test already solved.
+    Full FK-ordered cleanup, mirroring that test's exact pattern:
+    MeetingParticipant (child of Meeting) before Meeting, before
+    Membership, before User, before Organization — matches the
+    composite-FK RESTRICT chain in DATABASE.md §5.1/§5.2. ActivityEvent
+    needs the migrator role separately (trinol_app is REVOKEd from
+    UPDATE/DELETE on it, ADR-0006); everything else is a plain app-role
+    delete."""
     migration_url = dotenv_values(_ENV_FILE)["DATABASE_MIGRATION_URL"]
     assert migration_url is not None
     migrator_engine = create_async_engine(migration_url)
@@ -478,6 +485,26 @@ async def _cleanup_activity_events(organization_id) -> None:
             )
     finally:
         await migrator_engine.dispose()
+
+    cleanup_session = session_factory()
+    try:
+        await cleanup_session.execute(
+            delete(MeetingParticipant).where(MeetingParticipant.organization_id == organization_id)
+        )
+        await cleanup_session.execute(
+            delete(Meeting).where(Meeting.organization_id == organization_id)
+        )
+        await cleanup_session.execute(
+            delete(Membership).where(Membership.organization_id == organization_id)
+        )
+        for user_id in user_ids:
+            await cleanup_session.execute(delete(User).where(User.id == user_id))
+        await cleanup_session.execute(
+            delete(Organization).where(Organization.id == organization_id)
+        )
+        await cleanup_session.commit()
+    finally:
+        await cleanup_session.close()
 
 
 async def test_concurrent_add_by_user_id_only_one_succeeds() -> None:
@@ -503,10 +530,11 @@ async def test_concurrent_add_by_user_id_only_one_succeeds() -> None:
         invitee_user = await make_user(setup_session, email=f"race-invitee-{org.id}@x.com")
         await make_membership(setup_session, organization=org, user=invitee_user, role=Role.MEMBER)
         await setup_session.commit()
-        org_id, creator_id, meeting_id, invitee_user_id = (
+        org_id, creator_id, meeting_id, creator_user_id, invitee_user_id = (
             org.id,
             creator.id,
             meeting.id,
+            creator_user.id,
             invitee_user.id,
         )
     finally:
@@ -573,7 +601,11 @@ async def test_concurrent_add_by_user_id_only_one_succeeds() -> None:
     finally:
         await session_1.close()
         await session_2.close()
-        await _cleanup_activity_events(org_id)
+        await _cleanup_race_test_rows(
+            session_factory,
+            organization_id=org_id,
+            user_ids=[creator_user_id, invitee_user_id],
+        )
 
 
 async def test_concurrent_add_by_external_email_only_one_succeeds() -> None:
@@ -592,7 +624,12 @@ async def test_concurrent_add_by_external_email_only_one_succeeds() -> None:
         )
         meeting = await make_meeting(setup_session, organization=org, created_by=creator)
         await setup_session.commit()
-        org_id, creator_id, meeting_id = org.id, creator.id, meeting.id
+        org_id, creator_id, meeting_id, creator_user_id = (
+            org.id,
+            creator.id,
+            meeting.id,
+            creator_user.id,
+        )
     finally:
         await setup_session.close()
 
@@ -657,4 +694,6 @@ async def test_concurrent_add_by_external_email_only_one_succeeds() -> None:
     finally:
         await session_1.close()
         await session_2.close()
-        await _cleanup_activity_events(org_id)
+        await _cleanup_race_test_rows(
+            session_factory, organization_id=org_id, user_ids=[creator_user_id]
+        )

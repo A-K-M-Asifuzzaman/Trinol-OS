@@ -2245,6 +2245,33 @@ four soft-deleted entities) with a same-transaction audit event.
       mypy, `make openapi` (no diff — service-layer fix only, no
       route/schema change) all green.
 
+      **Codex P1 (re-review): both new race tests claimed explicit cleanup
+      but only deleted `activity_events`** — they left their organizations,
+      users, memberships, meetings, and participant rows permanently in
+      the shared database, the exact trap `test_lead_conversion.py`'s own
+      race test had already solved but my copy didn't fully follow (I'd
+      read only part of that function on the first pass and missed its
+      second, FK-ordered cleanup block). Fixed by adding the same
+      FK-ordered cleanup pattern: `MeetingParticipant` (child of
+      `Meeting`) before `Meeting`, before `Membership`, before `User`(s),
+      before `Organization` — mirrors the composite-FK RESTRICT chain in
+      DATABASE.md §5.1/§5.2, `ActivityEvent` still via the migrator role
+      separately (ADR-0006's REVOKE). Verified directly, not assumed: a
+      database audit turned up 20 orphaned organizations (and their 26
+      participant rows, 30 memberships, 30 users) left behind by my own
+      earlier manual `pytest -k concurrent` re-runs during the first P1
+      fix — cleaned up by hand via the migrator role in FK order, then
+      re-ran the two tests and confirmed zero related rows remain
+      afterward (`meeting_participants`/`meetings`/`race-*` users all at
+      0). Also found and cleaned two unrelated pre-existing orphaned
+      organizations from a different, already-approved test file's own
+      race test (a stray `activity_events` row each, blocking their
+      `Organization` delete) — out of this stage's scope, not
+      investigated further, just tidied up while auditing.
+
+      796 backend tests unchanged (cleanup-only fix, no new test cases);
+      ruff, ruff format, mypy all green.
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses
