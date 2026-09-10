@@ -1974,9 +1974,10 @@ checks; dashboard sales tiles show real counts.
 
 ## Phase 4 — Meetings + Calendar
 
-Status: **In progress.** Planned via a dedicated plan-mode session (mirroring
-how Phase 3 itself started); plan file: `reactive-dreaming-lantern.md`.
-Stage 1 complete.
+Status: **APPROVED by Codex.** All 9 stages complete and independently
+reviewed; the final Phase 4 audit found no P0/P1 findings. Planned via a
+dedicated plan-mode session (mirroring how Phase 3 itself started); plan
+file: `reactive-dreaming-lantern.md`.
 
 DATABASE.md §3 (lines 184-201) already fully specified the `meetings`,
 `meeting_participants`, `meeting_decisions`, `meeting_actions` tables;
@@ -2691,12 +2692,12 @@ four soft-deleted entities) with a same-transaction audit event.
       green end to end (confirmed by exit code, not just visible text);
       `pnpm exec playwright test` green (4/4 specs).
 
-Phase 4 is feature-complete across all 9 planned stages — backend
-(schema, full CRUD for meetings/participants/decisions/actions, the one
-cross-module write, activity wiring, security matrices) and frontend
-(pages, nav, a real browser walkthrough, component tests, seed data, an
-E2E flow) all verified. Awaiting the phase-level Codex audit that closes
-it, mirroring how Phase 2 and Phase 3 each closed.
+Phase 4 is complete across all 9 planned stages — backend (schema, full
+CRUD for meetings/participants/decisions/actions, the one cross-module
+write, activity wiring, security matrices) and frontend (pages, nav, a
+real browser walkthrough, component tests, seed data, an E2E flow) all
+verified. The phase-level Codex audit found no P0/P1 findings, closing
+Phase 4, mirroring how Phase 2 and Phase 3 each closed.
 
 ## Phase 5 — Finance
 - [ ] Income
