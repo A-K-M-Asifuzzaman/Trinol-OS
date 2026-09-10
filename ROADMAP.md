@@ -2339,6 +2339,85 @@ four soft-deleted entities) with a same-transaction audit event.
       94 new backend tests (796 → 890); ruff, ruff format, mypy, `make
       openapi` all green (frontend unaffected — no changes this stage).
 
+- [x] Stage 5 — `promote_action` (the one cross-module write). `modules/
+      meetings/services/meeting_action_service.py`: `promote_action` —
+      one transaction, gated by `can_write_meeting` (creator or MANAGER+,
+      no participant exception, same shape as create/update/delete).
+      Critical, confirmed by direct read of `task_service.create_task`
+      before writing a line of this function: `create_task` ends with its
+      own `await db.commit()`, so calling it here would silently break
+      the "one transaction" rule ARCHITECTURE.md §3 requires. Inlines a
+      bare `Task(...)` construction instead, exactly like
+      `lead_conversion_service.convert_lead` inlines `Project(...)`/
+      `Client(...)` rather than calling `project_service.create_project()`.
+      Field mapping: `description → title`, `owner_id → assignee_id`
+      (re-validated against an active membership at promotion time, not
+      just trusted from creation — the owner could have been deactivated
+      since), `due_date → due_date`, `meeting.project_id → project_id`
+      (nullable-safe), `created_by = actor.user_id`, `status = TODO`,
+      `priority = MEDIUM`. `board_position` deliberately left unset (not
+      `None` — omitted entirely) so the DB's own `server_default` fires,
+      matching how `create_task` itself only sets it when a caller
+      explicitly passes one.
+
+      Row-lock guard: `get_meeting_action_in_org` gained the same
+      `for_update: bool = False` parameter `lead_service.get_lead_in_org`
+      already has; `promote_action` calls it with `for_update=True`
+      before checking `action.task_id is not None` — the second of two
+      concurrent promote calls blocks until the first commits, then sees
+      `task_id` already set and 409s, same shape and reasoning as
+      `convert_lead`'s own fix for the identical bug class (Phase 3
+      Stage 5). `meeting_action.promoted` and `task.created` are both
+      recorded as ordinary feed content (`is_audit=false`) inside the one
+      transaction, then a single `db.commit()`. Route:
+      `POST /meetings/{id}/actions/{action_id}/promote`, returns the
+      created `Task` (reusing `work.routes.tasks.task_to_response` and
+      `TaskResponse` directly — `meetings → work` schema/route reuse is
+      explicitly allowed, same as `work`'s own existing imports from `crm`).
+
+      `tests/integration/test_meeting_action_promotion.py` (8 tests):
+      happy path; field-mapping correctness (owner/due_date/meeting's own
+      project all land on the created task); both activity events land as
+      feed content; a second promotion attempt 409s without creating a
+      second task; non-creator MEMBER 403s; cross-org 404;
+      **an atomicity regression test** — monkeypatches the second
+      `record()` call (`task.created`, which runs after the Task is
+      flushed) to raise, confirms `promote_action` raises, then confirms
+      after rollback that no `Task` row exists and `action.task_id` was
+      never persisted; **a concurrency regression test** — two
+      independent DB sessions, `asyncio.gather`, real commits outside the
+      test-fixture rollback boundary, mirroring `test_lead_conversion.py`'s
+      own concurrent-conversion test exactly, proving Postgres actually
+      serializes the two attempts via the action row's `FOR UPDATE` lock,
+      not just that they happen not to race within one shared transaction.
+
+      Verified both regression tests are real, not vacuous, before
+      trusting them: temporarily added a premature `db.commit()` right
+      after the flush and confirmed the atomicity test failed (the Task
+      survived); temporarily removed `for_update=True` and confirmed the
+      concurrency test failed consistently (3/3 runs, two Tasks created
+      each time) — then restored both fixes and confirmed both tests pass
+      consistently (3/3 runs each) before treating them as done. Found
+      and fixed three unrelated test bugs surfaced along the way: a
+      missing `X-CSRF-Token` header on one `POST` test (was asserting 404
+      but actually got 403 from the CSRF/origin check firing first), a
+      `MissingGreenlet` crash from accessing ORM object attributes after
+      `db_session.rollback()` (which always expires attributes regardless
+      of `expire_on_commit`) — fixed by capturing plain-value ids before
+      the rollback, and an FK-ordering bug in the race test's own cleanup
+      (deleted `Task` before `MeetingAction`, which still referenced it —
+      swapped the order).
+
+      `tests/security/test_authz_matrix.py`/`test_isolation_matrix.py`:
+      the `/promote` route added to the existing decisions/actions
+      ownership-split and isolation tables (same edit-only shape, no new
+      test needed). Final confirmation: `grep -rl "from trinol.modules.
+      meetings" apps/api/src/trinol/modules/work apps/api/src/trinol/
+      modules/crm` returns nothing — neither module imports `meetings`.
+
+      18 new backend tests (890 → 908); ruff, ruff format, mypy, `make
+      openapi` all green (frontend unaffected — no changes this stage).
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses

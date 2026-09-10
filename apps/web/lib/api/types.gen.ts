@@ -688,6 +688,23 @@ export interface paths {
         patch: operations["update_action_route_api_v1_meetings__meeting_id__actions__action_id__patch"];
         trace?: never;
     };
+    "/api/v1/meetings/{meeting_id}/actions/{action_id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Action Route */
+        post: operations["promote_action_route_api_v1_meetings__meeting_id__actions__action_id__promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -4264,6 +4281,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeetingActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    promote_action_route_api_v1_meetings__meeting_id__actions__action_id__promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
                 };
             };
             /** @description Validation Error */

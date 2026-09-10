@@ -546,6 +546,9 @@ _MEETING_CONTENT_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] 
     ("POST", "/api/v1/meetings/{meeting_id}/actions", {"description": "iso hijack"}),
     ("PATCH", "/api/v1/meetings/{meeting_id}/actions/{action_id}", {"description": "hijack"}),
     ("DELETE", "/api/v1/meetings/{meeting_id}/actions/{action_id}", None),
+    # Phase 4 Stage 5: promote is org-scoped the same way every other
+    # action route is — same reasoning, no separate table needed.
+    ("POST", "/api/v1/meetings/{meeting_id}/actions/{action_id}/promote", None),
 ]
 
 

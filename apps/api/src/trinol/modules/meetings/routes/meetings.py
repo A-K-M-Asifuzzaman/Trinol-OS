@@ -37,6 +37,7 @@ from trinol.modules.meetings.services.meeting_action_service import (
     create_action,
     delete_action,
     list_actions,
+    promote_action,
     update_action,
 )
 from trinol.modules.meetings.services.meeting_decision_service import (
@@ -57,6 +58,8 @@ from trinol.modules.meetings.services.meeting_service import (
     list_meetings,
     update_meeting,
 )
+from trinol.modules.work.routes.tasks import task_to_response
+from trinol.modules.work.schemas import TaskResponse
 
 router = APIRouter(prefix="/api/v1/meetings", tags=["meetings"])
 
@@ -459,3 +462,25 @@ async def delete_action_route(
         meeting_id=meeting_id,
         action_id=action_id,
     )
+
+
+@router.post(
+    "/{meeting_id}/actions/{action_id}/promote",
+    response_model=TaskResponse,
+    status_code=201,
+    dependencies=[Depends(require(Permission.MEETING_WRITE_OWN))],
+)
+async def promote_action_route(
+    meeting_id: uuid.UUID,
+    action_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> TaskResponse:
+    task = await promote_action(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        meeting_id=meeting_id,
+        action_id=action_id,
+    )
+    return task_to_response(task)

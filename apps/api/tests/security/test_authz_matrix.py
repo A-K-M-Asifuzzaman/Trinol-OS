@@ -361,6 +361,9 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     ("GET", "/api/v1/meetings/{meeting_id}/actions"),
     ("PATCH", "/api/v1/meetings/{meeting_id}/actions/{action_id}"),
     ("DELETE", "/api/v1/meetings/{meeting_id}/actions/{action_id}"),
+    # Phase 4 Stage 5: promote inherits the meeting's own edit rule too —
+    # same shape as create/update/delete above.
+    ("POST", "/api/v1/meetings/{meeting_id}/actions/{action_id}/promote"),
 }
 
 
@@ -1130,6 +1133,10 @@ async def test_update_participant_response_route_enforces_self_or_ownership_spli
         ("GET", "/actions", None, 200),
         ("PATCH", "/actions/{target_action_id}", {"description": "Renamed"}, 200),
         ("DELETE", "/actions/{target_action_id}", None, 204),
+        # Phase 4 Stage 5: promote follows the exact same edit-only shape
+        # (creator or MANAGER+, no participant exception) — no new
+        # permission, gated by the same can_write_meeting check.
+        ("POST", "/actions/{target_action_id}/promote", None, 201),
     ],
 )
 @pytest.mark.parametrize(
