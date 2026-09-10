@@ -2787,7 +2787,48 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       composite` fails with the exact violation, then reverting and
       re-confirming green. Full backend suite (917 tests), ruff, ruff
       format, and mypy all clean.
-- [ ] Stage 2 — Income CRUD
+- [x] Stage 2 — Income CRUD. `modules/finance/schemas.py`:
+      `IncomeCreateRequest`/`UpdateRequest`/`Response`/`ListResponse`,
+      reusing `work.schemas.BudgetDecimal` directly for the request/update
+      side (`finance → work` is an allowed import direction, unlike
+      `crm → work`, which duplicates the same validator instead —
+      confirmed by reading `crm/schemas.py`'s own header comment).
+      `IncomeResponse.amount` is a plain `Decimal`, not `BudgetDecimal` —
+      that alias's `BeforeValidator` only accepts a decimal string
+      (request-side parsing) and rejects a real ORM `Decimal`, same
+      reasoning `ProjectResponse.budget` already follows; caught by the
+      first test run, fixed immediately.
+      `modules/finance/services/income_service.py`: plain CRUD gated by
+      route-level `require(Permission.FINANCE_WRITE/FINANCE_READ)` alone
+      — no service-level role check or ownership predicate anywhere
+      (ROADMAP.md Phase 5 decision 2), the lightest service shape of any
+      module so far. `amount > 0` is validated in Python before insert,
+      mirroring `ck_income_amount_positive` at the application layer
+      (same reasoning as `meeting_service`'s `ends_at`/`starts_at`
+      check) so a bad request surfaces as a clean 422, not a raw DB
+      `CheckViolationError`. `client_id`/`project_id`/`invoice_id`
+      references are validated via `crm.client_service.get_client_in_org`/
+      `work.project_service.get_project_in_org`/a private
+      `_get_invoice_in_org` lookup (duplicated rather than importing from
+      `invoice_service.py`, which Stage 4 hasn't built yet — Stage 4
+      should consolidate onto a shared `get_invoice_in_org` once it
+      exists). Delete is a hard delete with an audit event (ADR-0011:
+      income isn't one of the four soft-deleted entities), same pattern
+      as `meeting_service.delete_meeting`. `modules/finance/routes/
+      income.py` registered in `main.py`. Added both the authz-matrix
+      rows (`_MATRIX_ROWS`, no `_OWNERSHIP_SPLIT_ROUTES` entries needed —
+      confirmed this module has no ownership-split rule at all) and the
+      isolation-matrix rows in this same commit — the authz matrix's own
+      meta-assertion (`test_matrix_covers_every_permission_gated_route`)
+      failed immediately on the first test run without them, confirming
+      it isn't optional.
+
+      Verification: 13 new integration tests in `tests/integration/
+      test_income.py` (role gating, non-positive-amount rejection,
+      cross-org client-reference rejection, CRUD, cross-org 404). Full
+      backend suite (961 tests, up from 917), ruff, ruff format, and
+      mypy all clean. `make openapi` regenerated
+      `apps/web/lib/api/types.gen.ts` cleanly.
 - [ ] Stage 3 — Expense CRUD + receipt attachment
 - [ ] Stage 4 — Invoice CRUD (DRAFT lifecycle)
 - [ ] Stage 5 — Invoice lifecycle: send + cancel

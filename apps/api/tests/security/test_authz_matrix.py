@@ -8,6 +8,7 @@ from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
     make_client,
+    make_income,
     make_lead,
     make_meeting,
     make_meeting_action,
@@ -286,6 +287,30 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         },
     ),
     ("GET", "/api/v1/meetings", Permission.MEETING_READ, None),
+    # Phase 5 Stage 2: RBAC.md §3 has no finance ownership-split rule at
+    # all (unlike every module above) — FINANCE_READ/FINANCE_WRITE are
+    # flat ADMIN+-tier gates, so every income route is a plain per-row
+    # check, none of them belong in _OWNERSHIP_SPLIT_ROUTES.
+    (
+        "POST",
+        "/api/v1/finance/income",
+        Permission.FINANCE_WRITE,
+        {
+            "amount": "100.00",
+            "source": "Matrix income",
+            "received_on": "2026-01-01",
+            "payment_method": "cash",
+        },
+    ),
+    ("GET", "/api/v1/finance/income", Permission.FINANCE_READ, None),
+    ("GET", "/api/v1/finance/income/{income_id}", Permission.FINANCE_READ, None),
+    (
+        "PATCH",
+        "/api/v1/finance/income/{income_id}",
+        Permission.FINANCE_WRITE,
+        {"notes": "Matrix note"},
+    ),
+    ("DELETE", "/api/v1/finance/income/{income_id}", Permission.FINANCE_WRITE, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -1308,6 +1333,16 @@ async def test_matrix_row_respects_required_permission(
             )
             await db_session.commit()
             resolved_path = resolved_path.replace("{attachment_id}", str(attachment.id))
+    if "{income_id}" in resolved_path:
+        # FINANCE_READ/FINANCE_WRITE have no per-resource restriction (no
+        # ownership-split rule for finance at all, ROADMAP.md Phase 5
+        # decision 2) — who created the test income row doesn't affect the
+        # assertion below, same reasoning as {client_id}/{lead_id}.
+        income_row = await make_income(
+            db_session, organization=actor.organization, created_by=target
+        )
+        await db_session.commit()
+        resolved_path = resolved_path.replace("{income_id}", str(income_row.id))
 
     try:
         headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}

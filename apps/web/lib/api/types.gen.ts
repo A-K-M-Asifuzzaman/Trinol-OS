@@ -705,6 +705,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/income": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Income Route */
+        get: operations["list_income_route_api_v1_finance_income_get"];
+        put?: never;
+        /** Create Income Route */
+        post: operations["create_income_route_api_v1_finance_income_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/income/{income_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Income Route */
+        get: operations["get_income_route_api_v1_finance_income__income_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Income Route */
+        delete: operations["delete_income_route_api_v1_finance_income__income_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Income Route */
+        patch: operations["update_income_route_api_v1_finance_income__income_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -942,6 +979,126 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** IncomeCreateRequest */
+        IncomeCreateRequest: {
+            /** Amount */
+            amount: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+            /** Source */
+            source: string;
+            /** Client Id */
+            client_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Invoice Id */
+            invoice_id?: string | null;
+            /**
+             * Received On
+             * Format: date
+             */
+            received_on: string;
+            /** Payment Method */
+            payment_method: string;
+            /** Reference */
+            reference?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /**
+         * IncomeListResponse
+         * @description ADR-0005: every list endpoint returns {items, total}, never a bare
+         *     array.
+         */
+        IncomeListResponse: {
+            /** Items */
+            items: components["schemas"]["IncomeResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * IncomeResponse
+         * @description `amount` is a plain `Decimal`, not `BudgetDecimal` — that alias's
+         *     `BeforeValidator` only accepts a decimal *string* (request-side
+         *     parsing); a response is built from an ORM row's real `Decimal` value,
+         *     which the validator would reject, same reasoning as
+         *     `ProjectResponse.budget` upstream.
+         */
+        IncomeResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Amount */
+            amount: string;
+            /** Currency */
+            currency: string;
+            /** Source */
+            source: string;
+            /** Client Id */
+            client_id: string | null;
+            /** Project Id */
+            project_id: string | null;
+            /** Invoice Id */
+            invoice_id: string | null;
+            /**
+             * Received On
+             * Format: date
+             */
+            received_on: string;
+            /** Payment Method */
+            payment_method: string;
+            /** Reference */
+            reference: string | null;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * IncomeUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/income.py uses `model_dump(exclude_unset=True)`).
+         */
+        IncomeUpdateRequest: {
+            /** Amount */
+            amount?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Client Id */
+            client_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Invoice Id */
+            invoice_id?: string | null;
+            /** Received On */
+            received_on?: string | null;
+            /** Payment Method */
+            payment_method?: string | null;
+            /** Reference */
+            reference?: string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** InvitationCreateRequest */
         InvitationCreateRequest: {
@@ -4313,6 +4470,166 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_income_route_api_v1_finance_income_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_income_route_api_v1_finance_income_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncomeCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_income_route_api_v1_finance_income__income_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_income_route_api_v1_finance_income__income_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_income_route_api_v1_finance_income__income_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                income_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncomeUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomeResponse"];
                 };
             };
             /** @description Validation Error */

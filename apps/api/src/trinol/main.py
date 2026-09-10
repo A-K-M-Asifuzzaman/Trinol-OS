@@ -22,6 +22,7 @@ from trinol.modules.crm.routes.clients import router as clients_router
 from trinol.modules.crm.routes.leads import router as leads_router
 from trinol.modules.crm.routes.pipeline import router as pipeline_router
 from trinol.modules.crm.routes.public import router as public_router
+from trinol.modules.finance.routes.income import router as income_router
 from trinol.modules.identity.csrf import verify_csrf
 from trinol.modules.identity.routes.auth import router as auth_router
 from trinol.modules.identity.routes.invitations import router as invitations_router
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(lead_conversion_router)
     app.include_router(public_router)
     app.include_router(meetings_router)
+    app.include_router(income_router)
 
     @app.get("/health", tags=["meta"])
     @public

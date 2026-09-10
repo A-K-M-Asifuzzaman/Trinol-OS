@@ -7,6 +7,7 @@ from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
     make_client,
+    make_income,
     make_lead,
     make_meeting,
     make_meeting_action,
@@ -588,6 +589,61 @@ async def test_meeting_content_routes_isolated_across_orgs(
     )
 
     path = path_template.format(meeting_id=meeting.id, decision_id=decision.id, action_id=action.id)
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(method, path, json=body, headers=headers)
+    assert response.status_code == 404, (
+        f"{method} {path} as {role} in org B got {response.status_code}"
+    )
+
+
+# Phase 5 Stage 2. FINANCE_READ/FINANCE_WRITE are both ADMIN+-tier only
+# (RBAC.md §2 — MEMBER/MANAGER lack the permission entirely, RBAC.md §3's
+# "Finance is invisible to MEMBER and MANAGER"), so read and write share one
+# list and one role parametrization: testing MEMBER/MANAGER here would only
+# prove they lack the permission, not prove isolation, same reasoning
+# _CRM_WRITE_ISOLATION_ROUTES already established for CLIENT_WRITE/
+# LEAD_WRITE.
+_FINANCE_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] = [
+    ("GET", "/api/v1/finance/income/{income_id}", None),
+    ("PATCH", "/api/v1/finance/income/{income_id}", {"notes": "Hijacked"}),
+    ("DELETE", "/api/v1/finance/income/{income_id}", None),
+]
+
+
+@pytest.mark.parametrize("method,path_template,body", _FINANCE_ISOLATION_ROUTES)
+@pytest.mark.parametrize("role", [Role.ADMIN, Role.OWNER])
+async def test_finance_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_template: str,
+    body: dict[str, str] | None,
+    role: Role,
+) -> None:
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"finance-iso-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    income = await make_income(db_session, organization=org_a, created_by=owner)
+    await db_session.commit()
+
+    org_b = await make_organization(db_session)
+    actor_user = await make_user(
+        db_session, email=f"finance-iso-actor-{org_b.id}-{role.value}@x.com"
+    )
+    actor_membership = await make_membership(
+        db_session, organization=org_b, user=actor_user, role=role
+    )
+    await db_session.commit()
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=org_b,
+    )
+
+    path = path_template.format(income_id=income.id)
     headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
     response = await client.request(method, path, json=body, headers=headers)
     assert response.status_code == 404, (
