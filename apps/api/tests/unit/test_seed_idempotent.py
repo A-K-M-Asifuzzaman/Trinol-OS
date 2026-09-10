@@ -11,6 +11,14 @@ import trinol.scripts.seed as seed_module
 from trinol.core.db.engine import get_session_factory
 from trinol.core.ids import uuid7
 from trinol.modules.crm.models import Client, Lead
+from trinol.modules.finance.models import (
+    Expense,
+    Income,
+    Invoice,
+    InvoiceCounter,
+    InvoiceItem,
+    Payment,
+)
 from trinol.modules.identity.models import (
     AuthProvider,
     Membership,
@@ -71,6 +79,23 @@ from trinol.modules.work.models import Project, ProjectMember, Task
 # `_SEED_MEETINGS` (referencing the real, un-suffixed project codes) throws a
 # bare `KeyError` the first time this file's tests run against the extended
 # seed() — reproduced directly, not assumed, before writing the fix below.
+#
+# Phase 5 Stage 12: the exact same class of bug, reproduced directly rather
+# than avoided by inspection alone — `_SEED_INVOICES`' own un-suffixed
+# `project_code="WEB"`/`client_name` fields threw `KeyError` against this
+# fixture's suffixed `projects_by_code`/`clients_by_name` the first time this
+# file's tests ran against the extended seed(), exactly as Stage 9's own
+# comment above predicted for any new entity that references a project or
+# client by name. `_SEED_INVOICES`/`_SEED_INCOME` are now shadowed here too,
+# remapping `client_name`/`project_code`. `_SEED_EXPENSES` needs no shadow —
+# it carries no project/client/email cross-reference to remap. Finance rows
+# are never snapshot/cleanup-gated per natural key the way clients/projects
+# are above: every test scenario in this file either has no organization yet
+# or (`test_seed_fills_in_missing_users...`) pre-seeds only the founder user
+# and membership, never any finance data — so a finance row under this
+# fixture's uniquely-suffixed organization is always test-created, and a
+# blanket per-organization purge in `_cleanup_rows_created_since` is
+# correct, not merely convenient.
 
 
 @pytest.fixture
@@ -209,12 +234,50 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
         for meeting in seed_module._SEED_MEETINGS
     )
 
+    invoices = tuple(
+        seed_module._SeedInvoice(
+            # Not suffixed: invoice_number's uniqueness is org-scoped
+            # (`uq_invoice_org_number`), and this fixture always creates a
+            # fresh, uniquely-suffixed organization — no collision risk
+            # with a real "trinolit" org's own TRI-2026-000N rows.
+            invoice_number=invoice.invoice_number,
+            client_name=client_name_for[invoice.client_name],
+            issue_date=invoice.issue_date,
+            due_date=invoice.due_date,
+            status=invoice.status,
+            items=invoice.items,
+            project_code=(
+                project_code_for[invoice.project_code] if invoice.project_code is not None else None
+            ),
+            discount_amount=invoice.discount_amount,
+            tax_amount=invoice.tax_amount,
+            payment_amount=invoice.payment_amount,
+        )
+        for invoice in seed_module._SEED_INVOICES
+    )
+    income = tuple(
+        seed_module._SeedIncome(
+            source=entry.source,
+            amount=entry.amount,
+            received_on=entry.received_on,
+            payment_method=entry.payment_method,
+            client_name=(
+                client_name_for[entry.client_name] if entry.client_name is not None else None
+            ),
+            # Matches an unsuffixed `invoices` invoice_number above.
+            invoice_number=entry.invoice_number,
+        )
+        for entry in seed_module._SEED_INCOME
+    )
+
     monkeypatch.setattr(seed_module, "_ORG_SLUG", f"trinolit-seed-test-{suffix}")
     monkeypatch.setattr(seed_module, "_SEED_USERS", users)
     monkeypatch.setattr(seed_module, "_SEED_CLIENTS", clients)
     monkeypatch.setattr(seed_module, "_SEED_PROJECTS", projects)
     monkeypatch.setattr(seed_module, "_SEED_LEADS", leads)
     monkeypatch.setattr(seed_module, "_SEED_MEETINGS", meetings)
+    monkeypatch.setattr(seed_module, "_SEED_INVOICES", invoices)
+    monkeypatch.setattr(seed_module, "_SEED_INCOME", income)
 
 
 @dataclass
@@ -556,6 +619,24 @@ async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot)
                     )
                 )
 
+        # Finance (Stage 12): invoice_items/payments reference invoices
+        # (RESTRICT), income references invoices/clients/projects
+        # (RESTRICT), and invoices themselves reference clients/projects/
+        # memberships (RESTRICT) — all of this must be gone before the
+        # projects/clients/memberships cleanup below runs, the same
+        # ordering reason the meetings block above already runs first.
+        # Every finance row under this fixture's organization is guaranteed
+        # test-created (see the fixture's own comment), so this is a
+        # blanket purge, not a snapshot-gated one like the blocks below.
+        await db.execute(delete(InvoiceItem).where(InvoiceItem.organization_id == organization.id))
+        await db.execute(delete(Payment).where(Payment.organization_id == organization.id))
+        await db.execute(delete(Income).where(Income.organization_id == organization.id))
+        await db.execute(delete(Invoice).where(Invoice.organization_id == organization.id))
+        await db.execute(delete(Expense).where(Expense.organization_id == organization.id))
+        await db.execute(
+            delete(InvoiceCounter).where(InvoiceCounter.organization_id == organization.id)
+        )
+
         for project_entry in seed_module._SEED_PROJECTS:
             project = (
                 await db.execute(
@@ -803,6 +884,64 @@ async def test_seed_is_idempotent(_isolated_seed: None) -> None:
                         f"{meeting_entry.title}: re-running must not duplicate the promoted task"
                     )
                     assert tasks[0].id == action.task_id
+
+            income_result = await db.execute(
+                select(Income).where(Income.organization_id == organization.id)
+            )
+            assert len(income_result.scalars().all()) == len(seed_module._SEED_INCOME), (
+                "re-running must not duplicate income rows"
+            )
+
+            expense_result = await db.execute(
+                select(Expense).where(Expense.organization_id == organization.id)
+            )
+            assert len(expense_result.scalars().all()) == len(seed_module._SEED_EXPENSES), (
+                "re-running must not duplicate expense rows"
+            )
+
+            invoice_result = await db.execute(
+                select(Invoice).where(Invoice.organization_id == organization.id)
+            )
+            invoices_by_number = {
+                invoice.invoice_number: invoice for invoice in invoice_result.scalars()
+            }
+            assert set(invoices_by_number) == {
+                entry.invoice_number for entry in seed_module._SEED_INVOICES
+            }, "re-running must not duplicate or lose an invoice"
+
+            for invoice_entry in seed_module._SEED_INVOICES:
+                invoice = invoices_by_number[invoice_entry.invoice_number]
+                item_result = await db.execute(
+                    select(InvoiceItem).where(
+                        InvoiceItem.organization_id == organization.id,
+                        InvoiceItem.invoice_id == invoice.id,
+                    )
+                )
+                assert len(item_result.scalars().all()) == len(invoice_entry.items), (
+                    f"{invoice_entry.invoice_number}: re-running must not duplicate line items"
+                )
+
+                payment_result = await db.execute(
+                    select(Payment).where(
+                        Payment.organization_id == organization.id,
+                        Payment.invoice_id == invoice.id,
+                    )
+                )
+                expected_payments = 1 if invoice_entry.payment_amount is not None else 0
+                assert len(payment_result.scalars().all()) == expected_payments, (
+                    f"{invoice_entry.invoice_number}: re-running must not duplicate its payment"
+                )
+
+            counter_result = await db.execute(
+                select(InvoiceCounter).where(
+                    InvoiceCounter.organization_id == organization.id,
+                    InvoiceCounter.year == seed_module._SEED_INVOICE_YEAR,
+                )
+            )
+            counter = counter_result.scalar_one()
+            assert counter.last_seq == len(seed_module._SEED_INVOICES), (
+                "re-running must not bump the counter past the seeded invoice count"
+            )
     finally:
         async with session_factory() as db:
             await _cleanup_rows_created_since(db, snapshot)

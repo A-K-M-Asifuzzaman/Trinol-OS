@@ -37,13 +37,39 @@ eventually stop reading as "past"/"upcoming" as real time moves past
 them — cosmetic staleness only, same class of acceptable drift
 next_follow_up already has once seeded, not a correctness bug.`
 
+Phase 5 Stage 12: MASTER_PROMPT §36's "invoices" and "expenses" —
+extended to income and payments too (ROADMAP.md Phase 5 decision 3): a
+dashboard with invoices/expenses but zero income/payment rows would show
+a permanently broken "revenue this month" tile and every invoice stuck
+unpaid forever. Income/expense dates are computed relative to `date.
+today()` at seed time (`_TODAY`, read once) — same treatment as
+`next_follow_up` above, and for the identical reason: the six finance
+dashboard tiles (Stage 8) key off "this month"/"the last 6 months", so a
+fixed historical date would eventually make every tile read zero, not
+just look cosmetically stale the way a fixed meeting date does. Their
+natural keys are therefore `source`/`description` alone, never the date
+— an income or expense row's *identity* doesn't shift just because
+"today" moved on between seed runs, matching `next_follow_up`'s own "the
+date is never read back into the idempotency check" precedent exactly.
+Invoices use fixed, hand-assigned `TRI-2026-{seq:04d}` numbers instead of
+`invoice_service.next_invoice_number` (this script constructs every
+entity by direct ORM row, never through the service layer, matching
+every other entity here) — `invoice_counters(organization, 2026)` is
+bumped to at least as many seed invoices exist, so a real invoice created
+afterward can never collide with a hand-assigned seed number. One SENT
+invoice is deliberately overdue (`due_date` before `_TODAY`) to exercise
+`is_overdue`'s own derivation; one PARTIALLY_PAID and one PAID invoice
+each get a matching seed `Payment` row.
+
 Idempotent: re-running never duplicates a row, matched on the organization's
 slug, each user's email, the (organization, user) membership pair, each
 project's code, each (project, user) project-member pair, each
 (project, title) task pair, each client's name, each lead's email, each
 (organization, title, starts_at) meeting, each (meeting, user-or-email)
-participant, each (meeting, body) decision, and each (meeting,
-description) action.
+participant, each (meeting, body) decision, each (meeting, description)
+action, each income row's `source`, each expense row's `description`,
+each invoice's `invoice_number`, and each invoice's own seed payment (at
+most one per invoice, matched by `invoice_id` alone).
 """
 
 from __future__ import annotations
@@ -62,6 +88,16 @@ from trinol.core.db.engine import get_session_factory
 from trinol.core.db.org_session import register_org_scope_guard
 from trinol.core.ids import uuid7
 from trinol.modules.crm.models import Client, ClientStatus, Lead, LeadSource, LeadStage
+from trinol.modules.finance.models import (
+    Expense,
+    ExpenseCategory,
+    Income,
+    Invoice,
+    InvoiceCounter,
+    InvoiceItem,
+    InvoiceStatus,
+    Payment,
+)
 from trinol.modules.identity.models import (
     AuthProvider,
     Membership,
@@ -490,6 +526,225 @@ _SEED_MEETINGS: tuple[_SeedMeeting, ...] = (
 )
 
 
+# Read once at seed time — see the module docstring for why income/expense
+# dates are computed relative to this rather than fixed, unlike meetings'
+# own absolute datetimes above.
+_TODAY = date.today()
+
+
+def _months_ago(n: int) -> date:
+    """Plain calendar-month arithmetic, same recipe as `finance.services.
+    dashboard_service._add_months` — duplicated rather than imported,
+    matching every other module-local copy of a trivial helper in this
+    codebase (e.g. each module's own `ensure_actor_in_org`)."""
+    month_index = _TODAY.year * 12 + (_TODAY.month - 1) - n
+    year, month = divmod(month_index, 12)
+    return date(year, month + 1, min(_TODAY.day, 28))
+
+
+@dataclass(frozen=True, slots=True)
+class _SeedIncome:
+    source: str
+    amount: Decimal
+    received_on: date
+    payment_method: str
+    client_name: str | None = None
+    invoice_number: str | None = None
+
+
+# MASTER_PROMPT §19's "revenue this month" tile needs at least one row
+# dated this month; "revenue trend" (6-month window) needs spread across
+# months, not just one.
+_SEED_INCOME: tuple[_SeedIncome, ...] = (
+    _SeedIncome(
+        source="Website retainer — Acme Corp",
+        amount=Decimal("1200.00"),
+        received_on=_TODAY,
+        payment_method="bank_transfer",
+        client_name=_ACME_CORP_NAME,
+    ),
+    _SeedIncome(
+        source="Consulting — Nova Dynamics",
+        amount=Decimal("900.00"),
+        received_on=_months_ago(1),
+        payment_method="bank_transfer",
+        client_name="Nova Dynamics",
+    ),
+    _SeedIncome(
+        source="Hosting reimbursement",
+        amount=Decimal("150.00"),
+        received_on=_months_ago(2),
+        payment_method="card",
+    ),
+    # Cross-references the PAID seed invoice below (income.invoice_id is a
+    # plain optional link, ARCHITECTURE.md §3 — recording a payment does
+    # not write an income row automatically, so this is a separate,
+    # deliberately-linked demo row, not something record_payment produces).
+    _SeedIncome(
+        source="Invoice payment — TRI-2026-0005",
+        amount=Decimal("800.00"),
+        received_on=_TODAY,
+        payment_method="bank_transfer",
+        invoice_number="TRI-2026-0005",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _SeedExpense:
+    description: str
+    amount: Decimal
+    category: ExpenseCategory
+    spent_on: date
+    payment_method: str
+    vendor: str | None = None
+
+
+# "Expenses this month"/"expense breakdown" need several categories in the
+# current month; one older row gives the revenue-trend-adjacent "expenses
+# this month" tile a contrast month, same reasoning as _SEED_INCOME above.
+_SEED_EXPENSES: tuple[_SeedExpense, ...] = (
+    _SeedExpense(
+        description="Web hosting — DigitalOcean",
+        amount=Decimal("45.00"),
+        category=ExpenseCategory.HOSTING,
+        spent_on=_TODAY,
+        payment_method="card",
+        vendor="DigitalOcean",
+    ),
+    _SeedExpense(
+        description="Domain renewal — trinolit.com",
+        amount=Decimal("18.00"),
+        category=ExpenseCategory.DOMAINS,
+        spent_on=_TODAY,
+        payment_method="card",
+    ),
+    _SeedExpense(
+        description="Design software subscription",
+        amount=Decimal("55.00"),
+        category=ExpenseCategory.SOFTWARE,
+        spent_on=_TODAY,
+        payment_method="card",
+    ),
+    _SeedExpense(
+        description="Google Ads campaign",
+        amount=Decimal("200.00"),
+        category=ExpenseCategory.MARKETING,
+        spent_on=_TODAY,
+        payment_method="card",
+    ),
+    _SeedExpense(
+        description="Founder salary draw",
+        amount=Decimal("2000.00"),
+        category=ExpenseCategory.SALARY,
+        spent_on=_TODAY,
+        payment_method="bank_transfer",
+    ),
+    _SeedExpense(
+        description="Coworking desk rental",
+        amount=Decimal("300.00"),
+        category=ExpenseCategory.OFFICE,
+        spent_on=_months_ago(1),
+        payment_method="bank_transfer",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _SeedInvoiceItem:
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class _SeedInvoice:
+    invoice_number: str
+    client_name: str
+    issue_date: date
+    due_date: date
+    status: InvoiceStatus
+    items: tuple[_SeedInvoiceItem, ...]
+    project_code: str | None = None
+    discount_amount: Decimal = Decimal("0")
+    tax_amount: Decimal = Decimal("0")
+    # Set only for the one PARTIALLY_PAID and one PAID invoice — mirrors
+    # payment_service.record_payment's own amount_paid bookkeeping, since
+    # this script never calls that service (every entity here is a direct
+    # ORM row, matching the rest of the file).
+    payment_amount: Decimal | None = None
+
+
+# MASTER_PROMPT §20's own invoice fields, across every stored status
+# (ADR-0007: OVERDUE is derived, never stored) so the invoices list, the
+# dashboard's "outstanding invoices" tile, and is_overdue's own derivation
+# all have real data. issue_date is a fixed 20-days-ago offset from
+# `_TODAY` for every entry — only due_date varies per entry, which is what
+# actually drives is_overdue/PARTIALLY_PAID/PAID's own real behavior.
+_SEED_INVOICES: tuple[_SeedInvoice, ...] = (
+    _SeedInvoice(
+        invoice_number="TRI-2026-0001",
+        client_name=_ACME_CORP_NAME,
+        issue_date=_TODAY - timedelta(days=20),
+        due_date=_TODAY + timedelta(days=15),
+        status=InvoiceStatus.DRAFT,
+        project_code="WEB",
+        items=(_SeedInvoiceItem("Website redesign — Phase 1", Decimal("1"), Decimal("2400.00")),),
+    ),
+    _SeedInvoice(
+        invoice_number="TRI-2026-0002",
+        client_name=_ACME_CORP_NAME,
+        issue_date=_TODAY - timedelta(days=20),
+        due_date=_TODAY + timedelta(days=10),
+        status=InvoiceStatus.SENT,
+        project_code="WEB",
+        items=(_SeedInvoiceItem("Website redesign — Phase 2", Decimal("1"), Decimal("1800.00")),),
+        tax_amount=Decimal("90.00"),
+    ),
+    _SeedInvoice(
+        invoice_number="TRI-2026-0003",
+        client_name="Nova Dynamics",
+        issue_date=_TODAY - timedelta(days=20),
+        # Deliberately overdue — SENT with a due_date already in the past —
+        # to exercise is_overdue's own read-time derivation (ADR-0007).
+        due_date=_TODAY - timedelta(days=5),
+        status=InvoiceStatus.SENT,
+        items=(_SeedInvoiceItem("Consulting retainer — Q3", Decimal("10"), Decimal("100.00")),),
+    ),
+    _SeedInvoice(
+        invoice_number="TRI-2026-0004",
+        client_name="Bright Design Studio",
+        issue_date=_TODAY - timedelta(days=20),
+        due_date=_TODAY + timedelta(days=5),
+        status=InvoiceStatus.PARTIALLY_PAID,
+        items=(_SeedInvoiceItem("Brand refresh", Decimal("1"), Decimal("1000.00")),),
+        payment_amount=Decimal("400.00"),
+    ),
+    _SeedInvoice(
+        invoice_number="TRI-2026-0005",
+        client_name=_ACME_CORP_NAME,
+        issue_date=_TODAY - timedelta(days=20),
+        due_date=_TODAY - timedelta(days=10),
+        status=InvoiceStatus.PAID,
+        items=(_SeedInvoiceItem("Hosting setup", Decimal("1"), Decimal("800.00")),),
+        payment_amount=Decimal("800.00"),
+    ),
+    _SeedInvoice(
+        invoice_number="TRI-2026-0006",
+        client_name="Nova Dynamics",
+        issue_date=_TODAY - timedelta(days=20),
+        due_date=_TODAY + timedelta(days=15),
+        status=InvoiceStatus.CANCELLED,
+        items=(_SeedInvoiceItem("Scoping call (cancelled)", Decimal("1"), Decimal("150.00")),),
+    ),
+)
+
+# The year embedded in every _SEED_INVOICES number above — kept as its own
+# constant so _ensure_invoice_counter_at_least bumps the same
+# (organization, year) row the numbers themselves imply.
+_SEED_INVOICE_YEAR = 2026
+
+
 async def _get_or_create_organization(db: AsyncSession) -> Organization:
     result = await db.execute(select(Organization).where(Organization.slug == _ORG_SLUG))
     organization = result.scalar_one_or_none()
@@ -860,6 +1115,173 @@ async def _get_or_create_meeting_action(
     return action
 
 
+async def _get_or_create_income(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    entry: _SeedIncome,
+    client_id: uuid.UUID | None,
+    invoice_id: uuid.UUID | None,
+    created_by_user_id: uuid.UUID,
+) -> Income:
+    result = await db.execute(
+        select(Income).where(
+            Income.organization_id == organization.id, Income.source == entry.source
+        )
+    )
+    income = result.scalar_one_or_none()
+    if income is not None:
+        return income
+    income = Income(
+        id=uuid7(),
+        organization_id=organization.id,
+        amount=entry.amount,
+        source=entry.source,
+        client_id=client_id,
+        invoice_id=invoice_id,
+        received_on=entry.received_on,
+        payment_method=entry.payment_method,
+        created_by=created_by_user_id,
+    )
+    db.add(income)
+    await db.flush()
+    return income
+
+
+async def _get_or_create_expense(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    entry: _SeedExpense,
+    created_by_user_id: uuid.UUID,
+) -> Expense:
+    result = await db.execute(
+        select(Expense).where(
+            Expense.organization_id == organization.id, Expense.description == entry.description
+        )
+    )
+    expense = result.scalar_one_or_none()
+    if expense is not None:
+        return expense
+    expense = Expense(
+        id=uuid7(),
+        organization_id=organization.id,
+        amount=entry.amount,
+        category=entry.category,
+        description=entry.description,
+        vendor=entry.vendor,
+        spent_on=entry.spent_on,
+        payment_method=entry.payment_method,
+        created_by=created_by_user_id,
+    )
+    db.add(expense)
+    await db.flush()
+    return expense
+
+
+async def _ensure_invoice_counter_at_least(
+    db: AsyncSession, *, organization: Organization, year: int, min_seq: int
+) -> None:
+    """Only ever bumps `last_seq` upward — a real invoice created later via
+    `invoice_counter_service.next_invoice_number` must start above every
+    hand-assigned seed number, never collide with one (module docstring).
+    Never lowers a higher value a real run may have already reached."""
+    result = await db.execute(
+        select(InvoiceCounter).where(
+            InvoiceCounter.organization_id == organization.id, InvoiceCounter.year == year
+        )
+    )
+    counter = result.scalar_one_or_none()
+    if counter is None:
+        db.add(InvoiceCounter(organization_id=organization.id, year=year, last_seq=min_seq))
+        return
+    if counter.last_seq < min_seq:
+        counter.last_seq = min_seq
+
+
+async def _get_or_create_invoice(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    entry: _SeedInvoice,
+    client_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    created_by_user_id: uuid.UUID,
+) -> Invoice:
+    result = await db.execute(
+        select(Invoice).where(
+            Invoice.organization_id == organization.id,
+            Invoice.invoice_number == entry.invoice_number,
+        )
+    )
+    invoice = result.scalar_one_or_none()
+    if invoice is not None:
+        return invoice
+    # Server-side-only totals (ADR-0007), computed here exactly as
+    # invoice_service.create_invoice computes them — this script never
+    # calls that service, so the arithmetic is duplicated, not imported.
+    line_totals = [round(item.quantity * item.unit_price, 2) for item in entry.items]
+    subtotal = sum(line_totals, Decimal("0"))
+    total = subtotal - entry.discount_amount + entry.tax_amount
+    invoice = Invoice(
+        id=uuid7(),
+        organization_id=organization.id,
+        invoice_number=entry.invoice_number,
+        client_id=client_id,
+        project_id=project_id,
+        issue_date=entry.issue_date,
+        due_date=entry.due_date,
+        subtotal=subtotal,
+        discount_amount=entry.discount_amount,
+        tax_amount=entry.tax_amount,
+        total=total,
+        amount_paid=entry.payment_amount if entry.payment_amount is not None else Decimal("0"),
+        status=entry.status,
+        sent_at=datetime.now(UTC) if entry.status != InvoiceStatus.DRAFT else None,
+        created_by=created_by_user_id,
+    )
+    db.add(invoice)
+    await db.flush()
+    for position, item in enumerate(entry.items):
+        db.add(
+            InvoiceItem(
+                id=uuid7(),
+                organization_id=organization.id,
+                invoice_id=invoice.id,
+                description=item.description,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                line_total=round(item.quantity * item.unit_price, 2),
+                position=position,
+            )
+        )
+    await db.flush()
+    return invoice
+
+
+async def _ensure_payment_for_invoice(
+    db: AsyncSession, *, invoice: Invoice, amount: Decimal, recorded_by_user_id: uuid.UUID
+) -> None:
+    result = await db.execute(
+        select(Payment).where(
+            Payment.organization_id == invoice.organization_id, Payment.invoice_id == invoice.id
+        )
+    )
+    if result.scalar_one_or_none() is not None:
+        return
+    db.add(
+        Payment(
+            id=uuid7(),
+            organization_id=invoice.organization_id,
+            invoice_id=invoice.id,
+            amount=amount,
+            paid_on=invoice.due_date,
+            method="bank_transfer",
+            recorded_by=recorded_by_user_id,
+        )
+    )
+
+
 async def seed() -> None:
     register_org_scope_guard()
     session_factory = get_session_factory()
@@ -1000,6 +1422,68 @@ async def seed() -> None:
                     owner_user_id=owner_user_id,
                     task_id=task_id,
                 )
+
+        # `_SEED_USERS[0].email` (not the frozen `_FOUNDER_EMAIL` constant)
+        # so this still resolves correctly when a test monkeypatches
+        # `_SEED_USERS` to a suffixed shadow set (test_seed_idempotent.py's
+        # `_isolated_seed` fixture) — `_FOUNDER_EMAIL` is computed once at
+        # import time and never reflects that patch.
+        founder_id = users_by_email[_SEED_USERS[0].email].id
+
+        # Invoices before income: one income row cross-references a seed
+        # invoice by number (module docstring).
+        await _ensure_invoice_counter_at_least(
+            db, organization=organization, year=_SEED_INVOICE_YEAR, min_seq=len(_SEED_INVOICES)
+        )
+        invoices_by_number: dict[str, Invoice] = {}
+        for invoice_entry in _SEED_INVOICES:
+            project_id = (
+                projects_by_code[invoice_entry.project_code].id
+                if invoice_entry.project_code is not None
+                else None
+            )
+            invoice = await _get_or_create_invoice(
+                db,
+                organization=organization,
+                entry=invoice_entry,
+                client_id=clients_by_name[invoice_entry.client_name].id,
+                project_id=project_id,
+                created_by_user_id=founder_id,
+            )
+            invoices_by_number[invoice_entry.invoice_number] = invoice
+            if invoice_entry.payment_amount is not None:
+                await _ensure_payment_for_invoice(
+                    db,
+                    invoice=invoice,
+                    amount=invoice_entry.payment_amount,
+                    recorded_by_user_id=founder_id,
+                )
+
+        for income_entry in _SEED_INCOME:
+            client_id = (
+                clients_by_name[income_entry.client_name].id
+                if income_entry.client_name is not None
+                else None
+            )
+            invoice_id = (
+                invoices_by_number[income_entry.invoice_number].id
+                if income_entry.invoice_number is not None
+                else None
+            )
+            await _get_or_create_income(
+                db,
+                organization=organization,
+                entry=income_entry,
+                client_id=client_id,
+                invoice_id=invoice_id,
+                created_by_user_id=founder_id,
+            )
+
+        for expense_entry in _SEED_EXPENSES:
+            await _get_or_create_expense(
+                db, organization=organization, entry=expense_entry, created_by_user_id=founder_id
+            )
+
         await db.commit()
 
 

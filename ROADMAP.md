@@ -3331,7 +3331,113 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
 
       Full backend suite (1161 tests, unchanged — no new tests needed,
       only re-verified), ruff, and mypy all clean.
-- [ ] Stage 12 — Seed script + E2E, final stage
+- [x] Stage 12 — Seed script + E2E, final stage. Extended `scripts/seed.py`
+      with income, expenses, invoices (with line items and payments) —
+      the plan's decision 3 (income/payment rows beyond MASTER_PROMPT
+      §36's literal "invoices"/"expenses") — so every one of Stage 8's six
+      dashboard tiles renders non-zero data, not just invoices/expenses.
+
+      Re-read the entire 1011-line file first (Phase 4 Stage 9's own
+      lesson, applied proactively rather than rediscovered) before adding
+      anything, specifically to get income/expense date handling right:
+      their natural keys are `source`/`description` alone (never the
+      date), matching `next_follow_up`'s own precedent that a date
+      computed relative to "today" is never read back into the
+      idempotency check — but unlike `next_follow_up`/meetings (where a
+      fixed date only goes cosmetically stale), income/expense dates *do*
+      need to move with `date.today()` on every reseed, since Stage 8's
+      tiles key off "this month"/"the last 6 months" and a fixed
+      historical date would eventually make them read permanently zero, a
+      real regression, not cosmetic drift. `_TODAY` is read once at seed
+      time and every income/expense/invoice date is computed relative to
+      it.
+
+      Invoices use fixed, hand-assigned `TRI-2026-{seq:04d}` numbers
+      (this script never calls `invoice_service.next_invoice_number` —
+      every entity here is direct ORM construction, matching everything
+      else in the file) — identified and fixed a real collision risk
+      *before* writing any seed data: a real invoice created later via
+      the actual API would otherwise start its own counter from 0 and
+      collide with a hand-assigned number. `_ensure_invoice_counter_at_
+      least` get-or-creates `invoice_counters(organization, 2026)` and
+      only ever bumps `last_seq` upward, mirroring `_get_or_create_
+      project`'s own "only ever sets an unset link, never overwrites a
+      later run's data" backfill philosophy.
+
+      Six invoices across every stored `InvoiceStatus` (DRAFT, SENT ×2 —
+      one with a future `due_date`, one deliberately overdue with a past
+      `due_date` to exercise `is_overdue`'s own read-time derivation,
+      ADR-0007 — PARTIALLY_PAID, PAID, CANCELLED), each with real line
+      items computing server-side-style totals by hand
+      (`line_total = round(qty × price, 2)`, `total = subtotal -
+      discount + tax`) to satisfy the DB's own CHECK constraints; the
+      PARTIALLY_PAID and PAID invoices each get one matching seed
+      `Payment` row. Four income rows (one linked to the seeded PAID
+      invoice via `invoice_id`, demonstrating that cross-reference is
+      populated in at least one demo row) and six expenses spanning
+      HOSTING/DOMAINS/SOFTWARE/MARKETING/SALARY/OFFICE.
+
+      Verified directly against a real local Postgres, not just by
+      passing tests: `alembic upgrade head` is a no-op (no schema
+      change this stage); `make seed` run twice produced identical row
+      counts both times (4 income, 6 expenses, 6 invoices, 6 invoice
+      items, 2 payments, `invoice_counters.last_seq = 6` unchanged on the
+      second run); manually queried every invoice's computed
+      total/amount_paid/`is_overdue` and every income/expense row's
+      values against the exact design (all matched).
+
+      `tests/unit/test_seed_idempotent.py`: extended `_isolated_seed` to
+      shadow `_SEED_INVOICES`/`_SEED_INCOME` too (remapping `client_name`/
+      `project_code` via the fixture's existing maps) — reproduced the
+      exact class of bug Stage 9's own comment predicted (a shadowed
+      `_SEED_PROJECTS` with an un-shadowed new entity referencing it by
+      name throws a bare `KeyError`) directly, twice: once for a hardcoded
+      module-level `_FOUNDER_EMAIL` reference inside `seed()` that didn't
+      track `_SEED_USERS` monkeypatching (fixed by reading `_SEED_USERS[0]
+      .email` dynamically instead), once for `_SEED_INVOICES`' own
+      un-shadowed `project_code`/`client_name` fields (fixed by shadowing
+      them in the fixture). `_SEED_EXPENSES` needs no shadow — it carries
+      no name-based cross-reference. Extended `_cleanup_rows_created_
+      since` with a finance purge block (invoice_items/payments before
+      invoices, income before invoices/clients/projects, invoices/
+      expenses before memberships) inserted before the existing projects
+      cleanup, for the same FK-ordering reason the meetings block already
+      runs first — unlike the snapshot-gated blocks for clients/projects/
+      etc., this is an unconditional per-organization purge, since every
+      test scenario in this file either has no organization yet or (the
+      "fills in missing users" test) pre-seeds only the founder user and
+      membership, never finance data — so a finance row under this
+      fixture's uniquely-suffixed org is always test-created. Added
+      idempotency assertions for income/expense/invoice/invoice-item/
+      payment/counter row counts across two `seed()` calls, matching the
+      existing test's depth for every other entity.
+
+      `apps/web/e2e/finance.spec.ts` — the one flow MASTER_PROMPT §37
+      names for this phase: log in as the seeded OWNER, create an invoice
+      with two line items (one deliberately needing real ROUND_HALF_UP
+      rounding — `1.111 × 3.33 = 3.69963 → 3.70`, not just formatting) and
+      a discount/tax, and assert the rendered total is the value derived
+      from those same raw inputs in the test itself — a live check of the
+      server's own arithmetic, not a hardcoded string. Picking "the new
+      invoice" off the list page proved unreliable on the first run
+      (six invoices are already seeded, so a naive first-link-by-sort-
+      order assumption grabbed a pre-existing seeded invoice instead) —
+      fixed by reading the real invoice id straight out of the `POST
+      .../invoices` response instead of the list UI. Ran three times
+      locally, all green; each run's created invoice(s) (and the
+      counter bump they caused) were deleted/reset in the same turn via
+      `psql`, confirmed zero test invoices remain and `invoice_counters.
+      last_seq` is back to 6.
+
+      `.env`/`apps/web/.env.local` were temporarily set for the manual
+      run (`APP_ORIGIN`/`API_PORT` → 3010/8010, `E2E_TEST_MODE`/
+      `NEXT_PUBLIC_E2E_TEST_MODE` → true) and fully reverted afterward
+      (`.env.local` deleted — it didn't exist before this stage); both
+      dev servers stopped.
+
+      Full `make check` green end to end (1161 backend tests, ruff,
+      mypy, eslint, prettier, tsc, 83 vitest tests, `next build`, openapi
+      diff clean — no schema/route change this stage).
 - [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md)) — manual DBA exercise, not a code deliverable
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
