@@ -3462,8 +3462,14 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       TRI-2026-0001's second item's `line_total` is exactly `3.70` and
       its invoice `total` is `2403.70`. Full backend suite (1161 tests)
       and `make check` re-run clean.
+
+      **Codex re-review: approved, P1 fully resolved** — confirmed both
+      rounding call sites now use explicit ROUND_HALF_UP, `InvoiceItem.
+      line_total` reuses the computed values (no divergence possible),
+      the `1.111 × 3.33 → 3.70` case is real seed data, and no bare
+      `round()` call sites remain. Pushed to `origin/main`.
 - [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md)) — manual DBA exercise, not a code deliverable
-- [ ] Codex audit
+- [ ] Codex audit — final phase-level audit, pending
 - [ ] Resolve P0/P1 findings
 
 ## Phase 6 — Documents + Integrations
