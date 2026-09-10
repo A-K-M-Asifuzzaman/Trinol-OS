@@ -2579,6 +2579,38 @@ four soft-deleted entities) with a same-transaction audit event.
       green end to end, confirmed with a clean exit code, not just no
       visible error text.
 
+- [x] Stage 8 — Security matrices review pass. A verification/audit pass,
+      not first-time authoring: every meeting route already got its
+      authz-matrix and isolation-matrix row in the same stage it was
+      built (Stages 2-5), unlike Phase 3's CRM module, which deferred
+      most of this to one dedicated late stage. Enumerated all 16 live
+      meeting routes directly via `iter_api_routes(app)` rather than
+      trusting the matrix files' own contents, then cross-checked each
+      one by name against `test_authz_matrix.py`'s `_MATRIX_ROWS`/
+      `_OWNERSHIP_SPLIT_ROUTES` and `test_isolation_matrix.py`'s own
+      route tables — all 16 present in both (2 plain role-threshold rows
+      for `POST`/`GET /meetings`, 14 ownership-split rows for everything
+      addressing a specific resource). Confirmed the 2 collection-level
+      routes are correctly absent from the isolation matrix, matching
+      established precedent across every other module (isolation testing
+      is inherently about a specific other-org resource leaking, which a
+      bare collection route has none of — checked directly that CRM/work's
+      own collection routes are equally absent there, not just assumed).
+      Confirmed `test_escalation.py` needs no new rows: it covers only the
+      org-role-assignment guards (`change_role`/`remove_member` on
+      `Membership`), and meetings introduces no role-assignment surface at
+      all — no route sets or changes an org `Role`.
+
+      `test_matrix_covers_every_permission_gated_route`'s own meta-
+      assertion has been enforcing this automatically every stage anyway
+      (it already failed the suite once during Stage 2 planning if a row
+      were missing), so this audit's clean result confirms rather than
+      discovers — no gap found, nothing to fix.
+
+      917 backend tests unchanged (audit-only stage, no new test cases,
+      no production code changes); full security suite (547 tests), ruff,
+      ruff format, mypy all green.
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses
