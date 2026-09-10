@@ -375,6 +375,9 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # non-403.
     ("POST", "/api/v1/finance/invoices/{invoice_id}/send", Permission.INVOICE_WRITE, None),
     ("POST", "/api/v1/finance/invoices/{invoice_id}/cancel", Permission.INVOICE_CANCEL, None),
+    # Phase 5 Stage 6: viewing an existing invoice's PDF is a read
+    # (FINANCE_READ), not a write — no separate "download" permission.
+    ("GET", "/api/v1/finance/invoices/{invoice_id}/pdf", Permission.FINANCE_READ, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

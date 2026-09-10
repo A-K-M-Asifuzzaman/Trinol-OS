@@ -27,6 +27,7 @@ from trinol.modules.work.services.project_service import get_project_in_org
 from trinol.platform.activity import record
 from trinol.platform.email.protocol import EmailMessage
 from trinol.platform.email.render import render_invoice_email
+from trinol.platform.pdf.render import InvoicePdfLineItem, render_invoice_pdf
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,3 +527,63 @@ async def cancel_invoice(
     return await _load_invoice_with_items(
         db, organization_id=organization_id, invoice_id=invoice_id
     )
+
+
+@dataclass(frozen=True, slots=True)
+class InvoicePdf:
+    data: bytes
+    invoice_number: str
+
+
+async def generate_invoice_pdf(
+    db: AsyncSession, *, organization_id: uuid.UUID, actor: Membership, invoice_id: uuid.UUID
+) -> InvoicePdf:
+    """Gathers the invoice, its items, its client, and the organization
+    name, then hands plain display values to `platform.pdf.render.
+    render_invoice_pdf` (which stays decoupled from this module's ORM
+    models, same reasoning `send_invoice` already applies for the email
+    body). Read-only — gated by `FINANCE_READ` at the route, not
+    `INVOICE_WRITE` (viewing an existing invoice's PDF is a read).
+    `invoice_number` rides along so the route can build a real download
+    filename without a second fetch, same reasoning task_attachment_
+    service's own download path returns the FileObject alongside the
+    bytes."""
+    ensure_actor_in_org(actor, organization_id)
+    pair = await _load_invoice_with_items(
+        db, organization_id=organization_id, invoice_id=invoice_id
+    )
+    invoice = pair.invoice
+    client = await get_client_in_org(
+        db, organization_id=organization_id, client_id=invoice.client_id
+    )
+    org_result = await db.execute(select(Organization).where(Organization.id == organization_id))
+    organization = org_result.scalar_one()
+
+    data = render_invoice_pdf(
+        organization_name=organization.name,
+        client_name=client.name,
+        client_company=client.company,
+        client_address=client.address,
+        client_email=client.email,
+        invoice_number=invoice.invoice_number,
+        status=invoice.status.value,
+        issue_date=invoice.issue_date.isoformat(),
+        due_date=invoice.due_date.isoformat(),
+        currency=invoice.currency,
+        items=[
+            InvoicePdfLineItem(
+                description=item.description,
+                quantity=str(item.quantity),
+                unit_price=str(item.unit_price),
+                line_total=str(item.line_total),
+            )
+            for item in pair.items
+        ],
+        subtotal=str(invoice.subtotal),
+        discount_amount=str(invoice.discount_amount),
+        tax_amount=str(invoice.tax_amount),
+        total=str(invoice.total),
+        notes=invoice.notes,
+        terms=invoice.terms,
+    )
+    return InvoicePdf(data=data, invoice_number=invoice.invoice_number)

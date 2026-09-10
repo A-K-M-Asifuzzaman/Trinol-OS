@@ -551,6 +551,85 @@ async def test_member_and_manager_cannot_cancel_invoice(
     assert response.status_code == 403
 
 
+async def test_invoice_pdf_returns_real_pdf_bytes(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    client_row = await make_client(
+        db_session, organization=actor.organization, name="Acme Corp", email="acme@x.com"
+    )
+    await db_session.commit()
+
+    create_response = await client.post(
+        "/api/v1/finance/invoices",
+        json=_client_payload(
+            client_id=str(client_row.id),
+            items=[
+                {"description": "Design work", "quantity": "10", "unit_price": "150.00"},
+                {"description": "Hosting (annual)", "quantity": "1", "unit_price": "240.00"},
+                {"description": "Consulting", "quantity": "3.5", "unit_price": "200.00"},
+            ],
+            discount_amount="100.00",
+            tax_amount="50.00",
+            notes="Thank you for your business.",
+            terms="Net 14",
+        ),
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    invoice_id = create_response.json()["id"]
+
+    response = await client.get(f"/api/v1/finance/invoices/{invoice_id}/pdf")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.content.startswith(b"%PDF-")
+    invoice_number = create_response.json()["invoice_number"]
+    assert invoice_number in response.headers["content-disposition"]
+
+
+@pytest.mark.parametrize("role", [Role.MEMBER, Role.MANAGER])
+async def test_member_and_manager_cannot_download_invoice_pdf(
+    client: AsyncClient, fake_verifier, db_session, role: Role
+) -> None:
+    org = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"pdf-owner-{org.id}@x.com")
+    owner = await make_membership(db_session, organization=org, user=owner_user, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=org)
+    invoice = await make_invoice(db_session, organization=org, client=client_row, created_by=owner)
+    await db_session.commit()
+
+    actor_user = await make_user(db_session, email=f"pdf-actor-{org.id}-{role.value}@x.com")
+    actor_membership = await make_membership(
+        db_session, organization=org, user=actor_user, role=role
+    )
+    await db_session.commit()
+    await login_as_existing(
+        client, fake_verifier, user=actor_user, membership=actor_membership, organization=org
+    )
+
+    response = await client.get(f"/api/v1/finance/invoices/{invoice.id}/pdf")
+    assert response.status_code == 403
+
+
+async def test_invoice_pdf_in_another_org_is_404(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    other_org = await make_organization(db_session)
+    other_owner = await make_user(db_session, email=f"pdf-other-owner-{other_org.id}@x.com")
+    other_actor = await make_membership(
+        db_session, organization=other_org, user=other_owner, role=Role.OWNER
+    )
+    other_client = await make_client(db_session, organization=other_org)
+    other_invoice = await make_invoice(
+        db_session, organization=other_org, client=other_client, created_by=other_actor
+    )
+    await db_session.commit()
+
+    await login_as(client, fake_verifier, db_session, role=Role.ADMIN)
+    response = await client.get(f"/api/v1/finance/invoices/{other_invoice.id}/pdf")
+    assert response.status_code == 404
+
+
 async def test_invoice_in_another_org_is_404(
     client: AsyncClient, fake_verifier, db_session
 ) -> None:

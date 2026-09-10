@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "boto3>=1.35",
     "python-multipart>=0.0.12",
+    "xhtml2pdf>=0.2.16",
 ]
 
 [dependency-groups]
@@ -60,6 +61,11 @@ ignore_missing_imports = true
 # Same: no type stubs or py.typed marker (boto3-stubs is a separate,
 # much larger package not worth adding for four calls in s3.py).
 module = ["boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Same: no type stubs or py.typed marker.
+module = "xhtml2pdf.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

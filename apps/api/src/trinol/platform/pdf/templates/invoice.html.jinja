@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      @page { size: letter; margin: 2cm; }
+      body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #111827; }
+      h1 { font-size: 18pt; margin: 0 0 4px 0; }
+      .muted { color: #6b7280; }
+      table { width: 100%; border-collapse: collapse; }
+      .header-table td { vertical-align: top; padding: 0; }
+      .bill-to { margin-top: 24px; }
+      .items-table { margin-top: 24px; }
+      .items-table th {
+        text-align: left;
+        border-bottom: 1px solid #111827;
+        padding: 6px 4px;
+        font-size: 9pt;
+        text-transform: uppercase;
+        color: #6b7280;
+      }
+      .items-table td { padding: 6px 4px; border-bottom: 1px solid #e5e7eb; }
+      .items-table .num { text-align: right; }
+      .totals-table { margin-top: 12px; width: 50%; margin-left: 50%; }
+      .totals-table td { padding: 3px 4px; }
+      .totals-table .label { color: #6b7280; }
+      .totals-table .value { text-align: right; }
+      .totals-table .grand-total { font-size: 12pt; font-weight: bold; border-top: 1px solid #111827; }
+      .notes { margin-top: 24px; font-size: 9pt; color: #374151; }
+    </style>
+  </head>
+  <body>
+    <table class="header-table">
+      <tr>
+        <td>
+          <h1>{{ organization_name }}</h1>
+        </td>
+        <td style="text-align: right;">
+          <div style="font-size: 14pt; font-weight: bold;">INVOICE</div>
+          <div class="muted">{{ invoice_number }}</div>
+          <div class="muted">Status: {{ status }}</div>
+        </td>
+      </tr>
+    </table>
+
+    <table class="header-table bill-to">
+      <tr>
+        <td>
+          <div class="muted">Bill to</div>
+          <div>{{ client_name }}</div>
+          {% if client_company %}<div>{{ client_company }}</div>{% endif %}
+          {% if client_address %}<div>{{ client_address }}</div>{% endif %}
+          {% if client_email %}<div>{{ client_email }}</div>{% endif %}
+        </td>
+        <td style="text-align: right;">
+          <div><span class="muted">Issue date:</span> {{ issue_date }}</div>
+          <div><span class="muted">Due date:</span> {{ due_date }}</div>
+        </td>
+      </tr>
+    </table>
+
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="num">Qty</th>
+          <th class="num">Unit price</th>
+          <th class="num">Line total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td>{{ item.description }}</td>
+          <td class="num">{{ item.quantity }}</td>
+          <td class="num">{{ currency }} {{ item.unit_price }}</td>
+          <td class="num">{{ currency }} {{ item.line_total }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <table class="totals-table">
+      <tr>
+        <td class="label">Subtotal</td>
+        <td class="value">{{ currency }} {{ subtotal }}</td>
+      </tr>
+      <tr>
+        <td class="label">Discount</td>
+        <td class="value">-{{ currency }} {{ discount_amount }}</td>
+      </tr>
+      <tr>
+        <td class="label">Tax</td>
+        <td class="value">{{ currency }} {{ tax_amount }}</td>
+      </tr>
+      <tr>
+        <td class="grand-total">Total due</td>
+        <td class="grand-total value">{{ currency }} {{ total }}</td>
+      </tr>
+    </table>
+
+    {% if notes %}
+    <div class="notes">
+      <div class="muted">Notes</div>
+      <div>{{ notes }}</div>
+    </div>
+    {% endif %}
+
+    {% if terms %}
+    <div class="notes">
+      <div class="muted">Terms</div>
+      <div>{{ terms }}</div>
+    </div>
+    {% endif %}
+  </body>
+</html>

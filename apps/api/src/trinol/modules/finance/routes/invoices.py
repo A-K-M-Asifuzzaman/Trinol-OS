@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import date
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import Response as FastAPIResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Permission
@@ -24,6 +27,7 @@ from trinol.modules.finance.services.invoice_service import (
     LineItemInput,
     cancel_invoice,
     create_invoice,
+    generate_invoice_pdf,
     get_invoice,
     list_invoices,
     send_invoice,
@@ -154,6 +158,41 @@ async def get_invoice_route(
         db, organization_id=membership.organization_id, actor=membership, invoice_id=invoice_id
     )
     return invoice_to_response(pair)
+
+
+def _content_disposition(filename: str) -> str:
+    """Same encoding as work.routes.tasks/finance.routes.expenses' own
+    copy — RFC 6266's `filename*` form percent-encodes the entire name so
+    an invoice_number containing `"`, `\\`, or a control byte can't break
+    out of the header, with a stripped-down ASCII fallback for older
+    clients."""
+    ascii_fallback = re.sub(r"[^A-Za-z0-9 ._-]", "_", filename).strip() or "invoice"
+    encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded}"
+
+
+@router.get(
+    "/{invoice_id}/pdf",
+    dependencies=[Depends(require(Permission.FINANCE_READ))],
+)
+async def get_invoice_pdf_route(
+    invoice_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> FastAPIResponse:
+    # Read-only (FINANCE_READ, not INVOICE_WRITE) — viewing an existing
+    # invoice's PDF is a read, no separate "download" permission invented.
+    pdf = await generate_invoice_pdf(
+        db, organization_id=membership.organization_id, actor=membership, invoice_id=invoice_id
+    )
+    return FastAPIResponse(
+        content=pdf.data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": _content_disposition(f"{pdf.invoice_number}.pdf"),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.patch(

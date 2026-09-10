@@ -3051,7 +3051,47 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
 
       Full suite re-verified (1100 tests), ruff, ruff format, mypy clean;
       `make openapi` confirmed no schema-surface change.
-- [ ] Stage 6 — Invoice PDF generation (xhtml2pdf)
+- [x] Stage 6 — Invoice PDF generation (xhtml2pdf). Added `xhtml2pdf>=
+      0.2.16` to `pyproject.toml` (0.2.18 resolved) — user-confirmed
+      choice from Phase 5 planning: pure-Python, no system-level
+      dependencies (no libcairo/libpango), versus WeasyPrint's richer CSS
+      support at the cost of new system deps for MASTER_PROMPT §20's
+      one-line PDF requirement. New `platform/pdf/` (mirrors `platform/
+      email/`'s shape): `templates/invoice.html.jinja` — a table-based
+      layout (header, bill-to, line items, totals) staying within
+      xhtml2pdf's supported CSS subset, no flexbox/floats needed;
+      `render.py`'s `render_invoice_pdf` — same `Environment`/
+      `FileSystemLoader` pattern as `email/render.py`, but always
+      autoescaped (no HTML/plain-text split to navigate, every template
+      here is HTML fed straight to xhtml2pdf); takes only plain strings
+      and a small `InvoicePdfLineItem` dataclass, never ORM instances,
+      keeping `platform/` decoupled from `modules/finance`'s models
+      (ARCHITECTURE.md §3). `invoice_service.generate_invoice_pdf`:
+      gathers the invoice/items/client/organization-name, converts to
+      display strings, calls `render_invoice_pdf`, returns an `InvoicePdf`
+      (bytes + `invoice_number`) so the route can build a real download
+      filename without a second fetch — same reasoning `task_attachment_
+      service`'s own download path already returns the `FileObject`
+      alongside its bytes. `routes/invoices.py`: `GET /{invoice_id}/pdf`,
+      gated `FINANCE_READ` (not `INVOICE_WRITE` — viewing an existing
+      invoice's PDF is a read), streamed with the same RFC 6266
+      `Content-Disposition` encoding as `work/routes/tasks.py`'s/
+      `finance/routes/expenses.py`'s own attachment/receipt downloads.
+
+      Added the authz-matrix row (`FINANCE_READ`) and isolation-matrix row
+      in this same commit — both fit the existing generic `{invoice_id}`-
+      keyed tables with no new resolution code needed.
+
+      Verification: 3 new integration tests in `tests/integration/
+      test_invoices.py` — a realistic multi-line invoice (10/1/3.5
+      quantities, a discount and tax both applied) returns bytes starting
+      `%PDF-` with the correct content-type/nosniff header and the real
+      invoice number in `Content-Disposition`; MEMBER/MANAGER 403;
+      cross-org 404. Full backend suite (1111 tests, up from 1100), ruff,
+      ruff format, and mypy all clean (added an `ignore_missing_imports`
+      override for `xhtml2pdf.*`, same treatment as `firebase_admin`/
+      `boto3` — it ships no type stubs either). `make openapi`
+      regenerated `apps/web/lib/api/types.gen.ts` cleanly.
 - [ ] Stage 7 — Payments (concurrent-payment test)
 - [ ] Stage 8 — Finance dashboard aggregates
 - [ ] Stage 9 — Activity feed wiring
