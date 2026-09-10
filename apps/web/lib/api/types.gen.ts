@@ -742,6 +742,62 @@ export interface paths {
         patch: operations["update_income_route_api_v1_finance_income__income_id__patch"];
         trace?: never;
     };
+    "/api/v1/finance/expenses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Expenses Route */
+        get: operations["list_expenses_route_api_v1_finance_expenses_get"];
+        put?: never;
+        /** Create Expense Route */
+        post: operations["create_expense_route_api_v1_finance_expenses_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/expenses/{expense_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Expense Route */
+        get: operations["get_expense_route_api_v1_finance_expenses__expense_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Expense Route */
+        delete: operations["delete_expense_route_api_v1_finance_expenses__expense_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Expense Route */
+        patch: operations["update_expense_route_api_v1_finance_expenses__expense_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/finance/expenses/{expense_id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Receipt Route */
+        get: operations["download_receipt_route_api_v1_finance_expenses__expense_id__receipt_get"];
+        put?: never;
+        /** Upload Receipt Route */
+        post: operations["upload_receipt_route_api_v1_finance_expenses__expense_id__receipt_post"];
+        /** Delete Receipt Route */
+        delete: operations["delete_receipt_route_api_v1_finance_expenses__expense_id__receipt_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -827,6 +883,11 @@ export interface components {
         };
         /** Body_upload_attachment_route_api_v1_tasks__task_id__attachments_post */
         Body_upload_attachment_route_api_v1_tasks__task_id__attachments_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_receipt_route_api_v1_finance_expenses__expense_id__receipt_post */
+        Body_upload_receipt_route_api_v1_finance_expenses__expense_id__receipt_post: {
             /** File */
             file: string;
         };
@@ -974,6 +1035,120 @@ export interface components {
         ContactSubmitResponse: {
             /** Reference Number */
             reference_number: string;
+        };
+        /**
+         * ExpenseCategory
+         * @description MASTER_PROMPT §19's 10-value category list.
+         * @enum {string}
+         */
+        ExpenseCategory: "HOSTING" | "DOMAINS" | "SOFTWARE" | "MARKETING" | "SALARY" | "CONTRACTOR" | "OFFICE" | "TRAVEL" | "EQUIPMENT" | "OTHER";
+        /**
+         * ExpenseCreateRequest
+         * @description No `receipt_file_id` here — a receipt is attached via the dedicated
+         *     `POST /finance/expenses/{expense_id}/receipt` multipart route, same
+         *     two-step shape as task attachments (create the JSON resource, then
+         *     attach the file).
+         */
+        ExpenseCreateRequest: {
+            /** Amount */
+            amount: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+            category: components["schemas"]["ExpenseCategory"];
+            /** Description */
+            description: string;
+            /** Vendor */
+            vendor?: string | null;
+            /**
+             * Spent On
+             * Format: date
+             */
+            spent_on: string;
+            /** Payment Method */
+            payment_method: string;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** ExpenseListResponse */
+        ExpenseListResponse: {
+            /** Items */
+            items: components["schemas"]["ExpenseResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * ExpenseResponse
+         * @description `amount` is a plain `Decimal`, not `BudgetDecimal` — same reasoning
+         *     as `IncomeResponse.amount`.
+         */
+        ExpenseResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Amount */
+            amount: string;
+            /** Currency */
+            currency: string;
+            category: components["schemas"]["ExpenseCategory"];
+            /** Description */
+            description: string;
+            /** Vendor */
+            vendor: string | null;
+            /**
+             * Spent On
+             * Format: date
+             */
+            spent_on: string;
+            /** Payment Method */
+            payment_method: string;
+            /** Receipt File Id */
+            receipt_file_id: string | null;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * ExpenseUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/expenses.py uses `model_dump(exclude_unset=True)`). No
+         *     `receipt_file_id` here either — managed only by the dedicated
+         *     upload/delete-receipt routes, never by a plain PATCH.
+         */
+        ExpenseUpdateRequest: {
+            /** Amount */
+            amount?: string | null;
+            /** Currency */
+            currency?: string | null;
+            category?: components["schemas"]["ExpenseCategory"] | null;
+            /** Description */
+            description?: string | null;
+            /** Vendor */
+            vendor?: string | null;
+            /** Spent On */
+            spent_on?: string | null;
+            /** Payment Method */
+            payment_method?: string | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -4631,6 +4806,261 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["IncomeResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_expenses_route_api_v1_finance_expenses_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_expense_route_api_v1_finance_expenses_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_expense_route_api_v1_finance_expenses__expense_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_expense_route_api_v1_finance_expenses__expense_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_expense_route_api_v1_finance_expenses__expense_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_receipt_route_api_v1_finance_expenses__expense_id__receipt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_receipt_route_api_v1_finance_expenses__expense_id__receipt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_receipt_route_api_v1_finance_expenses__expense_id__receipt_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_receipt_route_api_v1_finance_expenses__expense_id__receipt_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                expense_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

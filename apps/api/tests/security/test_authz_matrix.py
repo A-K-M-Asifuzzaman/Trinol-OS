@@ -8,6 +8,7 @@ from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
     make_client,
+    make_expense,
     make_income,
     make_lead,
     make_meeting,
@@ -311,6 +312,37 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         {"notes": "Matrix note"},
     ),
     ("DELETE", "/api/v1/finance/income/{income_id}", Permission.FINANCE_WRITE, None),
+    # Phase 5 Stage 3: same flat-ADMIN+/no-ownership-split shape as income.
+    # The receipt routes' bodies are multipart, not JSON — passing `body=
+    # None` still exercises the row correctly, since require(...) (a
+    # route-level dependency) rejects a forbidden role before FastAPI ever
+    # gets to validating the missing multipart `file` field; a permitted
+    # role instead gets a non-403 (422 for the missing file, or 404 if no
+    # receipt exists yet), which the assertion below treats identically.
+    (
+        "POST",
+        "/api/v1/finance/expenses",
+        Permission.FINANCE_WRITE,
+        {
+            "amount": "50.00",
+            "category": "OTHER",
+            "description": "Matrix expense",
+            "spent_on": "2026-01-01",
+            "payment_method": "cash",
+        },
+    ),
+    ("GET", "/api/v1/finance/expenses", Permission.FINANCE_READ, None),
+    ("GET", "/api/v1/finance/expenses/{expense_id}", Permission.FINANCE_READ, None),
+    (
+        "PATCH",
+        "/api/v1/finance/expenses/{expense_id}",
+        Permission.FINANCE_WRITE,
+        {"notes": "Matrix note"},
+    ),
+    ("DELETE", "/api/v1/finance/expenses/{expense_id}", Permission.FINANCE_WRITE, None),
+    ("GET", "/api/v1/finance/expenses/{expense_id}/receipt", Permission.FINANCE_READ, None),
+    ("POST", "/api/v1/finance/expenses/{expense_id}/receipt", Permission.FINANCE_WRITE, None),
+    ("DELETE", "/api/v1/finance/expenses/{expense_id}/receipt", Permission.FINANCE_WRITE, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -1343,6 +1375,12 @@ async def test_matrix_row_respects_required_permission(
         )
         await db_session.commit()
         resolved_path = resolved_path.replace("{income_id}", str(income_row.id))
+    if "{expense_id}" in resolved_path:
+        expense_row = await make_expense(
+            db_session, organization=actor.organization, created_by=target
+        )
+        await db_session.commit()
+        resolved_path = resolved_path.replace("{expense_id}", str(expense_row.id))
 
     try:
         headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}

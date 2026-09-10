@@ -7,6 +7,7 @@ from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
     make_client,
+    make_expense,
     make_income,
     make_lead,
     make_meeting,
@@ -24,6 +25,7 @@ from tests.factories import (
 from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import Role
 from trinol.main import app
+from trinol.modules.finance.services.expense_service import upload_receipt
 from trinol.platform.file_storage.deps import get_file_storage
 from trinol.platform.file_storage.local import LocalFileStorage
 
@@ -649,3 +651,123 @@ async def test_finance_routes_isolated_across_orgs(
     assert response.status_code == 404, (
         f"{method} {path} as {role} in org B got {response.status_code}"
     )
+
+
+# Phase 5 Stage 3. Same shape/reasoning as _FINANCE_ISOLATION_ROUTES above,
+# split into its own list because expenses have a {expense_id} placeholder.
+_FINANCE_EXPENSE_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] = [
+    ("GET", "/api/v1/finance/expenses/{expense_id}", None),
+    ("PATCH", "/api/v1/finance/expenses/{expense_id}", {"notes": "Hijacked"}),
+    ("DELETE", "/api/v1/finance/expenses/{expense_id}", None),
+]
+
+
+@pytest.mark.parametrize("method,path_template,body", _FINANCE_EXPENSE_ISOLATION_ROUTES)
+@pytest.mark.parametrize("role", [Role.ADMIN, Role.OWNER])
+async def test_finance_expense_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_template: str,
+    body: dict[str, str] | None,
+    role: Role,
+) -> None:
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"finance-exp-iso-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    expense = await make_expense(db_session, organization=org_a, created_by=owner)
+    await db_session.commit()
+
+    org_b = await make_organization(db_session)
+    actor_user = await make_user(
+        db_session, email=f"finance-exp-iso-actor-{org_b.id}-{role.value}@x.com"
+    )
+    actor_membership = await make_membership(
+        db_session, organization=org_b, user=actor_user, role=role
+    )
+    await db_session.commit()
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=org_b,
+    )
+
+    path = path_template.format(expense_id=expense.id)
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(method, path, json=body, headers=headers)
+    assert response.status_code == 404, (
+        f"{method} {path} as {role} in org B got {response.status_code}"
+    )
+
+
+@pytest.mark.parametrize("role", [Role.ADMIN, Role.OWNER])
+async def test_finance_expense_receipt_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    tmp_path,
+    role: Role,
+) -> None:
+    """Split out like test_attachment_routes_isolated_across_orgs — the
+    upload route is multipart, not JSON, and the receipt needs a real
+    FileStorage-backed row to prove the 404 is the org-scoped lookup
+    failing, not merely 'no receipt attached'."""
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"finance-receipt-iso-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    expense = await make_expense(db_session, organization=org_a, created_by=owner)
+    storage = LocalFileStorage(tmp_path)
+    app.dependency_overrides[get_file_storage] = lambda: storage
+    try:
+        await upload_receipt(
+            db_session,
+            organization_id=org_a.id,
+            actor=owner,
+            expense_id=expense.id,
+            filename="receipt.png",
+            data=PNG_1X1_BYTES,
+            storage=storage,
+        )
+
+        org_b = await make_organization(db_session)
+        actor_user = await make_user(
+            db_session, email=f"finance-receipt-iso-actor-{org_b.id}-{role.value}@x.com"
+        )
+        actor_membership = await make_membership(
+            db_session, organization=org_b, user=actor_user, role=role
+        )
+        await db_session.commit()
+        actor = await login_as_existing(
+            client,
+            fake_verifier,
+            user=actor_user,
+            membership=actor_membership,
+            organization=org_b,
+        )
+
+        upload_response = await client.post(
+            f"/api/v1/finance/expenses/{expense.id}/receipt",
+            files={"file": ("receipt.png", PNG_1X1_BYTES, "image/png")},
+            headers={"X-CSRF-Token": actor.csrf_token},
+        )
+        assert upload_response.status_code == 404, (
+            f"upload as {role} in org B got {upload_response.status_code}"
+        )
+
+        download_response = await client.get(f"/api/v1/finance/expenses/{expense.id}/receipt")
+        assert download_response.status_code == 404, (
+            f"download as {role} in org B got {download_response.status_code}"
+        )
+
+        delete_response = await client.delete(
+            f"/api/v1/finance/expenses/{expense.id}/receipt",
+            headers={"X-CSRF-Token": actor.csrf_token},
+        )
+        assert delete_response.status_code == 404, (
+            f"delete as {role} in org B got {delete_response.status_code}"
+        )
+    finally:
+        app.dependency_overrides.pop(get_file_storage, None)

@@ -2846,7 +2846,58 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       null_for_required_fields`, all five fields) to `test_income.py`. Full
       suite re-verified (966 tests), ruff, ruff format, mypy clean;
       `make openapi` confirmed no schema-surface change.
-- [ ] Stage 3 — Expense CRUD + receipt attachment
+- [x] Stage 3 — Expense CRUD + receipt attachment. `modules/finance/
+      schemas.py` extended with `ExpenseCreateRequest`/`UpdateRequest`/
+      `Response`/`ListResponse` — same shape as income's own schemas, plus
+      `ExpenseUpdateRequest`'s own `model_validator` guard against explicit
+      `null` for its six NOT NULL fields (`amount`/`currency`/`category`/
+      `description`/`spent_on`/`payment_method`), applied proactively this
+      time rather than reactively (Stage 2's own Codex finding).
+      `receipt_file_id` is deliberately absent from both request schemas —
+      a receipt is attached via its own dedicated multipart route, never a
+      plain PATCH, same two-step shape as task attachments (create the
+      JSON resource, then attach the file).
+
+      `modules/finance/services/expense_service.py`: plain CRUD mirroring
+      `income_service.py` exactly (flat `FINANCE_READ`/`FINANCE_WRITE`
+      gates, no ownership check, `amount > 0` validated in Python). Receipt
+      handling reuses `task_attachment_service.py`'s pattern
+      (`create_file_object`, the `FileStorage` protocol) but scoped 1:1 —
+      `expenses.receipt_file_id` is a single nullable column, not a list,
+      so uploading again *replaces* the existing receipt rather than
+      adding a second one. A shared `_clear_receipt` helper nulls the
+      column and deletes the old `file_objects` row, returning its
+      `storage_key` for the caller to delete the actual blob **after**
+      its own `db.commit()` — matching `task_attachment_service.
+      delete_attachment`'s own ordering discipline exactly (a dangling DB
+      reference to an already-deleted blob, from deleting the blob before
+      a commit that might still roll back, is worse than a blob briefly
+      orphaned with no DB reference). `delete_expense` also clears any
+      attached receipt first, so nothing in `file_objects` is silently
+      orphaned when an expense with a receipt is deleted.
+      `modules/finance/routes/expenses.py`: CRUD routes plus
+      `POST`/`GET`/`DELETE .../receipt` (upload, download, delete),
+      mirroring `work/routes/tasks.py`'s attachment routes' `Content-
+      Disposition` encoding exactly. Registered in `main.py`.
+
+      Added authz-matrix rows for all 8 new routes and isolation-matrix
+      rows (a `{expense_id}`-based CRUD list plus a dedicated real-storage
+      test for the receipt routes, mirroring `test_attachment_routes_
+      isolated_across_orgs`'s own split-out shape) in this same commit —
+      confirmed empirically that a multipart route with no JSON body still
+      exercises the authz-matrix's generic per-row test correctly: a
+      forbidden role's `require(...)` dependency 403s before FastAPI ever
+      validates the missing `file` field, and a permitted role gets some
+      other non-403 status, which the assertion treats identically.
+
+      Verification: 18 new integration tests in `tests/integration/
+      test_expenses.py` (role gating, non-positive-amount/null-field
+      rejection, CRUD, receipt upload/download/replace/delete with real
+      filesystem checks that a replaced or deleted receipt's blob is
+      actually gone — not just that the DB pointer changed — and
+      cross-org 404). Full backend suite (1032 tests, up from 966), ruff,
+      ruff format, and mypy all clean. `make openapi` regenerated
+      `apps/web/lib/api/types.gen.ts` cleanly.
 - [ ] Stage 4 — Invoice CRUD (DRAFT lifecycle)
 - [ ] Stage 5 — Invoice lifecycle: send + cancel
 - [ ] Stage 6 — Invoice PDF generation (xhtml2pdf)

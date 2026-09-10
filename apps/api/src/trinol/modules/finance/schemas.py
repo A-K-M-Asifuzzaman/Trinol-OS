@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, model_validator
 
+from trinol.modules.finance.models import ExpenseCategory
 from trinol.modules.work.schemas import BudgetDecimal
 
 # finance -> work is an allowed import direction (ARCHITECTURE.md §3), unlike
@@ -86,4 +87,78 @@ class IncomeListResponse(BaseModel):
     array."""
 
     items: list[IncomeResponse]
+    total: int
+
+
+class ExpenseCreateRequest(BaseModel):
+    """No `receipt_file_id` here — a receipt is attached via the dedicated
+    `POST /finance/expenses/{expense_id}/receipt` multipart route, same
+    two-step shape as task attachments (create the JSON resource, then
+    attach the file)."""
+
+    amount: BudgetDecimal
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    category: ExpenseCategory
+    description: str = Field(min_length=1, max_length=2000)
+    vendor: str | None = Field(default=None, max_length=200)
+    spent_on: date
+    payment_method: str = Field(min_length=1, max_length=100)
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class ExpenseUpdateRequest(BaseModel):
+    """Partial update: only fields present in the request body are applied
+    (routes/expenses.py uses `model_dump(exclude_unset=True)`). No
+    `receipt_file_id` here either — managed only by the dedicated
+    upload/delete-receipt routes, never by a plain PATCH."""
+
+    amount: BudgetDecimal | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    category: ExpenseCategory | None = None
+    description: str | None = Field(default=None, min_length=1, max_length=2000)
+    vendor: str | None = Field(default=None, max_length=200)
+    spent_on: date | None = None
+    payment_method: str | None = Field(default=None, min_length=1, max_length=100)
+    notes: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def _no_null_for_required_fields(self) -> ExpenseUpdateRequest:
+        """Same guard as `IncomeUpdateRequest` (Codex Stage 2 finding,
+        applied proactively here rather than reactively) — `vendor`/
+        `notes` are genuinely nullable and deliberately excluded."""
+        required_fields = (
+            "amount",
+            "currency",
+            "category",
+            "description",
+            "spent_on",
+            "payment_method",
+        )
+        for field in required_fields:
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} may not be null")
+        return self
+
+
+class ExpenseResponse(BaseModel):
+    """`amount` is a plain `Decimal`, not `BudgetDecimal` — same reasoning
+    as `IncomeResponse.amount`."""
+
+    id: uuid.UUID
+    amount: Decimal
+    currency: str
+    category: ExpenseCategory
+    description: str
+    vendor: str | None
+    spent_on: date
+    payment_method: str
+    receipt_file_id: uuid.UUID | None
+    notes: str | None
+    created_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExpenseListResponse(BaseModel):
+    items: list[ExpenseResponse]
     total: int
