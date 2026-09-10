@@ -9,6 +9,7 @@ from tests.factories import (
     make_client,
     make_expense,
     make_income,
+    make_invoice,
     make_lead,
     make_meeting,
     make_meeting_action,
@@ -771,3 +772,56 @@ async def test_finance_expense_receipt_routes_isolated_across_orgs(
         )
     finally:
         app.dependency_overrides.pop(get_file_storage, None)
+
+
+# Phase 5 Stage 4. Same shape/reasoning as _FINANCE_ISOLATION_ROUTES/
+# _FINANCE_EXPENSE_ISOLATION_ROUTES above — no DELETE row (no archive/
+# delete-invoice endpoint this phase, ROADMAP.md Phase 5 decision 1).
+_FINANCE_INVOICE_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] = [
+    ("GET", "/api/v1/finance/invoices/{invoice_id}", None),
+    ("PATCH", "/api/v1/finance/invoices/{invoice_id}", {"notes": "Hijacked"}),
+]
+
+
+@pytest.mark.parametrize("method,path_template,body", _FINANCE_INVOICE_ISOLATION_ROUTES)
+@pytest.mark.parametrize("role", [Role.ADMIN, Role.OWNER])
+async def test_finance_invoice_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_template: str,
+    body: dict[str, str] | None,
+    role: Role,
+) -> None:
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"finance-inv-iso-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    client_row = await make_client(db_session, organization=org_a, owner=owner)
+    invoice = await make_invoice(
+        db_session, organization=org_a, client=client_row, created_by=owner
+    )
+    await db_session.commit()
+
+    org_b = await make_organization(db_session)
+    actor_user = await make_user(
+        db_session, email=f"finance-inv-iso-actor-{org_b.id}-{role.value}@x.com"
+    )
+    actor_membership = await make_membership(
+        db_session, organization=org_b, user=actor_user, role=role
+    )
+    await db_session.commit()
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=org_b,
+    )
+
+    path = path_template.format(invoice_id=invoice.id)
+    headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
+    response = await client.request(method, path, json=body, headers=headers)
+    assert response.status_code == 404, (
+        f"{method} {path} as {role} in org B got {response.status_code}"
+    )

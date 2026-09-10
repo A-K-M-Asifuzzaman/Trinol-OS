@@ -10,6 +10,7 @@ from tests.factories import (
     make_client,
     make_expense,
     make_income,
+    make_invoice,
     make_lead,
     make_meeting,
     make_meeting_action,
@@ -343,6 +344,28 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     ("GET", "/api/v1/finance/expenses/{expense_id}/receipt", Permission.FINANCE_READ, None),
     ("POST", "/api/v1/finance/expenses/{expense_id}/receipt", Permission.FINANCE_WRITE, None),
     ("DELETE", "/api/v1/finance/expenses/{expense_id}/receipt", Permission.FINANCE_WRITE, None),
+    # Phase 5 Stage 4: "Invoices: create/send" is one RBAC.md row/one
+    # permission (INVOICE_WRITE) covering both create (this stage) and
+    # send (Stage 5) — same flat-ADMIN+/no-ownership-split shape as
+    # income/expenses.
+    (
+        "POST",
+        "/api/v1/finance/invoices",
+        Permission.INVOICE_WRITE,
+        {
+            "issue_date": "2026-01-01",
+            "due_date": "2026-01-15",
+            "items": [{"description": "Matrix item", "quantity": "1", "unit_price": "50.00"}],
+        },
+    ),
+    ("GET", "/api/v1/finance/invoices", Permission.FINANCE_READ, None),
+    ("GET", "/api/v1/finance/invoices/{invoice_id}", Permission.FINANCE_READ, None),
+    (
+        "PATCH",
+        "/api/v1/finance/invoices/{invoice_id}",
+        Permission.INVOICE_WRITE,
+        {"notes": "Matrix note"},
+    ),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -1381,6 +1404,18 @@ async def test_matrix_row_respects_required_permission(
         )
         await db_session.commit()
         resolved_path = resolved_path.replace("{expense_id}", str(expense_row.id))
+    if "{invoice_id}" in resolved_path:
+        invoice_client = await make_client(
+            db_session, organization=actor.organization, owner=target
+        )
+        invoice_row = await make_invoice(
+            db_session,
+            organization=actor.organization,
+            client=invoice_client,
+            created_by=target,
+        )
+        await db_session.commit()
+        resolved_path = resolved_path.replace("{invoice_id}", str(invoice_row.id))
 
     try:
         headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}

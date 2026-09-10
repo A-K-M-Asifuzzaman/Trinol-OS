@@ -798,6 +798,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Invoices Route */
+        get: operations["list_invoices_route_api_v1_finance_invoices_get"];
+        put?: never;
+        /** Create Invoice Route */
+        post: operations["create_invoice_route_api_v1_finance_invoices_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/invoices/{invoice_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Invoice Route */
+        get: operations["get_invoice_route_api_v1_finance_invoices__invoice_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Invoice Route */
+        patch: operations["update_invoice_route_api_v1_finance_invoices__invoice_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1322,6 +1358,200 @@ export interface components {
             expires_at: string;
             /** Accepted At */
             accepted_at: string | null;
+        };
+        /** InvoiceCreateRequest */
+        InvoiceCreateRequest: {
+            /**
+             * Client Id
+             * Format: uuid
+             */
+            client_id: string;
+            /** Project Id */
+            project_id?: string | null;
+            /**
+             * Issue Date
+             * Format: date
+             */
+            issue_date: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /**
+             * Currency
+             * @default USD
+             */
+            currency: string;
+            /** Items */
+            items: components["schemas"]["InvoiceLineItemInput"][];
+            /**
+             * Discount Amount
+             * @default 0
+             */
+            discount_amount: string;
+            /**
+             * Tax Amount
+             * @default 0
+             */
+            tax_amount: string;
+            /** Notes */
+            notes?: string | null;
+            /** Terms */
+            terms?: string | null;
+        };
+        /** InvoiceItemResponse */
+        InvoiceItemResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Description */
+            description: string;
+            /** Quantity */
+            quantity: string;
+            /** Unit Price */
+            unit_price: string;
+            /** Line Total */
+            line_total: string;
+            /** Position */
+            position: number;
+        };
+        /**
+         * InvoiceLineItemInput
+         * @description Client-supplied line item shape for create/update — `line_total` is
+         *     never accepted from the client (ADR-0007: totals are computed by the
+         *     backend, always); `invoice_service.py` derives it from `quantity *
+         *     unit_price`, rounded once per line.
+         */
+        InvoiceLineItemInput: {
+            /** Description */
+            description: string;
+            /** Quantity */
+            quantity: string;
+            /** Unit Price */
+            unit_price: string;
+        };
+        /** InvoiceListResponse */
+        InvoiceListResponse: {
+            /** Items */
+            items: components["schemas"]["InvoiceResponse"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * InvoiceResponse
+         * @description `is_overdue` is derived by the route mapper from `status`/`due_date`
+         *     at read time (ADR-0007) — never a stored column, never a client input.
+         *     `subtotal`/`discount_amount`/`tax_amount`/`total`/`amount_paid` are all
+         *     plain `Decimal`, not `BudgetDecimal` — same reasoning as `IncomeResponse
+         *     .amount`.
+         */
+        InvoiceResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Invoice Number */
+            invoice_number: string;
+            /**
+             * Client Id
+             * Format: uuid
+             */
+            client_id: string;
+            /** Project Id */
+            project_id: string | null;
+            /**
+             * Issue Date
+             * Format: date
+             */
+            issue_date: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Currency */
+            currency: string;
+            /** Items */
+            items: components["schemas"]["InvoiceItemResponse"][];
+            /** Subtotal */
+            subtotal: string;
+            /** Discount Amount */
+            discount_amount: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Total */
+            total: string;
+            /** Amount Paid */
+            amount_paid: string;
+            status: components["schemas"]["InvoiceStatus"];
+            /** Is Overdue */
+            is_overdue: boolean;
+            /** Notes */
+            notes: string | null;
+            /** Terms */
+            terms: string | null;
+            /** Sent At */
+            sent_at: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * InvoiceStatus
+         * @description DATABASE.md §3 / ADR-0007: 5 stored values only. `OVERDUE` (in
+         *     MASTER_PROMPT §20's stale 6-value list) is derived on read from
+         *     `status IN (SENT, PARTIALLY_PAID) AND due_date < today`, never stored.
+         * @enum {string}
+         */
+        InvoiceStatus: "DRAFT" | "SENT" | "PARTIALLY_PAID" | "PAID" | "CANCELLED";
+        /**
+         * InvoiceUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/invoices.py uses `model_dump(exclude_unset=True)`).
+         *     `invoice_service.update_invoice` rejects this outright once the
+         *     invoice has left `DRAFT` (ADR-0007 immutability). `items`, when
+         *     present, wholesale-replaces the existing line items — there is no
+         *     separate add/remove/reorder sub-resource, matching how small an
+         *     invoice's own item list is expected to stay (MASTER_PROMPT §20 lists
+         *     `items` as a plain top-level invoice field, not its own routes).
+         */
+        InvoiceUpdateRequest: {
+            /** Client Id */
+            client_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Issue Date */
+            issue_date?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Items */
+            items?: components["schemas"]["InvoiceLineItemInput"][] | null;
+            /** Discount Amount */
+            discount_amount?: string | null;
+            /** Tax Amount */
+            tax_amount?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Terms */
+            terms?: string | null;
         };
         /**
          * LeadConversionResponse
@@ -5061,6 +5291,137 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_invoices_route_api_v1_finance_invoices_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_invoice_route_api_v1_finance_invoices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvoiceCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_invoice_route_api_v1_finance_invoices__invoice_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_invoice_route_api_v1_finance_invoices__invoice_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvoiceUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

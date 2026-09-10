@@ -2898,7 +2898,83 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       cross-org 404). Full backend suite (1032 tests, up from 966), ruff,
       ruff format, and mypy all clean. `make openapi` regenerated
       `apps/web/lib/api/types.gen.ts` cleanly.
-- [ ] Stage 4 — Invoice CRUD (DRAFT lifecycle)
+- [x] Stage 4 — Invoice CRUD (DRAFT lifecycle). `modules/finance/
+      schemas.py` extended with `QuantityDecimal` (new alias, `NUMERIC
+      (12,3)`-shaped regex — 9 integer + 1-3 decimal digits, non-negative
+      unlike `BudgetDecimal`'s own generality, since a line item's
+      quantity can't be negative), following `work/schemas.py`'s exact
+      `Annotated[Decimal, BeforeValidator, WithJsonSchema]` recipe with a
+      duplicated (not imported) `_validate_decimal_string` helper — same
+      reasoning `crm/schemas.py` gives for its own copy, even though
+      `finance → work` import is allowed (the helper itself is
+      underscore-prefixed, not part of `work.schemas`'s public surface).
+      `InvoiceLineItemInput`/`InvoiceCreateRequest`/`UpdateRequest`/
+      `Response`/`ListResponse`/`InvoiceItemResponse` — `line_total` is
+      never client-settable (ADR-0007); `items`, when present on a PATCH,
+      wholesale-replaces the invoice's line items rather than exposing a
+      separate add/remove/reorder sub-resource (MASTER_PROMPT §20 lists
+      `items` as a plain top-level field, not its own routes).
+      `InvoiceResponse.is_overdue` is computed by the route mapper from
+      `status`/`due_date`, never stored (ADR-0007).
+
+      `modules/finance/services/invoice_counter_service.py`:
+      `next_invoice_number` — one atomic `INSERT ... ON CONFLICT DO
+      UPDATE ... RETURNING`, the same idiom `platform.rate_limit.
+      check_rate_limit` already uses for its own atomic counter. Chosen
+      over a literal `SELECT ... FOR UPDATE` (ADR-0007's own wording) plus
+      a separate bootstrap-insert-if-missing step, which would need a
+      SAVEPOINT to recover from a duplicate-key race on a brand-new org/
+      year's very first invoice without rolling back the invoice row
+      already staged in the same transaction — the upsert achieves the
+      identical guarantee (two concurrent callers can never get the same
+      sequence number) in one round trip with no such race window.
+
+      `modules/finance/services/invoice_service.py`: `create_invoice`
+      computes each line's `line_total = round(quantity * unit_price, 2)`
+      then sums to `subtotal`, applies flat `discount_amount`/`tax_amount`
+      to derive `total` — all validated non-negative in Python first
+      (`ck_invoice_amounts`/`ck_invoice_total` mirrored at the application
+      layer, same reasoning as every other module's own pre-insert
+      checks), so a discount larger than the subtotal is a clean 422, not
+      a raw DB `CheckViolationError`. A dedicated `_round_money` helper
+      uses `Decimal.quantize(..., rounding=ROUND_HALF_UP)` explicitly —
+      ADR-0007 requires this exact mode, and Python's bare `round()`/
+      `Decimal.__round__` uses the *current decimal context* (default
+      ROUND_HALF_EVEN, banker's rounding), which would silently disagree
+      with Postgres's own `round(numeric, int)` (round half away from
+      zero) on an exact `.xx5` boundary that `ck_line_total`'s DB-level
+      check depends on agreeing with. `update_invoice` locks the whole
+      invoice once non-`DRAFT` (a `ConflictError`/409), not just its
+      financial fields — simpler and stricter than field-by-field,
+      matching the plan's own framing rather than inventing a partial
+      freeze nothing asked for. `modules/finance/routes/invoices.py`:
+      create/list/get/update routes (no delete — ROADMAP.md Phase 5
+      decision 1), registered in `main.py`.
+
+      Added authz-matrix rows (`INVOICE_WRITE` for create/update,
+      `FINANCE_READ` for list/get — RBAC.md's "Invoices: create/send" is
+      one row/one permission covering both this stage's create and
+      Stage 5's send) and isolation-matrix rows (no DELETE row, matching
+      the decision above) in this same commit.
+
+      Verification: 16 new integration tests in `tests/integration/
+      test_invoices.py`, including ADR-0007's own consequences section
+      verbatim — `33.33 × 3` (sums to `99.99`, one cent short of
+      `100.00`), a 3-decimal quantity (`0.333 × 30.00 = 9.99`), and a
+      discount larger than the subtotal (rejected, 422) — plus sequential
+      invoice numbering, `due_date < issue_date` rejection, cross-org
+      client-reference rejection, `is_overdue` derivation, DRAFT-only
+      editability (409 once `SENT`), and cross-org 404. A dedicated
+      concurrent-invoice-creation test (two genuinely independent DB
+      sessions, `asyncio.gather`, real commits, full FK-ordered cleanup
+      mirroring `test_lead_conversion.py`'s own race test and its later
+      fix — not just the `activity_events` part) proves two concurrent
+      invoices in the same org/year never collide on a number; re-run 3
+      times standalone to rule out flakiness, all green, and confirmed via
+      `psql` afterward that zero `invoices`/`invoice_counters` rows were
+      left behind. Full backend suite (1072 tests, up from 1035), ruff,
+      ruff format, and mypy all clean. `make openapi` regenerated
+      `apps/web/lib/api/types.gen.ts` cleanly.
 - [ ] Stage 5 — Invoice lifecycle: send + cancel
 - [ ] Stage 6 — Invoice PDF generation (xhtml2pdf)
 - [ ] Stage 7 — Payments (concurrent-payment test)

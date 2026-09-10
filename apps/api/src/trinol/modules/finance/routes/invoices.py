@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+import uuid
+from datetime import date
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from trinol.core.authz.permissions import Permission
+from trinol.core.authz.require import require
+from trinol.core.db.engine import get_db_session
+from trinol.modules.finance.models import Invoice, InvoiceItem, InvoiceStatus
+from trinol.modules.finance.schemas import (
+    InvoiceCreateRequest,
+    InvoiceItemResponse,
+    InvoiceLineItemInput,
+    InvoiceListResponse,
+    InvoiceResponse,
+    InvoiceUpdateRequest,
+)
+from trinol.modules.finance.services.invoice_service import (
+    InvoiceWithItems,
+    LineItemInput,
+    create_invoice,
+    get_invoice,
+    list_invoices,
+    update_invoice,
+)
+from trinol.modules.identity.deps import get_current_membership
+from trinol.modules.identity.models import Membership
+
+router = APIRouter(prefix="/api/v1/finance/invoices", tags=["finance"])
+
+_OVERDUE_STATUSES = (InvoiceStatus.SENT, InvoiceStatus.PARTIALLY_PAID)
+
+
+def _is_overdue(invoice: Invoice) -> bool:
+    """ADR-0007: derived on read, never stored — 'status IN (SENT,
+    PARTIALLY_PAID) AND due_date < today'."""
+    return invoice.status in _OVERDUE_STATUSES and invoice.due_date < date.today()
+
+
+def _item_to_response(item: InvoiceItem) -> InvoiceItemResponse:
+    return InvoiceItemResponse(
+        id=item.id,
+        description=item.description,
+        quantity=item.quantity,
+        unit_price=item.unit_price,
+        line_total=item.line_total,
+        position=item.position,
+    )
+
+
+def _to_line_item_inputs(items: list[InvoiceLineItemInput]) -> list[LineItemInput]:
+    return [
+        LineItemInput(description=i.description, quantity=i.quantity, unit_price=i.unit_price)
+        for i in items
+    ]
+
+
+def invoice_to_response(pair: InvoiceWithItems) -> InvoiceResponse:
+    invoice = pair.invoice
+    return InvoiceResponse(
+        id=invoice.id,
+        invoice_number=invoice.invoice_number,
+        client_id=invoice.client_id,
+        project_id=invoice.project_id,
+        issue_date=invoice.issue_date,
+        due_date=invoice.due_date,
+        currency=invoice.currency,
+        items=[_item_to_response(i) for i in pair.items],
+        subtotal=invoice.subtotal,
+        discount_amount=invoice.discount_amount,
+        tax_amount=invoice.tax_amount,
+        total=invoice.total,
+        amount_paid=invoice.amount_paid,
+        status=invoice.status,
+        is_overdue=_is_overdue(invoice),
+        notes=invoice.notes,
+        terms=invoice.terms,
+        sent_at=invoice.sent_at,
+        created_by=invoice.created_by,
+        created_at=invoice.created_at,
+        updated_at=invoice.updated_at,
+    )
+
+
+@router.post(
+    "",
+    response_model=InvoiceResponse,
+    status_code=201,
+    dependencies=[Depends(require(Permission.INVOICE_WRITE))],
+)
+async def create_invoice_route(
+    payload: InvoiceCreateRequest,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> InvoiceResponse:
+    pair = await create_invoice(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        client_id=payload.client_id,
+        project_id=payload.project_id,
+        issue_date=payload.issue_date,
+        due_date=payload.due_date,
+        currency=payload.currency,
+        items=_to_line_item_inputs(payload.items),
+        discount_amount=payload.discount_amount,
+        tax_amount=payload.tax_amount,
+        notes=payload.notes,
+        terms=payload.terms,
+    )
+    return invoice_to_response(pair)
+
+
+@router.get(
+    "",
+    response_model=InvoiceListResponse,
+    dependencies=[Depends(require(Permission.FINANCE_READ))],
+)
+async def list_invoices_route(
+    limit: int = Query(default=50, ge=1, le=200),  # ADR-0005: default 50, hard cap 200
+    offset: int = Query(default=0, ge=0),
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> InvoiceListResponse:
+    result = await list_invoices(
+        db, organization_id=membership.organization_id, actor=membership, limit=limit, offset=offset
+    )
+    return InvoiceListResponse(
+        items=[invoice_to_response(p) for p in result.items], total=result.total
+    )
+
+
+@router.get(
+    "/{invoice_id}",
+    response_model=InvoiceResponse,
+    dependencies=[Depends(require(Permission.FINANCE_READ))],
+)
+async def get_invoice_route(
+    invoice_id: uuid.UUID,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> InvoiceResponse:
+    pair = await get_invoice(
+        db, organization_id=membership.organization_id, actor=membership, invoice_id=invoice_id
+    )
+    return invoice_to_response(pair)
+
+
+@router.patch(
+    "/{invoice_id}",
+    response_model=InvoiceResponse,
+    dependencies=[Depends(require(Permission.INVOICE_WRITE))],
+)
+async def update_invoice_route(
+    invoice_id: uuid.UUID,
+    payload: InvoiceUpdateRequest,
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> InvoiceResponse:
+    updates = payload.model_dump(exclude_unset=True)
+    if payload.items is not None:
+        updates["items"] = _to_line_item_inputs(payload.items)
+    pair = await update_invoice(
+        db,
+        organization_id=membership.organization_id,
+        actor=membership,
+        invoice_id=invoice_id,
+        updates=updates,
+    )
+    return invoice_to_response(pair)
