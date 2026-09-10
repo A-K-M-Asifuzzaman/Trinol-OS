@@ -88,9 +88,14 @@ async def get_invoice_in_org(
 ) -> Invoice:
     """Org-scoped lookup — 404s a cross-org id exactly like a missing one
     (RBAC.md §4), same pattern as income_service.get_income_in_org.
-    `for_update`: takes a row lock for record_payment's own check-then-
-    write balance recompute (Stage 7), same reason as
-    lead_service.get_lead_in_org's own `for_update` param."""
+    `for_update`: takes a row lock for a check-then-write status
+    transition — `send_invoice`/`cancel_invoice`'s own status checks
+    (Codex P1: two concurrent requests could otherwise both observe the
+    same pre-transition status and both act on it, producing duplicate
+    `invoice.sent`/`invoice.cancelled` events and, for send, duplicate
+    emails) and `record_payment`'s own balance recompute (Stage 7) —
+    same reason as lead_service.get_lead_in_org's own `for_update`
+    param."""
     stmt = (
         select(Invoice)
         .where(Invoice.organization_id == organization_id, Invoice.id == invoice_id)
@@ -415,9 +420,18 @@ async def send_invoice(
     this and `create_invoice`. The email is rendered and the entity
     committed here; the route dispatches it via `BackgroundTasks`
     (ROADMAP.md's own tech-debt row: no persistent email outbox, no queue,
-    same synchronous `EmailSender` pipeline every other email uses)."""
+    same synchronous `EmailSender` pipeline every other email uses).
+
+    Codex P1: the DRAFT check was a bare check-then-write with no lock —
+    two concurrent sends of the same invoice could both pass it, each
+    transition it and each dispatch its own email. `for_update=True` takes
+    a row lock first; the second request blocks until the first commits,
+    then sees `status` already `SENT` and 409s instead of racing (same
+    fix shape as `lead_conversion_service.convert_lead`)."""
     ensure_actor_in_org(actor, organization_id)
-    invoice = await get_invoice_in_org(db, organization_id=organization_id, invoice_id=invoice_id)
+    invoice = await get_invoice_in_org(
+        db, organization_id=organization_id, invoice_id=invoice_id, for_update=True
+    )
     if invoice.status != InvoiceStatus.DRAFT:
         raise ConflictError("Only a DRAFT invoice can be sent")
 
@@ -481,9 +495,16 @@ async def cancel_invoice(
     """ADR-0007: 'Cancellation is a status change with an audit event,
     never a delete.' Gated by its own `INVOICE_CANCEL` permission
     (RBAC.md's own separate 'Invoice: cancel' row), distinct from
-    `INVOICE_WRITE`."""
+    `INVOICE_WRITE`.
+
+    Codex P1: same race as `send_invoice` — `for_update=True` locks the
+    row before the terminal-status check, so two concurrent cancels (or a
+    cancel racing a send) can't both observe the same pre-transition
+    status and both act on it."""
     ensure_actor_in_org(actor, organization_id)
-    invoice = await get_invoice_in_org(db, organization_id=organization_id, invoice_id=invoice_id)
+    invoice = await get_invoice_in_org(
+        db, organization_id=organization_id, invoice_id=invoice_id, for_update=True
+    )
     if invoice.status in _TERMINAL_STATUSES:
         raise ConflictError(
             f"An invoice that is already {invoice.status.value} cannot be cancelled"

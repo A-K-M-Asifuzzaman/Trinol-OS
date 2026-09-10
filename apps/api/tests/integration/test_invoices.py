@@ -15,11 +15,19 @@ from tests.helpers import login_as, login_as_existing
 from trinol.core.authz.permissions import Role
 from trinol.core.config import _ENV_FILE
 from trinol.core.db.engine import get_session_factory
+from trinol.core.errors import ConflictError
+from trinol.main import app
 from trinol.modules.crm.models import Client
 from trinol.modules.finance.models import Invoice, InvoiceCounter, InvoiceItem, InvoiceStatus
-from trinol.modules.finance.services.invoice_service import LineItemInput, create_invoice
+from trinol.modules.finance.services.invoice_service import (
+    LineItemInput,
+    cancel_invoice,
+    create_invoice,
+    send_invoice,
+)
 from trinol.modules.identity.models import Membership, Organization, User
 from trinol.platform.activity import list_audit, list_feed
+from trinol.platform.email.deps import get_email_sender
 from trinol.platform.models import ActivityEvent
 
 pytestmark = pytest.mark.usefixtures("db_session")
@@ -341,6 +349,57 @@ async def test_send_invoice_transitions_status_and_dispatches_email(
     assert body["invoice_number"] in message.text_body
 
 
+async def test_send_invoice_survives_a_failing_email_sender(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    """Codex P1: `_send_with_retry` must catch a send failure (never let
+    it surface to the caller) and retry once immediately. Verified
+    directly against Starlette's TestClient/ASGITransport, which — unlike
+    a real ASGI server — has no boundary that would otherwise swallow a
+    bare background-task exception on its own (same finding
+    crm.routes.public.py's own `_send_and_log_failures` already
+    documents)."""
+
+    class FailingEmailSender:
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        async def send(self, message) -> None:  # noqa: ANN001
+            self.attempts += 1
+            raise RuntimeError("smtp unavailable")
+
+    sender = FailingEmailSender()
+    app.dependency_overrides[get_email_sender] = lambda: sender
+    try:
+        actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+        client_row = await make_client(
+            db_session, organization=actor.organization, email="client@x.com"
+        )
+        await db_session.commit()
+
+        create_response = await client.post(
+            "/api/v1/finance/invoices",
+            json=_client_payload(client_id=str(client_row.id)),
+            headers={"X-CSRF-Token": actor.csrf_token},
+        )
+        invoice_id = create_response.json()["id"]
+
+        response = await client.post(
+            f"/api/v1/finance/invoices/{invoice_id}/send",
+            headers={"X-CSRF-Token": actor.csrf_token},
+        )
+        # The invoice transition itself already committed before the email
+        # was ever attempted — a total send failure must not surface as a
+        # failed request.
+        assert response.status_code == 200
+        assert response.json()["status"] == "SENT"
+        # Exactly one retry: the first attempt plus one immediate retry,
+        # not zero (no catch) and not an unbounded loop.
+        assert sender.attempts == 2
+    finally:
+        app.dependency_overrides.pop(get_email_sender, None)
+
+
 async def test_send_invoice_rejects_client_with_no_email(
     client: AsyncClient, fake_verifier, db_session, fake_email_sender
 ) -> None:
@@ -517,6 +576,179 @@ async def test_invoice_in_another_org_is_404(
         headers={"X-CSRF-Token": actor.csrf_token},
     )
     assert patch_response.status_code == 404
+
+
+async def test_concurrent_sends_of_the_same_invoice_only_one_succeeds() -> None:
+    """Codex P1: send_invoice's DRAFT check was a bare check-then-write
+    with no lock — two concurrent sends of the same invoice could both
+    pass it, each transition it and each dispatch its own email. Needs two
+    genuinely independent DB connections, not two SAVEPOINTs sharing one
+    transaction — same approach and reason as test_lead_conversion.py's
+    own concurrent-conversion race test. Real commits, no test fixtures —
+    cleaned up explicitly at the end following that test's own FULL
+    FK-ordered cleanup, not just the activity_events part."""
+    session_factory = get_session_factory()
+
+    setup_session = session_factory()
+    try:
+        org = await make_organization(setup_session)
+        owner_user = await make_user(setup_session, email=f"owner-{org.id}@x.com")
+        owner = await make_membership(
+            setup_session, organization=org, user=owner_user, role=Role.OWNER
+        )
+        client_row = await make_client(setup_session, organization=org, email="client@x.com")
+        invoice = await make_invoice(
+            setup_session, organization=org, client=client_row, created_by=owner
+        )
+        await setup_session.commit()
+        org_id, owner_id, invoice_id = org.id, owner.id, invoice.id
+        owner_user_id = owner_user.id
+    finally:
+        await setup_session.close()
+
+    session_1 = session_factory()
+    session_2 = session_factory()
+    try:
+        actor_1 = (
+            await session_1.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == owner_id
+                )
+            )
+        ).scalar_one()
+        actor_2 = (
+            await session_2.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == owner_id
+                )
+            )
+        ).scalar_one()
+
+        results = await asyncio.gather(
+            send_invoice(session_1, organization_id=org_id, actor=actor_1, invoice_id=invoice_id),
+            send_invoice(session_2, organization_id=org_id, actor=actor_2, invoice_id=invoice_id),
+            return_exceptions=True,
+        )
+
+        successes = [r for r in results if not isinstance(r, Exception)]
+        failures = [r for r in results if isinstance(r, Exception)]
+        assert len(successes) == 1, f"expected exactly one success, got: {results}"
+        assert len(failures) == 1
+        assert isinstance(failures[0], ConflictError)
+    finally:
+        await session_1.close()
+        await session_2.close()
+
+        migration_url = dotenv_values(_ENV_FILE)["DATABASE_MIGRATION_URL"]
+        assert migration_url is not None
+        migrator_engine = create_async_engine(migration_url)
+        try:
+            async with migrator_engine.begin() as conn:
+                await conn.execute(
+                    ActivityEvent.__table__.delete().where(ActivityEvent.organization_id == org_id)
+                )
+        finally:
+            await migrator_engine.dispose()
+
+        cleanup_session = session_factory()
+        try:
+            await cleanup_session.execute(
+                delete(InvoiceItem).where(InvoiceItem.organization_id == org_id)
+            )
+            await cleanup_session.execute(delete(Invoice).where(Invoice.organization_id == org_id))
+            await cleanup_session.execute(delete(Client).where(Client.organization_id == org_id))
+            await cleanup_session.execute(
+                delete(Membership).where(Membership.organization_id == org_id)
+            )
+            await cleanup_session.execute(delete(User).where(User.id == owner_user_id))
+            await cleanup_session.execute(delete(Organization).where(Organization.id == org_id))
+            await cleanup_session.commit()
+        finally:
+            await cleanup_session.close()
+
+
+async def test_concurrent_cancels_of_the_same_invoice_only_one_succeeds() -> None:
+    """Same race and fix shape as
+    test_concurrent_sends_of_the_same_invoice_only_one_succeeds, for
+    cancel_invoice's own terminal-status check."""
+    session_factory = get_session_factory()
+
+    setup_session = session_factory()
+    try:
+        org = await make_organization(setup_session)
+        owner_user = await make_user(setup_session, email=f"owner-{org.id}@x.com")
+        owner = await make_membership(
+            setup_session, organization=org, user=owner_user, role=Role.OWNER
+        )
+        client_row = await make_client(setup_session, organization=org)
+        invoice = await make_invoice(
+            setup_session, organization=org, client=client_row, created_by=owner
+        )
+        await setup_session.commit()
+        org_id, owner_id, invoice_id = org.id, owner.id, invoice.id
+        owner_user_id = owner_user.id
+    finally:
+        await setup_session.close()
+
+    session_1 = session_factory()
+    session_2 = session_factory()
+    try:
+        actor_1 = (
+            await session_1.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == owner_id
+                )
+            )
+        ).scalar_one()
+        actor_2 = (
+            await session_2.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id, Membership.id == owner_id
+                )
+            )
+        ).scalar_one()
+
+        results = await asyncio.gather(
+            cancel_invoice(session_1, organization_id=org_id, actor=actor_1, invoice_id=invoice_id),
+            cancel_invoice(session_2, organization_id=org_id, actor=actor_2, invoice_id=invoice_id),
+            return_exceptions=True,
+        )
+
+        successes = [r for r in results if not isinstance(r, Exception)]
+        failures = [r for r in results if isinstance(r, Exception)]
+        assert len(successes) == 1, f"expected exactly one success, got: {results}"
+        assert len(failures) == 1
+        assert isinstance(failures[0], ConflictError)
+    finally:
+        await session_1.close()
+        await session_2.close()
+
+        migration_url = dotenv_values(_ENV_FILE)["DATABASE_MIGRATION_URL"]
+        assert migration_url is not None
+        migrator_engine = create_async_engine(migration_url)
+        try:
+            async with migrator_engine.begin() as conn:
+                await conn.execute(
+                    ActivityEvent.__table__.delete().where(ActivityEvent.organization_id == org_id)
+                )
+        finally:
+            await migrator_engine.dispose()
+
+        cleanup_session = session_factory()
+        try:
+            await cleanup_session.execute(
+                delete(InvoiceItem).where(InvoiceItem.organization_id == org_id)
+            )
+            await cleanup_session.execute(delete(Invoice).where(Invoice.organization_id == org_id))
+            await cleanup_session.execute(delete(Client).where(Client.organization_id == org_id))
+            await cleanup_session.execute(
+                delete(Membership).where(Membership.organization_id == org_id)
+            )
+            await cleanup_session.execute(delete(User).where(User.id == owner_user_id))
+            await cleanup_session.execute(delete(Organization).where(Organization.id == org_id))
+            await cleanup_session.commit()
+        finally:
+            await cleanup_session.close()
 
 
 async def test_concurrent_invoice_creation_never_produces_duplicate_numbers() -> None:

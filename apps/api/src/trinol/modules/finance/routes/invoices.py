@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date
 
@@ -31,7 +32,9 @@ from trinol.modules.finance.services.invoice_service import (
 from trinol.modules.identity.deps import get_current_membership
 from trinol.modules.identity.models import Membership
 from trinol.platform.email.deps import get_email_sender
-from trinol.platform.email.protocol import EmailSender
+from trinol.platform.email.protocol import EmailMessage, EmailSender
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/finance/invoices", tags=["finance"])
 
@@ -177,6 +180,28 @@ async def update_invoice_route(
     return invoice_to_response(pair)
 
 
+async def _send_with_retry(sender: EmailSender, message: EmailMessage) -> None:
+    """Codex P1: a bare `background_tasks.add_task(sender.send, message)`
+    (invitations.invite_member's own pattern) relies on a real ASGI server
+    swallowing a background task's exception after the response is
+    already on the wire — crm.routes.public.py's own `_send_and_log_
+    failures` already found and documented that Starlette's TestClient/
+    ASGITransport has no such boundary and re-raises straight into the
+    caller. An invoice failing to send is worth one immediate retry (a
+    transient SMTP blip shouldn't burn the only attempt) before giving up
+    and logging — stronger than the contact flow's own catch-and-log-only
+    wrapper, so it isn't reused as-is."""
+    try:
+        await sender.send(message)
+        return
+    except Exception:
+        logger.warning("Invoice email send failed, retrying once", exc_info=True)
+    try:
+        await sender.send(message)
+    except Exception:
+        logger.exception("Failed to send invoice email after one retry")
+
+
 @router.post(
     "/{invoice_id}/send",
     response_model=InvoiceResponse,
@@ -193,9 +218,8 @@ async def send_invoice_route(
         db, organization_id=membership.organization_id, actor=membership, invoice_id=invoice_id
     )
     # EMAIL.md §3: dispatched only after send_invoice's own commit above,
-    # never blocking or failing this response — same pattern as
-    # identity.routes.invitations.invite_member.
-    background_tasks.add_task(sender.send, result.email_message)
+    # never blocking or failing this response.
+    background_tasks.add_task(_send_with_retry, sender, result.email_message)
     return invoice_to_response(result.invoice_with_items)
 
 

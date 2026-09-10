@@ -3018,6 +3018,39 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       tier check from an org-scoping one). Full backend suite (1097
       tests, up from 1073), ruff, ruff format, and mypy all clean.
       `make openapi` regenerated `apps/web/lib/api/types.gen.ts` cleanly.
+
+      **Codex findings (both fixed):**
+      1. `background_tasks.add_task(sender.send, result.email_message)`
+         relied on a real ASGI server swallowing a background task's
+         exception after the response is on the wire — `crm.routes.
+         public.py`'s own `_send_and_log_failures` had already found and
+         documented that Starlette's TestClient/ASGITransport has no such
+         boundary and re-raises straight into the caller. Fixed with a new
+         `_send_with_retry` wrapper in `routes/invoices.py`: catches,
+         logs, and retries once immediately before giving up — stronger
+         than the contact flow's own catch-and-log-only wrapper, so not
+         reused as-is. Added `test_send_invoice_survives_a_failing_email_
+         sender`, a `FailingEmailSender` test double asserting the request
+         still returns 200/SENT and that exactly 2 send attempts were made
+         (one plus the retry, not zero and not unbounded).
+      2. `send_invoice`/`cancel_invoice` read the invoice's status without
+         a row lock — two concurrent requests could both observe the same
+         pre-transition status and both act on it, producing duplicate
+         `invoice.sent`/`invoice.cancelled` events and, for send, duplicate
+         emails. Fixed by passing `for_update=True` to `get_invoice_in_org`
+         in both functions (same fix shape as `lead_conversion_service.
+         convert_lead`); `get_invoice_in_org`'s own docstring updated to
+         name this reason alongside Stage 7's `record_payment` one it
+         already documented. Added two real-session concurrency tests
+         (`test_concurrent_sends_of_the_same_invoice_only_one_succeeds`,
+         `test_concurrent_cancels_of_the_same_invoice_only_one_succeeds`),
+         mirroring `test_lead_conversion.py`'s own race test exactly
+         (independent DB connections, `asyncio.gather`, full FK-ordered
+         cleanup) — each re-run 3 times standalone to rule out flakiness,
+         all green, confirmed via `psql` that no rows were left behind.
+
+      Full suite re-verified (1100 tests), ruff, ruff format, mypy clean;
+      `make openapi` confirmed no schema-surface change.
 - [ ] Stage 6 — Invoice PDF generation (xhtml2pdf)
 - [ ] Stage 7 — Payments (concurrent-payment test)
 - [ ] Stage 8 — Finance dashboard aggregates
