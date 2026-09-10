@@ -2611,6 +2611,93 @@ four soft-deleted entities) with a same-transaction audit event.
       no production code changes); full security suite (547 tests), ruff,
       ruff format, mypy all green.
 
+- [x] Stage 9 — Seed script + E2E, final stage. `scripts/seed.py`:
+      `_get_or_create_meeting` — natural key `(organization, title,
+      starts_at)`, matching MASTER_PROMPT §36's "past/upcoming meetings"
+      with 2 past meetings and 1 upcoming: "Website Kickoff" (linked to
+      the WEB project and Acme Corp, 3 attendees including one external
+      guest, one decision, one action item promoted to a real task —
+      exercising the same `MeetingAction -> Task` shape `promote_action`
+      itself produces, inline-constructed here the same way every other
+      entity in this script is, never through the service layer),
+      "Sprint Retrospective" (internal, one declined attendee, one
+      decision, one un-promoted action item), and "Client Check-in" (an
+      upcoming meeting with pending attendees, deliberately no decisions/
+      actions — it hasn't happened yet).
+
+      **A real design bug caught and fixed before it ever landed.** The
+      first draft gave the promoted task's title its own separately-
+      authored string, distinct from the action's own `description` —
+      inconsistent with `promote_action`'s actual field mapping
+      (`title = action.description` verbatim), so it wouldn't have
+      genuinely exercised the same shape it claimed to. Fixed by removing
+      the separate string entirely (`promote: bool` instead), deriving
+      the task's title from the action's own description directly — the
+      only way this check can't silently drift out of sync again.
+
+      **Fixed dates, not "today"-relative ones, and why:** meetings'
+      natural key includes `starts_at`, so (unlike `next_follow_up`,
+      which is written once at creation and never read back into an
+      idempotency check) a value computed from `datetime.now()` at
+      import time would silently produce a NEW row every time `make
+      seed` runs on a different calendar day — the exact idempotency bug
+      the fixed dates avoid. Documented as a deliberate, cosmetic staleness
+      (`ponytail: these dates will eventually stop reading as "past"/
+      "upcoming" as real time passes them — not a correctness bug`).
+
+      `tests/unit/test_seed_idempotent.py`: extended `_isolated_seed`/
+      `_SeedSnapshot`/`_cleanup_rows_created_since` to meetings
+      proactively, applying Stage 10 of Phase 3's own lesson up front
+      this time rather than rediscovering it reactively — and immediately
+      rediscovered a *different*, genuinely new version of it anyway:
+      running the extended test suite for real threw a bare `KeyError`
+      (the shadow `_SEED_PROJECTS` had no matching shadow `_SEED_MEETINGS`,
+      so `seed()`'s own project-code lookup missed), then, after fixing
+      that, a `ForeignKeyViolationError` on `fk_tasks_org_project_projects`
+      (the cleanup order deleted projects before the meetings/promoted-
+      tasks that reference them — moved the whole meetings cleanup block
+      to run first, since a meeting or its promoted task can reference a
+      project or client the same RESTRICT way leads/clients already do).
+      A third, more subtle fix: an existing assertion
+      (`len(tasks) == len(project_entry.tasks)` for a project's own task
+      count) broke once a meeting's promoted task could *also* legitimately
+      land under that same project — fixed by filtering to each project's
+      own `_SeedTask` titles rather than assuming project-scoped tasks
+      only ever come from `_SEED_PROJECTS`, since that assumption was
+      never actually guaranteed, just previously untested.
+
+      Verified `make seed` run twice produces identical row counts (3
+      meetings, 7 participants, 2 decisions, 2 actions, 1 promoted task)
+      before and after each fix, not just once at the end.
+
+      `apps/web/e2e/meetings.spec.ts`: one flow — create meeting → add an
+      external-email attendee → record a decision → add an action item →
+      promote it → follow the resulting "View task" link → confirm the
+      real task detail page renders, matching `crm.spec.ts`'s own
+      one-flow-per-major-capability granularity. Ran it 3 times in a row
+      locally (no flakiness) and the full 4-spec E2E suite together
+      (smoke/crm/meetings all green) before treating it as done, mirroring
+      Phase 3 Stage 11's own repeat-run discipline. Cleaned up immediately
+      in the same turn: the meetings/participants/decisions/actions/
+      promoted-tasks this E2E run created (across all 3 repeat runs) plus
+      the other 3 specs' own leftover project/task/lead/client/converted-
+      client rows from running the full suite together, and the temporary
+      `.env`/`.env.local` port overrides (same 8010/3010 dodge Stage 7's
+      own walkthrough used for the same unrelated sibling-project port-8000
+      conflict).
+
+      No new backend test count (idempotent-seed fixture extension, not
+      new test functions; 917 unchanged) plus 1 new E2E spec; `make check`
+      green end to end (confirmed by exit code, not just visible text);
+      `pnpm exec playwright test` green (4/4 specs).
+
+Phase 4 is feature-complete across all 9 planned stages — backend
+(schema, full CRUD for meetings/participants/decisions/actions, the one
+cross-module write, activity wiring, security matrices) and frontend
+(pages, nav, a real browser walkthrough, component tests, seed data, an
+E2E flow) all verified. Awaiting the phase-level Codex audit that closes
+it, mirroring how Phase 2 and Phase 3 each closed.
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses

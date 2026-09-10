@@ -19,13 +19,31 @@ and one `LOST` lead with a `lost_reason`), enough to render real data on
 the pipeline board, the clients list, and the dashboard's lead-related
 tiles. One of the two Phase 2 seed projects is linked to a seeded client
 (`project.client_id`) so the client-detail page's Projects tab isn't
-empty either. Invoices and meetings still don't exist (Phase 4/5) — add
-them here when their phase lands.
+empty either. Invoices still don't exist (Phase 5) — add them here when
+that phase lands.
+
+Phase 4 Stage 9: MASTER_PROMPT §36's "past/upcoming meetings" — two past
+meetings (one linked to the WEB project/Acme Corp client, with
+participants, a decision, and an action item promoted to a real task,
+exercising the same MeetingAction -> Task shape `promote_action` itself
+produces; one internal, with a decision and an unpromoted action item)
+and one upcoming meeting with pending participants, no decisions/actions
+yet (a meeting that hasn't happened). `starts_at`/`ends_at` are fixed
+absolute datetimes, not computed from "today" — meetings' natural key
+(organization, title, starts_at) must stay stable across reruns, unlike
+`next_follow_up`'s relative-to-today value above, which is never read
+back into an idempotency check. `ponytail: these fixed dates will
+eventually stop reading as "past"/"upcoming" as real time moves past
+them — cosmetic staleness only, same class of acceptable drift
+next_follow_up already has once seeded, not a correctness bug.`
 
 Idempotent: re-running never duplicates a row, matched on the organization's
 slug, each user's email, the (organization, user) membership pair, each
 project's code, each (project, user) project-member pair, each
-(project, title) task pair, each client's name, and each lead's email.
+(project, title) task pair, each client's name, each lead's email, each
+(organization, title, starts_at) meeting, each (meeting, user-or-email)
+participant, each (meeting, body) decision, and each (meeting,
+description) action.
 """
 
 from __future__ import annotations
@@ -50,6 +68,13 @@ from trinol.modules.identity.models import (
     MembershipStatus,
     Organization,
     User,
+)
+from trinol.modules.meetings.models import (
+    Meeting,
+    MeetingAction,
+    MeetingDecision,
+    MeetingParticipant,
+    MeetingParticipantResponse,
 )
 from trinol.modules.work.models import (
     Project,
@@ -342,6 +367,129 @@ _SEED_LEADS: tuple[_SeedLead, ...] = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _SeedMeetingParticipant:
+    # Exactly one of these two is set, mirroring
+    # ck_meeting_participant_identity (DATABASE.md §3).
+    user_email: str | None = None
+    external_email: str | None = None
+    response: MeetingParticipantResponse = MeetingParticipantResponse.PENDING
+
+
+@dataclass(frozen=True, slots=True)
+class _SeedMeetingDecision:
+    body: str
+    decided_by_email: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _SeedMeetingAction:
+    description: str
+    owner_email: str | None = None
+    due_date: date | None = None
+    # Only the one action this stage exercises promote_action's own shape
+    # for sets this. The resulting task's title is always `description`
+    # verbatim, matching promote_action's real field mapping exactly
+    # (`title = action.description`) — not a separately-authored string,
+    # or this wouldn't genuinely exercise the same shape.
+    promote: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _SeedMeeting:
+    title: str
+    starts_at: datetime
+    ends_at: datetime
+    created_by_email: str
+    project_code: str | None = None
+    client_name: str | None = None
+    location: str | None = None
+    description: str | None = None
+    notes: str | None = None
+    participants: tuple[_SeedMeetingParticipant, ...] = ()
+    decisions: tuple[_SeedMeetingDecision, ...] = ()
+    actions: tuple[_SeedMeetingAction, ...] = ()
+
+
+# MASTER_PROMPT §36: "past/upcoming meetings". Fixed absolute datetimes —
+# see the module docstring for why these can't be computed from "today"
+# the way next_follow_up above safely is.
+_SEED_MEETINGS: tuple[_SeedMeeting, ...] = (
+    _SeedMeeting(
+        title="Website Kickoff",
+        starts_at=datetime(2026, 8, 3, 15, 0, tzinfo=UTC),
+        ends_at=datetime(2026, 8, 3, 16, 0, tzinfo=UTC),
+        created_by_email=_FOUNDER_EMAIL,
+        project_code="WEB",
+        client_name=_ACME_CORP_NAME,
+        location="Zoom",
+        description="Align on scope and timeline for the website redesign.",
+        participants=(
+            _SeedMeetingParticipant(
+                user_email=_DEVELOPER_EMAIL, response=MeetingParticipantResponse.ACCEPTED
+            ),
+            _SeedMeetingParticipant(
+                user_email=_DESIGNER_EMAIL, response=MeetingParticipantResponse.ACCEPTED
+            ),
+            _SeedMeetingParticipant(external_email="hello@acme.test"),
+        ),
+        decisions=(
+            _SeedMeetingDecision(
+                body="Launch target is end of Q3.", decided_by_email=_FOUNDER_EMAIL
+            ),
+        ),
+        actions=(
+            _SeedMeetingAction(
+                description="Send the revised proposal to Acme Corp",
+                owner_email=_FOUNDER_EMAIL,
+                due_date=date(2026, 8, 10),
+                promote=True,
+            ),
+        ),
+    ),
+    _SeedMeeting(
+        title="Sprint Retrospective",
+        starts_at=datetime(2026, 8, 20, 17, 0, tzinfo=UTC),
+        ends_at=datetime(2026, 8, 20, 17, 30, tzinfo=UTC),
+        created_by_email=_DEVELOPER_EMAIL,
+        project_code="TOS",
+        notes="Went well overall; activity feed took longer than estimated.",
+        participants=(
+            _SeedMeetingParticipant(
+                user_email=_FOUNDER_EMAIL, response=MeetingParticipantResponse.ACCEPTED
+            ),
+            _SeedMeetingParticipant(
+                user_email=_DESIGNER_EMAIL, response=MeetingParticipantResponse.DECLINED
+            ),
+        ),
+        decisions=(
+            _SeedMeetingDecision(
+                body="Move Kanban board UX to next sprint.", decided_by_email=_DEVELOPER_EMAIL
+            ),
+        ),
+        actions=(
+            _SeedMeetingAction(
+                description="Re-estimate the activity feed work", owner_email=_DEVELOPER_EMAIL
+            ),
+        ),
+    ),
+    _SeedMeeting(
+        title="Client Check-in",
+        starts_at=datetime(2026, 10, 15, 14, 0, tzinfo=UTC),
+        ends_at=datetime(2026, 10, 15, 14, 30, tzinfo=UTC),
+        created_by_email=_FOUNDER_EMAIL,
+        client_name=_ACME_CORP_NAME,
+        location="Zoom",
+        participants=(
+            _SeedMeetingParticipant(user_email=_DEVELOPER_EMAIL),
+            _SeedMeetingParticipant(external_email="hello@acme.test"),
+        ),
+        # Deliberately no decisions/actions — a meeting that hasn't
+        # happened yet.
+    ),
+)
+
+
 async def _get_or_create_organization(db: AsyncSession) -> Organization:
     result = await db.execute(select(Organization).where(Organization.slug == _ORG_SLUG))
     organization = result.scalar_one_or_none()
@@ -545,6 +693,173 @@ async def _get_or_create_lead(
     return lead
 
 
+async def _get_or_create_meeting(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    entry: _SeedMeeting,
+    created_by_user_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    client_id: uuid.UUID | None,
+) -> Meeting:
+    result = await db.execute(
+        select(Meeting).where(
+            Meeting.organization_id == organization.id,
+            Meeting.title == entry.title,
+            Meeting.starts_at == entry.starts_at,
+        )
+    )
+    meeting = result.scalar_one_or_none()
+    if meeting is not None:
+        return meeting
+    meeting = Meeting(
+        id=uuid7(),
+        organization_id=organization.id,
+        title=entry.title,
+        description=entry.description,
+        starts_at=entry.starts_at,
+        ends_at=entry.ends_at,
+        client_id=client_id,
+        project_id=project_id,
+        location=entry.location,
+        notes=entry.notes,
+        created_by=created_by_user_id,
+    )
+    db.add(meeting)
+    await db.flush()
+    return meeting
+
+
+async def _ensure_meeting_participant(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    entry: _SeedMeetingParticipant,
+    user_id: uuid.UUID | None,
+) -> None:
+    if user_id is not None:
+        result = await db.execute(
+            select(MeetingParticipant).where(
+                MeetingParticipant.organization_id == meeting.organization_id,
+                MeetingParticipant.meeting_id == meeting.id,
+                MeetingParticipant.user_id == user_id,
+            )
+        )
+    else:
+        result = await db.execute(
+            select(MeetingParticipant).where(
+                MeetingParticipant.organization_id == meeting.organization_id,
+                MeetingParticipant.meeting_id == meeting.id,
+                MeetingParticipant.external_email == entry.external_email,
+            )
+        )
+    if result.scalar_one_or_none() is not None:
+        return
+    db.add(
+        MeetingParticipant(
+            id=uuid7(),
+            organization_id=meeting.organization_id,
+            meeting_id=meeting.id,
+            user_id=user_id,
+            external_email=entry.external_email if user_id is None else None,
+            response=entry.response,
+        )
+    )
+
+
+async def _ensure_meeting_decision(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    entry: _SeedMeetingDecision,
+    decided_by_user_id: uuid.UUID | None,
+) -> None:
+    result = await db.execute(
+        select(MeetingDecision).where(
+            MeetingDecision.organization_id == meeting.organization_id,
+            MeetingDecision.meeting_id == meeting.id,
+            MeetingDecision.body == entry.body,
+        )
+    )
+    if result.scalar_one_or_none() is not None:
+        return
+    db.add(
+        MeetingDecision(
+            id=uuid7(),
+            organization_id=meeting.organization_id,
+            meeting_id=meeting.id,
+            body=entry.body,
+            decided_by=decided_by_user_id,
+        )
+    )
+
+
+async def _get_or_create_meeting_promoted_task(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    title: str,
+    project_id: uuid.UUID | None,
+    assignee_id: uuid.UUID | None,
+    created_by_user_id: uuid.UUID,
+    due_date: date | None,
+) -> Task:
+    """A standalone task a seeded meeting action promotes to — matched by
+    (organization, title) alone, not `_ensure_task`'s (project, title) key,
+    since this task isn't necessarily tied to one of `_SEED_PROJECTS`'
+    own rows the way every other seeded task is."""
+    result = await db.execute(
+        select(Task).where(Task.organization_id == organization.id, Task.title == title)
+    )
+    task = result.scalar_one_or_none()
+    if task is not None:
+        return task
+    task = Task(
+        id=uuid7(),
+        organization_id=organization.id,
+        project_id=project_id,
+        title=title,
+        assignee_id=assignee_id,
+        created_by=created_by_user_id,
+        due_date=due_date,
+    )
+    db.add(task)
+    await db.flush()
+    return task
+
+
+async def _get_or_create_meeting_action(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    entry: _SeedMeetingAction,
+    owner_user_id: uuid.UUID | None,
+    task_id: uuid.UUID | None,
+) -> MeetingAction:
+    result = await db.execute(
+        select(MeetingAction).where(
+            MeetingAction.organization_id == meeting.organization_id,
+            MeetingAction.meeting_id == meeting.id,
+            MeetingAction.description == entry.description,
+        )
+    )
+    action = result.scalar_one_or_none()
+    if action is not None:
+        return action
+    action = MeetingAction(
+        id=uuid7(),
+        organization_id=meeting.organization_id,
+        meeting_id=meeting.id,
+        description=entry.description,
+        owner_id=owner_user_id,
+        due_date=entry.due_date,
+        task_id=task_id,
+    )
+    db.add(action)
+    await db.flush()
+    return action
+
+
 async def seed() -> None:
     register_org_scope_guard()
     session_factory = get_session_factory()
@@ -564,6 +879,7 @@ async def seed() -> None:
                 db, organization=organization, entry=client_entry, owner_user_id=owner.id
             )
 
+        projects_by_code: dict[str, Project] = {}
         for project_entry in _SEED_PROJECTS:
             owner = users_by_email[project_entry.owner_email]
             client_id = (
@@ -578,6 +894,7 @@ async def seed() -> None:
                 owner_user_id=owner.id,
                 client_id=client_id,
             )
+            projects_by_code[project_entry.project_code] = project
             # Mirrors project_service.create_project's invariant: the owner
             # is always a project_members row (LEAD) — ensure_project_
             # visible relies on this being true for every project, not just
@@ -614,6 +931,75 @@ async def seed() -> None:
                 assigned_to_user_id=users_by_email[lead_entry.assigned_to_email].id,
                 converted_client_id=converted_client_id,
             )
+
+        for meeting_entry in _SEED_MEETINGS:
+            project_id = (
+                projects_by_code[meeting_entry.project_code].id
+                if meeting_entry.project_code is not None
+                else None
+            )
+            client_id = (
+                clients_by_name[meeting_entry.client_name].id
+                if meeting_entry.client_name is not None
+                else None
+            )
+            meeting = await _get_or_create_meeting(
+                db,
+                organization=organization,
+                entry=meeting_entry,
+                created_by_user_id=users_by_email[meeting_entry.created_by_email].id,
+                project_id=project_id,
+                client_id=client_id,
+            )
+            for participant_entry in meeting_entry.participants:
+                user_id = (
+                    users_by_email[participant_entry.user_email].id
+                    if participant_entry.user_email is not None
+                    else None
+                )
+                await _ensure_meeting_participant(
+                    db, meeting=meeting, entry=participant_entry, user_id=user_id
+                )
+            for decision_entry in meeting_entry.decisions:
+                decided_by_user_id = (
+                    users_by_email[decision_entry.decided_by_email].id
+                    if decision_entry.decided_by_email is not None
+                    else None
+                )
+                await _ensure_meeting_decision(
+                    db, meeting=meeting, entry=decision_entry, decided_by_user_id=decided_by_user_id
+                )
+            for action_entry in meeting_entry.actions:
+                owner_user_id = (
+                    users_by_email[action_entry.owner_email].id
+                    if action_entry.owner_email is not None
+                    else None
+                )
+                task_id = None
+                if action_entry.promote:
+                    # Exercises the same MeetingAction -> Task shape
+                    # promote_action itself produces (ARCHITECTURE.md §3) —
+                    # inline construction, not a call into the service
+                    # layer, matching every other entity in this script.
+                    # title = description verbatim, same field mapping the
+                    # real promote_action uses.
+                    task = await _get_or_create_meeting_promoted_task(
+                        db,
+                        organization=organization,
+                        title=action_entry.description,
+                        project_id=project_id,
+                        assignee_id=owner_user_id,
+                        created_by_user_id=meeting.created_by,
+                        due_date=action_entry.due_date,
+                    )
+                    task_id = task.id
+                await _get_or_create_meeting_action(
+                    db,
+                    meeting=meeting,
+                    entry=action_entry,
+                    owner_user_id=owner_user_id,
+                    task_id=task_id,
+                )
         await db.commit()
 
 

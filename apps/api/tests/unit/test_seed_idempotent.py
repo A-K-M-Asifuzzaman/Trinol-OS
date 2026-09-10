@@ -18,6 +18,12 @@ from trinol.modules.identity.models import (
     Organization,
     User,
 )
+from trinol.modules.meetings.models import (
+    Meeting,
+    MeetingAction,
+    MeetingDecision,
+    MeetingParticipant,
+)
 from trinol.modules.work.models import Project, ProjectMember, Task
 
 # Phase 1 plan, Stage 12 proof criterion: "make seed on a fresh DB produces
@@ -55,6 +61,16 @@ from trinol.modules.work.models import Project, ProjectMember, Task
 # never collide with a real, already-seeded "trinolit" org — reproduced by
 # running `make seed` for real, then this suite, both before and after the
 # fix, confirming the failure and then its absence.
+#
+# Phase 4 Stage 9: extended `_isolated_seed`/`_SeedSnapshot`/
+# `_cleanup_rows_created_since` to meetings too, proactively this time —
+# applying Stage 10's own lesson up front rather than reactively rediscovering
+# it: `seed()`'s new meetings loop looks up `projects_by_code[meeting_entry.
+# project_code]` using whatever `_SEED_PROJECTS`/`_SEED_MEETINGS` the module
+# holds at call time, so a shadow `_SEED_PROJECTS` with no matching shadow
+# `_SEED_MEETINGS` (referencing the real, un-suffixed project codes) throws a
+# bare `KeyError` the first time this file's tests run against the extended
+# seed() — reproduced directly, not assumed, before writing the fix below.
 
 
 @pytest.fixture
@@ -111,6 +127,10 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         for project in seed_module._SEED_PROJECTS
     )
+    project_code_for = {
+        old.project_code: new.project_code
+        for old, new in zip(seed_module._SEED_PROJECTS, projects, strict=True)
+    }
     leads = tuple(
         seed_module._SeedLead(
             name=lead.name,
@@ -131,12 +151,70 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         for lead in seed_module._SEED_LEADS
     )
+    meetings = tuple(
+        seed_module._SeedMeeting(
+            title=f"{meeting.title} {suffix}",
+            starts_at=meeting.starts_at,
+            ends_at=meeting.ends_at,
+            created_by_email=email_for[meeting.created_by_email],
+            project_code=(
+                project_code_for[meeting.project_code] if meeting.project_code is not None else None
+            ),
+            client_name=(
+                client_name_for[meeting.client_name] if meeting.client_name is not None else None
+            ),
+            location=meeting.location,
+            description=meeting.description,
+            notes=meeting.notes,
+            participants=tuple(
+                seed_module._SeedMeetingParticipant(
+                    user_email=(
+                        email_for[participant.user_email]
+                        if participant.user_email is not None
+                        else None
+                    ),
+                    external_email=participant.external_email,
+                    response=participant.response,
+                )
+                for participant in meeting.participants
+            ),
+            decisions=tuple(
+                seed_module._SeedMeetingDecision(
+                    body=decision.body,
+                    decided_by_email=(
+                        email_for[decision.decided_by_email]
+                        if decision.decided_by_email is not None
+                        else None
+                    ),
+                )
+                for decision in meeting.decisions
+            ),
+            actions=tuple(
+                seed_module._SeedMeetingAction(
+                    # Suffixed too: the one promoted action's description
+                    # becomes its Task's title verbatim (seed.py's own
+                    # field mapping), and Task is matched by (organization,
+                    # title) alone — an un-suffixed title would collide
+                    # with the real seeded task of the same name.
+                    description=f"{action.description} {suffix}",
+                    owner_email=(
+                        email_for[action.owner_email] if action.owner_email is not None else None
+                    ),
+                    due_date=action.due_date,
+                    promote=action.promote,
+                )
+                for action in meeting.actions
+            ),
+        )
+        for meeting in seed_module._SEED_MEETINGS
+    )
 
     monkeypatch.setattr(seed_module, "_ORG_SLUG", f"trinolit-seed-test-{suffix}")
     monkeypatch.setattr(seed_module, "_SEED_USERS", users)
     monkeypatch.setattr(seed_module, "_SEED_CLIENTS", clients)
     monkeypatch.setattr(seed_module, "_SEED_PROJECTS", projects)
     monkeypatch.setattr(seed_module, "_SEED_LEADS", leads)
+    monkeypatch.setattr(seed_module, "_SEED_MEETINGS", meetings)
 
 
 @dataclass
@@ -149,6 +227,11 @@ class _SeedSnapshot:
     task_existed: dict[tuple[str, str], bool] = field(default_factory=dict)
     client_existed: dict[str, bool] = field(default_factory=dict)
     lead_existed: dict[str, bool] = field(default_factory=dict)
+    meeting_existed: dict[str, bool] = field(default_factory=dict)
+    meeting_participant_existed: dict[tuple[str, str], bool] = field(default_factory=dict)
+    meeting_decision_existed: dict[tuple[str, str], bool] = field(default_factory=dict)
+    meeting_action_existed: dict[tuple[str, str], bool] = field(default_factory=dict)
+    meeting_promoted_task_existed: dict[str, bool] = field(default_factory=dict)
 
 
 async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
@@ -256,6 +339,100 @@ async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
             ).scalar_one_or_none()
         lead_existed[lead_entry.email] = lead is not None
 
+    meeting_existed: dict[str, bool] = {}
+    meeting_participant_existed: dict[tuple[str, str], bool] = {}
+    meeting_decision_existed: dict[tuple[str, str], bool] = {}
+    meeting_action_existed: dict[tuple[str, str], bool] = {}
+    meeting_promoted_task_existed: dict[str, bool] = {}
+    for meeting_entry in seed_module._SEED_MEETINGS:
+        meeting = None
+        if organization is not None:
+            meeting = (
+                await db.execute(
+                    select(Meeting).where(
+                        Meeting.organization_id == organization.id,
+                        Meeting.title == meeting_entry.title,
+                        Meeting.starts_at == meeting_entry.starts_at,
+                    )
+                )
+            ).scalar_one_or_none()
+        meeting_existed[meeting_entry.title] = meeting is not None
+
+        for participant_entry in meeting_entry.participants:
+            identity = participant_entry.user_email or participant_entry.external_email
+            assert identity is not None
+            key = (meeting_entry.title, identity)
+            if meeting is None:
+                meeting_participant_existed[key] = False
+                continue
+            if participant_entry.user_email is not None:
+                user_id = user_ids.get(participant_entry.user_email)
+                if user_id is None:
+                    meeting_participant_existed[key] = False
+                    continue
+                participant = (
+                    await db.execute(
+                        select(MeetingParticipant).where(
+                            MeetingParticipant.organization_id == organization.id,
+                            MeetingParticipant.meeting_id == meeting.id,
+                            MeetingParticipant.user_id == user_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+            else:
+                participant = (
+                    await db.execute(
+                        select(MeetingParticipant).where(
+                            MeetingParticipant.organization_id == organization.id,
+                            MeetingParticipant.meeting_id == meeting.id,
+                            MeetingParticipant.external_email == participant_entry.external_email,
+                        )
+                    )
+                ).scalar_one_or_none()
+            meeting_participant_existed[key] = participant is not None
+
+        for decision_entry in meeting_entry.decisions:
+            key = (meeting_entry.title, decision_entry.body)
+            decision = None
+            if meeting is not None:
+                decision = (
+                    await db.execute(
+                        select(MeetingDecision).where(
+                            MeetingDecision.organization_id == organization.id,
+                            MeetingDecision.meeting_id == meeting.id,
+                            MeetingDecision.body == decision_entry.body,
+                        )
+                    )
+                ).scalar_one_or_none()
+            meeting_decision_existed[key] = decision is not None
+
+        for action_entry in meeting_entry.actions:
+            key = (meeting_entry.title, action_entry.description)
+            action = None
+            if meeting is not None:
+                action = (
+                    await db.execute(
+                        select(MeetingAction).where(
+                            MeetingAction.organization_id == organization.id,
+                            MeetingAction.meeting_id == meeting.id,
+                            MeetingAction.description == action_entry.description,
+                        )
+                    )
+                ).scalar_one_or_none()
+            meeting_action_existed[key] = action is not None
+            if action_entry.promote:
+                task = None
+                if organization is not None:
+                    task = (
+                        await db.execute(
+                            select(Task).where(
+                                Task.organization_id == organization.id,
+                                Task.title == action_entry.description,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                meeting_promoted_task_existed[action_entry.description] = task is not None
+
     return _SeedSnapshot(
         organization_existed=organization is not None,
         user_existed=user_existed,
@@ -265,6 +442,11 @@ async def _snapshot(db: AsyncSession) -> _SeedSnapshot:
         task_existed=task_existed,
         client_existed=client_existed,
         lead_existed=lead_existed,
+        meeting_existed=meeting_existed,
+        meeting_participant_existed=meeting_participant_existed,
+        meeting_decision_existed=meeting_decision_existed,
+        meeting_action_existed=meeting_action_existed,
+        meeting_promoted_task_existed=meeting_promoted_task_existed,
     )
 
 
@@ -286,6 +468,94 @@ async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot)
     ).scalar_one_or_none()
 
     if organization is not None:
+        # Meetings (and any promoted task) before projects/clients: a
+        # meeting can reference either via client_id/project_id
+        # (RESTRICT), and a promoted task can reference a project the same
+        # way — both must be gone before the project/client cleanup below
+        # tries to delete what they still point to. Decisions/actions
+        # reference a membership via decided_by/owner_id (also RESTRICT),
+        # so this whole block runs before the membership cleanup too.
+        for meeting_entry in seed_module._SEED_MEETINGS:
+            meeting = (
+                await db.execute(
+                    select(Meeting).where(
+                        Meeting.organization_id == organization.id,
+                        Meeting.title == meeting_entry.title,
+                        Meeting.starts_at == meeting_entry.starts_at,
+                    )
+                )
+            ).scalar_one_or_none()
+            if meeting is None:
+                continue
+
+            for action_entry in meeting_entry.actions:
+                key = (meeting_entry.title, action_entry.description)
+                if not snapshot.meeting_action_existed.get(key):
+                    await db.execute(
+                        delete(MeetingAction).where(
+                            MeetingAction.organization_id == organization.id,
+                            MeetingAction.meeting_id == meeting.id,
+                            MeetingAction.description == action_entry.description,
+                        )
+                    )
+                if action_entry.promote and not snapshot.meeting_promoted_task_existed.get(
+                    action_entry.description
+                ):
+                    await db.execute(
+                        delete(Task).where(
+                            Task.organization_id == organization.id,
+                            Task.title == action_entry.description,
+                        )
+                    )
+
+            for decision_entry in meeting_entry.decisions:
+                key = (meeting_entry.title, decision_entry.body)
+                if snapshot.meeting_decision_existed.get(key):
+                    continue
+                await db.execute(
+                    delete(MeetingDecision).where(
+                        MeetingDecision.organization_id == organization.id,
+                        MeetingDecision.meeting_id == meeting.id,
+                        MeetingDecision.body == decision_entry.body,
+                    )
+                )
+
+            for participant_entry in meeting_entry.participants:
+                identity = participant_entry.user_email or participant_entry.external_email
+                key = (meeting_entry.title, identity)
+                if snapshot.meeting_participant_existed.get(key):
+                    continue
+                if participant_entry.user_email is not None:
+                    participant_user = (
+                        await db.execute(
+                            select(User).where(User.email == participant_entry.user_email)
+                        )
+                    ).scalar_one_or_none()
+                    if participant_user is None:
+                        continue
+                    await db.execute(
+                        delete(MeetingParticipant).where(
+                            MeetingParticipant.organization_id == organization.id,
+                            MeetingParticipant.meeting_id == meeting.id,
+                            MeetingParticipant.user_id == participant_user.id,
+                        )
+                    )
+                else:
+                    await db.execute(
+                        delete(MeetingParticipant).where(
+                            MeetingParticipant.organization_id == organization.id,
+                            MeetingParticipant.meeting_id == meeting.id,
+                            MeetingParticipant.external_email == participant_entry.external_email,
+                        )
+                    )
+
+            if not snapshot.meeting_existed.get(meeting_entry.title):
+                await db.execute(
+                    delete(Meeting).where(
+                        Meeting.organization_id == organization.id, Meeting.id == meeting.id
+                    )
+                )
+
         for project_entry in seed_module._SEED_PROJECTS:
             project = (
                 await db.execute(
@@ -432,13 +702,19 @@ async def test_seed_is_idempotent(_isolated_seed: None) -> None:
                         Task.organization_id == organization.id, Task.project_id == project.id
                     )
                 )
-                tasks = task_result.scalars().all()
+                # Filtered to this project's own _SeedTask titles, not a
+                # bare count: a meeting's promoted action (below) can
+                # legitimately also land a task under this same project
+                # (its own field mapping sets project_id = meeting.
+                # project_id, same as the real promote_action), so the
+                # project's task count alone is no longer a pure function
+                # of _SEED_PROJECTS.
+                own_task_titles = {task_entry.title for task_entry in project_entry.tasks}
+                tasks = [t for t in task_result.scalars().all() if t.title in own_task_titles]
                 assert len(tasks) == len(project_entry.tasks), (
                     f"{project_entry.project_code}: re-running must not duplicate tasks"
                 )
-                assert {task.title for task in tasks} == {
-                    task_entry.title for task_entry in project_entry.tasks
-                }
+                assert {task.title for task in tasks} == own_task_titles
                 if project_entry.client_name is not None:
                     assert project.client_id is not None, (
                         f"{project_entry.project_code}: re-running must keep its client link"
@@ -467,6 +743,66 @@ async def test_seed_is_idempotent(_isolated_seed: None) -> None:
                 assert lead.converted_client_id == expected_client.id, (
                     f"{lead_entry.email}: re-running must keep its converted_client_id"
                 )
+
+            meeting_result = await db.execute(
+                select(Meeting).where(Meeting.organization_id == organization.id)
+            )
+            meetings_by_title = {meeting.title: meeting for meeting in meeting_result.scalars()}
+            assert set(meetings_by_title) == {
+                entry.title for entry in seed_module._SEED_MEETINGS
+            }, "re-running must not duplicate or lose a meeting"
+
+            for meeting_entry in seed_module._SEED_MEETINGS:
+                meeting = meetings_by_title[meeting_entry.title]
+
+                participant_result = await db.execute(
+                    select(MeetingParticipant).where(
+                        MeetingParticipant.organization_id == organization.id,
+                        MeetingParticipant.meeting_id == meeting.id,
+                    )
+                )
+                assert len(participant_result.scalars().all()) == len(meeting_entry.participants), (
+                    f"{meeting_entry.title}: re-running must not duplicate participants"
+                )
+
+                decision_result = await db.execute(
+                    select(MeetingDecision).where(
+                        MeetingDecision.organization_id == organization.id,
+                        MeetingDecision.meeting_id == meeting.id,
+                    )
+                )
+                assert len(decision_result.scalars().all()) == len(meeting_entry.decisions), (
+                    f"{meeting_entry.title}: re-running must not duplicate decisions"
+                )
+
+                action_result = await db.execute(
+                    select(MeetingAction).where(
+                        MeetingAction.organization_id == organization.id,
+                        MeetingAction.meeting_id == meeting.id,
+                    )
+                )
+                actions = action_result.scalars().all()
+                assert len(actions) == len(meeting_entry.actions), (
+                    f"{meeting_entry.title}: re-running must not duplicate action items"
+                )
+                for action_entry in meeting_entry.actions:
+                    if not action_entry.promote:
+                        continue
+                    action = next(a for a in actions if a.description == action_entry.description)
+                    assert action.task_id is not None, (
+                        f"{meeting_entry.title}: re-running must keep the promoted task_id"
+                    )
+                    task_result = await db.execute(
+                        select(Task).where(
+                            Task.organization_id == organization.id,
+                            Task.title == action_entry.description,
+                        )
+                    )
+                    tasks = task_result.scalars().all()
+                    assert len(tasks) == 1, (
+                        f"{meeting_entry.title}: re-running must not duplicate the promoted task"
+                    )
+                    assert tasks[0].id == action.task_id
     finally:
         async with session_factory() as db:
             await _cleanup_rows_created_since(db, snapshot)
