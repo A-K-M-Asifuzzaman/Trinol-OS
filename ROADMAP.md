@@ -2701,9 +2701,10 @@ Phase 4, mirroring how Phase 2 and Phase 3 each closed.
 
 ## Phase 5 — Finance
 
-Status: **In progress.** Planned via a dedicated plan-mode session
-(mirroring how Phase 3 and Phase 4 each started); plan file:
-`reactive-dreaming-lantern.md`.
+Status: **APPROVED by Codex.** All 12 stages complete and independently
+reviewed; the final Phase 5 audit found no P0/P1 findings. Planned via a
+dedicated plan-mode session (mirroring how Phase 3 and Phase 4 each
+started); plan file: `reactive-dreaming-lantern.md`.
 
 DATABASE.md's `### finance` section already fully specified `income`,
 `expenses`, `invoices`, `invoice_items`, `payments`, `invoice_counters`;
@@ -3468,9 +3469,17 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       line_total` reuses the computed values (no divergence possible),
       the `1.111 × 3.33 → 3.70` case is real seed data, and no bare
       `round()` call sites remain. Pushed to `origin/main`.
-- [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md)) — manual DBA exercise, not a code deliverable
-- [ ] Codex audit — final phase-level audit, pending
-- [ ] Resolve P0/P1 findings
+- [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md)) — manual DBA exercise, not a code deliverable; correctly tracked separately and does not block phase closure
+- [x] Codex audit — final phase-level audit found no P0/P1 findings: all 12 stages present, reviewed, and pushed; Finance exit criteria (CRUD, invoice lifecycle, PDF, concurrent payments/numbering, activity events, dashboard aggregates, frontend routes, security matrices, idempotent seed data, E2E rounding coverage) covered end to end; worktree clean.
+- [x] Resolve P0/P1 findings — every finding raised across all 12 stages (including Stage 12's rounding P1) was resolved and re-verified before the final audit; none remain open.
+
+Phase 5 is complete across all 12 planned stages — schema, income/expense
+CRUD, invoice lifecycle (draft/send/cancel), PDF generation, payments with
+concurrent-request-safe balance recompute and invoice numbering, finance
+dashboard aggregates, activity feed wiring, frontend routes, security
+matrices, idempotent seed data, and an E2E rounding-correctness flow all
+verified. The phase-level Codex audit found no P0/P1 findings, closing
+Phase 5, mirroring how Phase 2, Phase 3, and Phase 4 each closed.
 
 ## Phase 6 — Documents + Integrations
 - [ ] Document references
