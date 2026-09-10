@@ -3438,6 +3438,30 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       Full `make check` green end to end (1161 backend tests, ruff,
       mypy, eslint, prettier, tsc, 83 vitest tests, `next build`, openapi
       diff clean — no schema/route change this stage).
+
+      **Codex P1 (Stage 12 review)**: line-item rounding used Python's
+      bare `round(Decimal, 2)`, which follows the *current decimal
+      context* (default ROUND_HALF_EVEN) rather than ADR-0007's mandated
+      ROUND_HALF_UP — silently different from Postgres's own
+      `round(numeric, int)` (round-half-away-from-zero) on an exact
+      `.xx5` boundary, and `ck_line_total`'s DB-level CHECK depends on the
+      two agreeing. Accepted: duplicated `invoice_service._round_money`'s
+      exact `Decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)`
+      into seed.py (not imported — this script never calls into the
+      service layer) and used it for both `line_totals` and each
+      `InvoiceItem.line_total` (the latter now reuses the already-
+      computed `line_totals` via `zip` instead of recomputing, so the two
+      can no longer silently diverge). Added Codex's own suggested
+      regression value directly into the seed data — a second line item
+      on TRI-2026-0001 (`1.111 × 3.33`), which only rounds to a clean
+      `3.70` under ROUND_HALF_UP — so this is exercised for real on every
+      `make seed` run, not just in `finance.spec.ts`. Verified against a
+      real local Postgres: purged all finance tables, ran `make seed`
+      twice (identical 6 invoices / 7 invoice items / 6 expenses /
+      4 income / 2 payments both times), and confirmed via `psql` that
+      TRI-2026-0001's second item's `line_total` is exactly `3.70` and
+      its invoice `total` is `2403.70`. Full backend suite (1161 tests)
+      and `make check` re-run clean.
 - [ ] Backup restore rehearsal ([DEPLOYMENT.md §7](docs/architecture/DEPLOYMENT.md)) — manual DBA exercise, not a code deliverable
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings

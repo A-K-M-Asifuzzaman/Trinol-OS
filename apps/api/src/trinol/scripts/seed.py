@@ -78,7 +78,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -689,7 +689,16 @@ _SEED_INVOICES: tuple[_SeedInvoice, ...] = (
         due_date=_TODAY + timedelta(days=15),
         status=InvoiceStatus.DRAFT,
         project_code="WEB",
-        items=(_SeedInvoiceItem("Website redesign — Phase 1", Decimal("1"), Decimal("2400.00")),),
+        items=(
+            _SeedInvoiceItem("Website redesign — Phase 1", Decimal("1"), Decimal("2400.00")),
+            # Codex Stage 12 P1 regression value: 1.111 * 3.33 = 3.69963,
+            # which only rounds to a clean 3.70 under ROUND_HALF_UP
+            # (_round_money) — a bare `round()` here would compute a
+            # different value under Python's default ROUND_HALF_EVEN,
+            # rejected by the DB's own `ck_line_total`. Exercised for real
+            # on every `make seed` run, not just in finance.spec.ts.
+            _SeedInvoiceItem("Onboarding session", Decimal("1.111"), Decimal("3.33")),
+        ),
     ),
     _SeedInvoice(
         invoice_number="TRI-2026-0002",
@@ -1179,6 +1188,21 @@ async def _get_or_create_expense(
     return expense
 
 
+def _round_money(value: Decimal) -> Decimal:
+    """ADR-0007: 'Decimal context is set explicitly with ROUND_HALF_UP.'
+    Python's bare `round()`/`Decimal.__round__` uses the *current decimal
+    context*, whose default rounding mode is ROUND_HALF_EVEN (banker's
+    rounding) — silently different from Postgres's own `round(numeric,
+    int)` (round half away from zero, equivalent to ROUND_HALF_UP for the
+    non-negative amounts here) on an exact .xx5 boundary, which
+    `ck_line_total`'s own DB-level check depends on agreeing with.
+    Duplicated from `invoice_service._round_money` rather than imported —
+    this script never calls into the service layer, matching every other
+    entity here (Codex Stage 12 P1: a bare `round()` here could compute a
+    line_total the DB's own CHECK constraint then rejects)."""
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 async def _ensure_invoice_counter_at_least(
     db: AsyncSession, *, organization: Organization, year: int, min_seq: int
 ) -> None:
@@ -1220,7 +1244,7 @@ async def _get_or_create_invoice(
     # Server-side-only totals (ADR-0007), computed here exactly as
     # invoice_service.create_invoice computes them — this script never
     # calls that service, so the arithmetic is duplicated, not imported.
-    line_totals = [round(item.quantity * item.unit_price, 2) for item in entry.items]
+    line_totals = [_round_money(item.quantity * item.unit_price) for item in entry.items]
     subtotal = sum(line_totals, Decimal("0"))
     total = subtotal - entry.discount_amount + entry.tax_amount
     invoice = Invoice(
@@ -1242,7 +1266,7 @@ async def _get_or_create_invoice(
     )
     db.add(invoice)
     await db.flush()
-    for position, item in enumerate(entry.items):
+    for position, (item, line_total) in enumerate(zip(entry.items, line_totals, strict=True)):
         db.add(
             InvoiceItem(
                 id=uuid7(),
@@ -1251,7 +1275,7 @@ async def _get_or_create_invoice(
                 description=item.description,
                 quantity=item.quantity,
                 unit_price=item.unit_price,
-                line_total=round(item.quantity * item.unit_price, 2),
+                line_total=line_total,
                 position=position,
             )
         )
