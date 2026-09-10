@@ -2418,6 +2418,50 @@ four soft-deleted entities) with a same-transaction audit event.
       18 new backend tests (890 → 908); ruff, ruff format, mypy, `make
       openapi` all green (frontend unaffected — no changes this stage).
 
+- [x] Stage 6 — Activity feed wiring review. A verification pass, not
+      first-time authoring: every meetings event was already wired inline
+      per-stage (Stages 2-5, Phase 2's pattern rather than Phase 3's
+      deferred-then-retrofitted one), so this stage confirms correctness
+      centrally rather than adding new production code.
+
+      Found a real gap in test coverage while doing this: unlike CRM/work,
+      no meetings event had a dedicated assertion in
+      `tests/integration/test_activity_writer.py` — the file that, by
+      established convention (confirmed by checking `test_clients.py`/
+      `test_leads.py`/`test_projects.py` directly: none of them have their
+      own `list_feed`/`list_audit` checks), is the *sole* place activity
+      events get asserted, calling services directly rather than through
+      the HTTP client. Added 9 tests there, one per event: `meeting.
+      created`/`meeting.deleted` (feed/audit), `meeting_participant.
+      added`/`removed` (both audit — confirmed the participant-response
+      self-service update writes no event at all, neither table),
+      `meeting_decision.created`/`deleted`, `meeting_action.created`/
+      `deleted` (feed/audit each), and `meeting_action.promoted` +
+      `task.created` together (both feed, in the one promote_action
+      transaction). Every `is_audit` flag confirmed to match what Stages
+      2-5 actually implemented — no mismatches found.
+
+      One real test bug caught while writing these: the first draft of
+      `test_delete_decision_writes_an_audit_event_not_feed` asserted
+      `list_feed(...) == []` after calling `create_decision` then
+      `delete_decision` — failed immediately, because `create_decision`
+      itself legitimately writes a `meeting_decision.created` feed row
+      that delete doesn't touch. Fixed by using the `make_meeting_decision`
+      factory instead of the `create_decision` service call to seed the
+      row, matching `test_delete_action_writes_an_audit_event_not_feed`'s
+      own already-correct choice (`make_meeting_action`, not
+      `create_action`) for the identical reason.
+
+      Confirmed no gap in `tests/integration/test_activity_feed.py`: that
+      file tests the `/api/v1/activity` route's generic mechanism (items+
+      total shape, audit-event exclusion, org-scoping) using project/task
+      as representative content, the same way it never needed CRM-specific
+      rows either — the property is already proven module-agnostic via the
+      existing `project_member.added`/`removed` audit-exclusion case.
+
+      9 new backend tests (908 → 917); ruff, ruff format, mypy, `make
+      openapi` (no diff — test-only stage) all green.
+
 ## Phase 5 — Finance
 - [ ] Income
 - [ ] Expenses

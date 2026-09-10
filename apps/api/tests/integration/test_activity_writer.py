@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -8,6 +8,9 @@ from sqlalchemy import select
 from tests.factories import (
     make_invitation,
     make_lead,
+    make_meeting,
+    make_meeting_action,
+    make_meeting_decision,
     make_membership,
     make_organization,
     make_project,
@@ -21,6 +24,22 @@ from trinol.modules.crm.services.lead_service import create_lead, update_lead
 from trinol.modules.identity.identity_verifier import VerifiedIdentity
 from trinol.modules.identity.models import MembershipStatus
 from trinol.modules.identity.services.membership_service import change_role, remove_member
+from trinol.modules.meetings.models import MeetingParticipantResponse
+from trinol.modules.meetings.services.meeting_action_service import (
+    create_action,
+    delete_action,
+    promote_action,
+)
+from trinol.modules.meetings.services.meeting_decision_service import (
+    create_decision,
+    delete_decision,
+)
+from trinol.modules.meetings.services.meeting_participant_service import (
+    add_participant,
+    remove_participant,
+    update_participant_response,
+)
+from trinol.modules.meetings.services.meeting_service import create_meeting, delete_meeting
 from trinol.modules.work.models import (
     ProjectHealth,
     ProjectStatus,
@@ -608,3 +627,251 @@ async def test_project_member_add_and_remove_write_audit_events_not_feed(db_sess
         "user_id": str(target_user.id),
     }
     assert await list_feed(db_session, organization_id=org.id) == []
+
+
+async def test_create_meeting_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="meeting-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    await db_session.commit()
+
+    meeting = await create_meeting(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        title="Feed Meeting",
+        description=None,
+        starts_at=datetime.now(UTC) + timedelta(days=1),
+        ends_at=datetime.now(UTC) + timedelta(days=1, hours=1),
+        client_id=None,
+        project_id=None,
+        meeting_url=None,
+        location=None,
+        notes=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["meeting.created"]
+    assert rows[0].entity_type == "meeting"
+    assert rows[0].entity_id == meeting.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_delete_meeting_writes_an_audit_event_not_feed(db_session) -> None:
+    """ADR-0011: meetings are hard-deleted — the audit event is the only
+    remaining record of who deleted it and when."""
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="meeting-deleter@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    meeting = await make_meeting(db_session, organization=org, created_by=actor)
+    await db_session.commit()
+    meeting_id = meeting.id
+
+    await delete_meeting(db_session, organization_id=org.id, actor=actor, meeting_id=meeting_id)
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    assert [row.event for row in audit_rows] == ["meeting.deleted"]
+    assert audit_rows[0].entity_type == "meeting"
+    assert audit_rows[0].entity_id == meeting_id
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+
+async def test_meeting_participant_add_and_remove_write_audit_events_not_feed(db_session) -> None:
+    """Same reasoning as project_member.added/removed: adding or removing a
+    participant changes who can see the meeting (RBAC.md §3), so it's
+    always is_audit=true, never ordinary feed content."""
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email="participant-creator@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    target_user = await make_user(db_session, email="participant-target@x.com")
+    await make_membership(db_session, organization=org, user=target_user, role=Role.MEMBER)
+    await db_session.commit()
+    meeting = await make_meeting(db_session, organization=org, created_by=creator)
+    await db_session.commit()
+
+    participant = await add_participant(
+        db_session,
+        organization_id=org.id,
+        actor=creator,
+        meeting_id=meeting.id,
+        user_id=target_user.id,
+        external_email=None,
+    )
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    assert [row.event for row in audit_rows] == ["meeting_participant.added"]
+    assert audit_rows[0].entity_type == "meeting_participant"
+    assert audit_rows[0].entity_id == participant.id
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+    await remove_participant(
+        db_session,
+        organization_id=org.id,
+        actor=creator,
+        meeting_id=meeting.id,
+        participant_id=participant.id,
+    )
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in audit_rows}
+    assert set(by_event) == {"meeting_participant.added", "meeting_participant.removed"}
+    assert by_event["meeting_participant.removed"].entity_id == participant.id
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+
+async def test_update_participant_response_writes_no_activity_event(db_session) -> None:
+    """Phase 4 Stage 1 decision: unlike add/remove, changing your own RSVP
+    doesn't change who can see the meeting, so it's neither an audit event
+    nor ordinary feed content — no event at all."""
+    org = await make_organization(db_session)
+    creator_user = await make_user(db_session, email="response-creator@x.com")
+    creator = await make_membership(
+        db_session, organization=org, user=creator_user, role=Role.MEMBER
+    )
+    meeting = await make_meeting(db_session, organization=org, created_by=creator)
+    await db_session.commit()
+    participant = await add_participant(
+        db_session,
+        organization_id=org.id,
+        actor=creator,
+        meeting_id=meeting.id,
+        user_id=creator_user.id,
+        external_email=None,
+    )
+
+    await update_participant_response(
+        db_session,
+        organization_id=org.id,
+        actor=creator,
+        meeting_id=meeting.id,
+        participant_id=participant.id,
+        response=MeetingParticipantResponse.ACCEPTED,
+    )
+
+    feed_before = await list_feed(db_session, organization_id=org.id)
+    audit_before = await list_audit(db_session, organization_id=org.id)
+    # Exactly the one audit row from add_participant above — the response
+    # update itself added nothing to either table.
+    assert [row.event for row in audit_before] == ["meeting_participant.added"]
+    assert feed_before == []
+
+
+async def test_create_decision_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="decision-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    meeting = await make_meeting(db_session, organization=org, created_by=actor)
+    await db_session.commit()
+
+    decision = await create_decision(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        meeting_id=meeting.id,
+        body="Feed decision.",
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["meeting_decision.created"]
+    assert rows[0].entity_type == "meeting_decision"
+    assert rows[0].entity_id == decision.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_delete_decision_writes_an_audit_event_not_feed(db_session) -> None:
+    """ADR-0011: hard delete, recorded as an audit event — a blanket rule,
+    not limited to visibility-relevant deletes."""
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="decision-deleter@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    meeting = await make_meeting(db_session, organization=org, created_by=actor)
+    decision = await make_meeting_decision(db_session, meeting=meeting, decided_by=actor)
+    await db_session.commit()
+    decision_id = decision.id
+
+    await delete_decision(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        meeting_id=meeting.id,
+        decision_id=decision_id,
+    )
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in audit_rows}
+    assert set(by_event) == {"meeting_decision.deleted"}
+    assert by_event["meeting_decision.deleted"].entity_id == decision_id
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+
+async def test_create_action_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="action-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    meeting = await make_meeting(db_session, organization=org, created_by=actor)
+    await db_session.commit()
+
+    action = await create_action(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        meeting_id=meeting.id,
+        description="Feed action.",
+        owner_id=None,
+        due_date=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["meeting_action.created"]
+    assert rows[0].entity_type == "meeting_action"
+    assert rows[0].entity_id == action.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_delete_action_writes_an_audit_event_not_feed(db_session) -> None:
+    """ADR-0011: hard delete, recorded as an audit event."""
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="action-deleter@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    meeting = await make_meeting(db_session, organization=org, created_by=actor)
+    action = await make_meeting_action(db_session, meeting=meeting)
+    await db_session.commit()
+    action_id = action.id
+
+    await delete_action(
+        db_session, organization_id=org.id, actor=actor, meeting_id=meeting.id, action_id=action_id
+    )
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in audit_rows}
+    assert set(by_event) == {"meeting_action.deleted"}
+    assert by_event["meeting_action.deleted"].entity_id == action_id
+    assert await list_feed(db_session, organization_id=org.id) == []
+
+
+async def test_promote_action_writes_both_as_feed_events(db_session) -> None:
+    """ARCHITECTURE.md §3's one cross-module write: meeting_action.promoted
+    and task.created both land as ordinary feed content, in the same
+    transaction, matching create_task's own is_audit=false precedent."""
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="promote-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MEMBER)
+    meeting = await make_meeting(db_session, organization=org, created_by=actor)
+    action = await make_meeting_action(db_session, meeting=meeting, description="Promote me.")
+    await db_session.commit()
+
+    task = await promote_action(
+        db_session, organization_id=org.id, actor=actor, meeting_id=meeting.id, action_id=action.id
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in rows}
+    assert set(by_event) == {"meeting_action.promoted", "task.created"}
+    assert by_event["meeting_action.promoted"].entity_id == action.id
+    assert by_event["task.created"].entity_id == task.id
+    assert await list_audit(db_session, organization_id=org.id) == []
