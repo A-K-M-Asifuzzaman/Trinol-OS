@@ -2829,6 +2829,23 @@ finance dashboard tile; `GET /invoices/{id}/pdf` returns real PDF bytes.
       backend suite (961 tests, up from 917), ruff, ruff format, and
       mypy all clean. `make openapi` regenerated
       `apps/web/lib/api/types.gen.ts` cleanly.
+
+      **Codex finding (fixed):** `IncomeUpdateRequest` had no guard against
+      an explicit `null` for its five NOT NULL columns — `{"amount": null}`
+      reached `income_service.update_income`'s `updates["amount"] <= 0`
+      comparison as a `TypeError` (500), and `{"currency"/"source"/
+      "received_on"/"payment_method": null}` reached the DB's own NOT NULL
+      constraint as an unhandled 500. Fixed with a `model_validator(mode=
+      "after")` on `IncomeUpdateRequest`, the exact pattern `Project
+      UpdateRequest`/`TaskUpdateRequest` already use: any of the five
+      fields present in `model_fields_set` but `None` raises a clean 422,
+      while an *omitted* field still passes through untouched
+      (`exclude_unset=True` semantics preserved). `client_id`/`project_id`/
+      `invoice_id` are deliberately excluded — those columns are genuinely
+      nullable. Added a parametrized regression test (`test_patch_rejects_
+      null_for_required_fields`, all five fields) to `test_income.py`. Full
+      suite re-verified (966 tests), ruff, ruff format, mypy clean;
+      `make openapi` confirmed no schema-surface change.
 - [ ] Stage 3 — Expense CRUD + receipt attachment
 - [ ] Stage 4 — Invoice CRUD (DRAFT lifecycle)
 - [ ] Stage 5 — Invoice lifecycle: send + cancel

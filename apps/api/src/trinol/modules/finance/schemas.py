@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from trinol.modules.work.schemas import BudgetDecimal
 
@@ -40,6 +40,22 @@ class IncomeUpdateRequest(BaseModel):
     payment_method: str | None = Field(default=None, min_length=1, max_length=100)
     reference: str | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def _no_null_for_required_fields(self) -> IncomeUpdateRequest:
+        """Same pattern as `ProjectUpdateRequest`/`TaskUpdateRequest`:
+        `exclude_unset=True` already lets an *omitted* field pass through
+        untouched, but an *explicit* `null` for one of `income`'s five
+        NOT NULL columns would otherwise reach `income_service.
+        update_income` as `None` and either blow up on the `amount <= 0`
+        comparison (`TypeError`) or hit the DB's NOT NULL constraint as an
+        unhandled 500 — caught by Codex review, not by the original test
+        suite. `client_id`/`project_id`/`invoice_id` are genuinely
+        nullable columns and are deliberately excluded here."""
+        for field in ("amount", "currency", "source", "received_on", "payment_method"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} may not be null")
+        return self
 
 
 class IncomeResponse(BaseModel):

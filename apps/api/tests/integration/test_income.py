@@ -172,6 +172,36 @@ async def test_update_income_rejects_non_positive_amount(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("field", ["amount", "currency", "source", "received_on", "payment_method"])
+async def test_patch_rejects_null_for_required_fields(
+    client: AsyncClient, fake_verifier, db_session, field: str
+) -> None:
+    """Codex finding: an explicit `null` for one of income's five NOT NULL
+    columns previously reached the service layer as `None`, either raising
+    a `TypeError` on the `amount <= 0` comparison or hitting the DB's NOT
+    NULL constraint as an unhandled 500 — both are now a clean 422 via
+    IncomeUpdateRequest's own model_validator."""
+    actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    create_response = await client.post(
+        "/api/v1/finance/income",
+        json={
+            "amount": "200.00",
+            "source": "Original source",
+            "received_on": "2026-09-01",
+            "payment_method": "cash",
+        },
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    income_id = create_response.json()["id"]
+
+    response = await client.patch(
+        f"/api/v1/finance/income/{income_id}",
+        json={field: None},
+        headers={"X-CSRF-Token": actor.csrf_token},
+    )
+    assert response.status_code == 422
+
+
 async def test_admin_can_delete_income(client: AsyncClient, fake_verifier, db_session) -> None:
     actor = await login_as(client, fake_verifier, db_session, role=Role.ADMIN)
     create_response = await client.post(
