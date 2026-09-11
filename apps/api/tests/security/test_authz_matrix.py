@@ -185,6 +185,14 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         {"project_code": "MTX-1", "name": "Matrix Project"},
     ),
     ("GET", "/api/v1/projects", Permission.PROJECT_READ, None),
+    # Phase 7 Stage 2: unlike GET /projects/{project_id} below (which 403s
+    # outright for a non-member — a real ownership-split, tested by
+    # test_project_routes_enforce_ownership_split), this route never 403s
+    # for any PROJECT_READ-holding role — it always returns 200 and
+    # instead *filters* which projects appear (Codex Stage 1 P1 fix,
+    # tested directly in test_project_analytics.py). A plain matrix row
+    # is the right shape here, not _OWNERSHIP_SPLIT_ROUTES.
+    ("GET", "/api/v1/projects/analytics", Permission.PROJECT_READ, None),
     (
         "PATCH",
         "/api/v1/projects/{project_id}",

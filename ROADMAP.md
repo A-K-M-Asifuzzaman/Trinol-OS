@@ -3888,7 +3888,24 @@ with zero tasks still appears), not a per-project loop; (8)
       analytics tests now (up from 6), full suite (1223 tests), ruff,
       mypy, `make openapi` (no schema change — internal query logic only)
       all clean.
-- [ ] Stage 2 — Security matrices
+- [x] Stage 2 — Security matrices. One new `test_authz_matrix.py` row for
+      `GET /projects/analytics` (`Permission.PROJECT_READ`) — noted
+      explicitly why this is a plain matrix row, not `_OWNERSHIP_SPLIT_
+      ROUTES`: unlike `GET /projects/{project_id}` (which 403s outright
+      for a non-member), this route never 403s for any `PROJECT_READ`
+      role — it always returns 200 and instead *filters* which projects
+      appear (Stage 1's P1 fix), already tested directly and thoroughly
+      in `test_project_analytics.py`.
+
+      Confirmed directly (not assumed) that `/leads/stats`/`/finance/
+      stats`/`/projects/analytics` are all absent from `test_isolation_
+      matrix.py` — none need an isolation row, since none take a
+      per-resource id in their path (org-wide aggregates, not a single
+      resource lookup).
+
+      Full backend suite (1228 tests, up from 1223), ruff, mypy clean;
+      `test_matrix_covers_every_permission_gated_route`'s meta-assertion
+      now passes with the new route represented.
 - [ ] Stage 3 — Frontend
 - [ ] Stage 4 — Final verification, no seed/E2E changes
 - [ ] Codex audit
