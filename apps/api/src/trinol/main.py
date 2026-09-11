@@ -36,6 +36,7 @@ from trinol.modules.work.routes.lead_conversion import router as lead_conversion
 from trinol.modules.work.routes.projects import router as projects_router
 from trinol.modules.work.routes.tasks import router as tasks_router
 from trinol.platform.routes.activity import router as activity_router
+from trinol.platform.routes.documents import router as documents_router
 
 _ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     app.include_router(invoices_router)
     app.include_router(payments_router)
     app.include_router(finance_dashboard_router)
+    app.include_router(documents_router)
 
     @app.get("/health", tags=["meta"])
     @public

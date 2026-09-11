@@ -3577,7 +3577,52 @@ endpoint.
       permissions correctly nested `MEMBER ⊂ MANAGER`. Full backend suite
       (1161 tests, unchanged — schema-only stage, no new test functions
       yet), ruff, mypy all clean.
-- [ ] Stage 2 — CRUD service + routes
+- [x] Stage 2 — CRUD service + routes. `platform/schemas.py`:
+      `DocumentReferenceCreateRequest`/`UpdateRequest`/`Response`/
+      `ListResponse` — `DocumentReferenceUpdateRequest` gets the same
+      `_no_null_for_required_fields` model-validator `IncomeUpdateRequest`
+      needed after its own Codex Phase 5 finding, applied here proactively
+      for `title`/`url`/`kind` rather than rediscovered reactively.
+
+      `platform/documents.py` (flat module file, matching `platform/
+      files.py`/`platform/activity.py`'s own style — `platform` has no
+      `services/` subfolder to imitate): full CRUD, gated
+      `DOCUMENT_READ`/`DOCUMENT_WRITE` only, no ownership check (plan
+      decision 3). Optional `project_id`/`client_id`/`meeting_id` are
+      each independently validated in-org via `get_project_in_org`/
+      `get_client_in_org`/`get_meeting_in_org` (`income_service`'s own
+      cross-reference-validation template) when present, list route
+      takes the same three as optional filters. `platform/routes/
+      documents.py` registered in `main.py`; `make openapi` clean.
+
+      Activity events wired inline here, not deferred — re-read
+      `income_service.py` directly before writing this and confirmed the
+      real Phase 5 precedent is "wire it as you build it, Stage 9 was a
+      verification pass, not new wiring" (corrected the plan's own Stage
+      2/3 split accordingly: Stage 3 below is now purely the verification
+      pass). Also discovered by direct re-read, not assumed from the
+      plan: income/expense's own update functions write **no** event at
+      all (not even a no-op-guarded one) — `update_document_reference`
+      matches that exactly, simpler than the plan's own decision 3 text
+      described.
+
+      Authz-matrix and isolation-matrix rows added in this same stage,
+      matching Finance's Stage 11 precedent that these are best wired
+      per-stage, audited later (Stage 5). Isolation matrix needed two
+      separate route lists/test functions (read vs. write), not one like
+      finance's single ADMIN+-tier list — `DOCUMENT_READ` (MEMBER+) and
+      `DOCUMENT_WRITE` (MANAGER+) are different tiers, mirroring how CRM's
+      own `_CRM_READ_ISOLATION_ROUTES`/`_CRM_WRITE_ISOLATION_ROUTES` split
+      for the same reason.
+
+      14 new integration tests (`tests/integration/test_documents.py`)
+      covering create/list/get/update/delete, MEMBER-can-read/cannot-write,
+      cross-org reference rejection, multi-parent creation (decision 4),
+      and the null-required-field 422 case; 20 new authz-matrix cases (5
+      rows × 4 roles) and 10 new isolation-matrix cases (read × 4 roles +
+      write × 3 roles × 2 methods) — all pass on the first run. Full
+      backend suite (1213 tests, up from 1161), ruff, mypy, `make openapi`
+      all clean.
 - [ ] Stage 3 — Activity feed wiring
 - [ ] Stage 4 — Frontend
 - [ ] Stage 5 — Security matrices audit

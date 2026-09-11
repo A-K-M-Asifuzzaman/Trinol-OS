@@ -7,6 +7,7 @@ from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
     make_client,
+    make_document_reference,
     make_expense,
     make_income,
     make_invoice,
@@ -594,6 +595,104 @@ async def test_meeting_content_routes_isolated_across_orgs(
     path = path_template.format(meeting_id=meeting.id, decision_id=decision.id, action_id=action.id)
     headers = {"X-CSRF-Token": actor.csrf_token} if method != "GET" else {}
     response = await client.request(method, path, json=body, headers=headers)
+    assert response.status_code == 404, (
+        f"{method} {path} as {role} in org B got {response.status_code}"
+    )
+
+
+# Phase 6 Stage 2. DOCUMENT_READ is MEMBER+ (unlike finance's ADMIN+-only
+# reads below) — every role reaches the service layer's org-scoped lookup,
+# same reasoning _CRM_READ_ISOLATION_ROUTES already established.
+_DOCUMENT_READ_ISOLATION_ROUTES: list[str] = [
+    "/api/v1/documents/{document_reference_id}",
+]
+
+
+@pytest.mark.parametrize("path_template", _DOCUMENT_READ_ISOLATION_ROUTES)
+@pytest.mark.parametrize("role", list(Role))
+async def test_document_read_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    path_template: str,
+    role: Role,
+) -> None:
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"doc-iso-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    document_reference = await make_document_reference(
+        db_session, organization=org_a, added_by=owner
+    )
+    await db_session.commit()
+
+    org_b = await make_organization(db_session)
+    actor_user = await make_user(db_session, email=f"doc-iso-actor-{org_b.id}-{role.value}@x.com")
+    actor_membership = await make_membership(
+        db_session, organization=org_b, user=actor_user, role=role
+    )
+    await db_session.commit()
+    await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=org_b,
+    )
+
+    path = path_template.format(document_reference_id=document_reference.id)
+    response = await client.get(path)
+    assert response.status_code == 404, f"GET {path} as {role} in org B got {response.status_code}"
+
+
+# DOCUMENT_WRITE is MANAGER+ — PATCH/DELETE have no MEMBER-reachable path at
+# all (RBAC.md §2), so testing MEMBER here would only prove it lacks the
+# permission, not prove isolation, same reasoning _CRM_WRITE_ISOLATION_ROUTES
+# already established for CLIENT_WRITE/LEAD_WRITE.
+_DOCUMENT_WRITE_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] = [
+    ("PATCH", "/api/v1/documents/{document_reference_id}", {"title": "Hijacked"}),
+    ("DELETE", "/api/v1/documents/{document_reference_id}", None),
+]
+
+
+@pytest.mark.parametrize("method,path_template,body", _DOCUMENT_WRITE_ISOLATION_ROUTES)
+@pytest.mark.parametrize("role", [Role.MANAGER, Role.ADMIN, Role.OWNER])
+async def test_document_write_routes_isolated_across_orgs(
+    client: AsyncClient,
+    fake_verifier,
+    db_session,
+    method: str,
+    path_template: str,
+    body: dict[str, str] | None,
+    role: Role,
+) -> None:
+    org_a = await make_organization(db_session)
+    owner_user = await make_user(db_session, email=f"doc-iso-w-owner-{org_a.id}@x.com")
+    owner = await make_membership(db_session, organization=org_a, user=owner_user, role=Role.OWNER)
+    document_reference = await make_document_reference(
+        db_session, organization=org_a, added_by=owner
+    )
+    await db_session.commit()
+
+    org_b = await make_organization(db_session)
+    actor_user = await make_user(
+        db_session, email=f"doc-iso-w-actor-{org_b.id}-{role.value}@x.com"
+    )
+    actor_membership = await make_membership(
+        db_session, organization=org_b, user=actor_user, role=role
+    )
+    await db_session.commit()
+    actor = await login_as_existing(
+        client,
+        fake_verifier,
+        user=actor_user,
+        membership=actor_membership,
+        organization=org_b,
+    )
+
+    path = path_template.format(document_reference_id=document_reference.id)
+    response = await client.request(
+        method, path, json=body, headers={"X-CSRF-Token": actor.csrf_token}
+    )
     assert response.status_code == 404, (
         f"{method} {path} as {role} in org B got {response.status_code}"
     )

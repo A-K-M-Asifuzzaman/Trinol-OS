@@ -8,6 +8,7 @@ from tests.factories import (
     PNG_1X1_BYTES,
     make_checklist_item,
     make_client,
+    make_document_reference,
     make_expense,
     make_income,
     make_invoice,
@@ -289,6 +290,30 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
         },
     ),
     ("GET", "/api/v1/meetings", Permission.MEETING_READ, None),
+    # Phase 6 Stage 2: RBAC.md §2 "Documents: view" (MEMBER+) / "Documents:
+    # create/edit/delete" (MANAGER+) — no ownership-split rule (plan
+    # decision 3), same flat-permission shape finance's own rows below
+    # already established, just at a different tier.
+    (
+        "POST",
+        "/api/v1/documents",
+        Permission.DOCUMENT_WRITE,
+        {"title": "Matrix Document", "url": "https://example.test", "kind": "OTHER"},
+    ),
+    ("GET", "/api/v1/documents", Permission.DOCUMENT_READ, None),
+    ("GET", "/api/v1/documents/{document_reference_id}", Permission.DOCUMENT_READ, None),
+    (
+        "PATCH",
+        "/api/v1/documents/{document_reference_id}",
+        Permission.DOCUMENT_WRITE,
+        {"title": "Matrix Document Updated"},
+    ),
+    (
+        "DELETE",
+        "/api/v1/documents/{document_reference_id}",
+        Permission.DOCUMENT_WRITE,
+        None,
+    ),
     # Phase 5 Stage 2: RBAC.md §3 has no finance ownership-split rule at
     # all (unlike every module above) — FINANCE_READ/FINANCE_WRITE are
     # flat ADMIN+-tier gates, so every income route is a plain per-row
@@ -1416,6 +1441,18 @@ async def test_matrix_row_respects_required_permission(
             )
             await db_session.commit()
             resolved_path = resolved_path.replace("{attachment_id}", str(attachment.id))
+    if "{document_reference_id}" in resolved_path:
+        # DOCUMENT_READ/DOCUMENT_WRITE have no per-resource restriction (no
+        # ownership-split rule, Phase 6 plan decision 3) — who added the
+        # test document doesn't affect the assertion below, same reasoning
+        # as {client_id}/{lead_id}/{income_id}.
+        document_reference = await make_document_reference(
+            db_session, organization=actor.organization, added_by=target
+        )
+        await db_session.commit()
+        resolved_path = resolved_path.replace(
+            "{document_reference_id}", str(document_reference.id)
+        )
     if "{income_id}" in resolved_path:
         # FINANCE_READ/FINANCE_WRITE have no per-resource restriction (no
         # ownership-split rule for finance at all, ROADMAP.md Phase 5

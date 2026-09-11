@@ -920,6 +920,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Document References Route */
+        get: operations["list_document_references_route_api_v1_documents_get"];
+        put?: never;
+        /** Create Document Reference Route */
+        post: operations["create_document_reference_route_api_v1_documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{document_reference_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Document Reference Route */
+        get: operations["get_document_reference_route_api_v1_documents__document_reference_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Document Reference Route */
+        delete: operations["delete_document_reference_route_api_v1_documents__document_reference_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Document Reference Route */
+        patch: operations["update_document_reference_route_api_v1_documents__document_reference_id__patch"];
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1157,6 +1194,94 @@ export interface components {
         ContactSubmitResponse: {
             /** Reference Number */
             reference_number: string;
+        };
+        /**
+         * DocumentKind
+         * @description DATABASE.md §3 (platform) leaves `kind`'s values undefined — invented
+         *     this phase (Phase 6 plan decision 1), directly matching ROADMAP.md's own
+         *     three non-"document references" checklist bullets one-to-one: Google
+         *     Drive, GitHub, and "additional useful integrations" (`OTHER`, a
+         *     catch-all). `ponytail: extend if a specific system earns its own icon/
+         *     filter later — nothing forces more values now.
+         * @enum {string}
+         */
+        DocumentKind: "GOOGLE_DRIVE" | "GITHUB" | "OTHER";
+        /** DocumentReferenceCreateRequest */
+        DocumentReferenceCreateRequest: {
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            kind: components["schemas"]["DocumentKind"];
+            /** Project Id */
+            project_id?: string | null;
+            /** Client Id */
+            client_id?: string | null;
+            /** Meeting Id */
+            meeting_id?: string | null;
+        };
+        /**
+         * DocumentReferenceListResponse
+         * @description ADR-0005: every list endpoint returns {items, total}, never a bare
+         *     array.
+         */
+        DocumentReferenceListResponse: {
+            /** Items */
+            items: components["schemas"]["DocumentReferenceResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** DocumentReferenceResponse */
+        DocumentReferenceResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            kind: components["schemas"]["DocumentKind"];
+            /** Project Id */
+            project_id: string | null;
+            /** Client Id */
+            client_id: string | null;
+            /** Meeting Id */
+            meeting_id: string | null;
+            /**
+             * Added By
+             * Format: uuid
+             */
+            added_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * DocumentReferenceUpdateRequest
+         * @description Partial update: only fields present in the request body are applied
+         *     (routes/documents.py uses `model_dump(exclude_unset=True)`).
+         */
+        DocumentReferenceUpdateRequest: {
+            /** Title */
+            title?: string | null;
+            /** Url */
+            url?: string | null;
+            kind?: components["schemas"]["DocumentKind"] | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Client Id */
+            client_id?: string | null;
+            /** Meeting Id */
+            meeting_id?: string | null;
         };
         /** ExpenseBreakdownPointResponse */
         ExpenseBreakdownPointResponse: {
@@ -5805,6 +5930,169 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FinanceStatsResponse"];
+                };
+            };
+        };
+    };
+    list_document_references_route_api_v1_documents_get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+                client_id?: string | null;
+                meeting_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentReferenceListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_document_reference_route_api_v1_documents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentReferenceCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentReferenceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_reference_route_api_v1_documents__document_reference_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_reference_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentReferenceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_document_reference_route_api_v1_documents__document_reference_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_reference_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_document_reference_route_api_v1_documents__document_reference_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_reference_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentReferenceUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentReferenceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
