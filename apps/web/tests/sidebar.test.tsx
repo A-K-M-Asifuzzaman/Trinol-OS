@@ -56,6 +56,14 @@ describe("Sidebar", () => {
     expect(calendar).toHaveAttribute("aria-disabled", "true");
   });
 
+  it("shows Documents as a real link, unrestricted by role (Phase 6 Stage 4)", () => {
+    render(<Sidebar role="MEMBER" />);
+    expect(screen.getByRole("link", { name: "Documents" })).toHaveAttribute(
+      "href",
+      "/documents",
+    );
+  });
+
   it("shows Overview/Income/Expenses/Invoices as real links for ADMIN+ (Phase 5 Stage 10)", () => {
     render(<Sidebar role="ADMIN" />);
     expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute(

@@ -1,12 +1,14 @@
 import Link from "next/link";
 
 // MASTER_PROMPT §7's nav groups. Team (Phase 1 Stage 9), My Work/Projects/
-// Tasks (Phase 2 Stage 8), Leads/Clients/Pipeline (Phase 3 Stage 8), and
-// Meetings (Phase 4 Stage 7) have real destinations — everything else
-// renders as a disabled label until its own phase builds the page behind
-// it. Calendar stays disabled this phase too: no in-app calendar-grid view
-// is being built (Phase 4 planning decision — the phase name's "Calendar"
-// half refers only to the deferred Google Calendar integration, ADR-0012).
+// Tasks (Phase 2 Stage 8), Leads/Clients/Pipeline (Phase 3 Stage 8),
+// Meetings (Phase 4 Stage 7), Finance/Income/Expenses/Invoices (Phase 5
+// Stage 10), and Documents (Phase 6 Stage 4) have real destinations —
+// everything else renders as a disabled label until its own phase builds
+// the page behind it. Calendar stays disabled this phase too: no in-app
+// calendar-grid view is being built (Phase 4 planning decision — the
+// phase name's "Calendar" half refers only to the deferred Google
+// Calendar integration, ADR-0012).
 //
 // RBAC.md §2: "Finance is invisible to MEMBER and MANAGER — not merely
 // hidden in navigation. The endpoints return 403 ..." Nav-hiding it is the
@@ -40,7 +42,7 @@ const NAV_GROUPS: ReadonlyArray<{
     items: [
       { label: "Team", href: "/team" },
       { label: "Meetings", href: "/meetings" },
-      { label: "Documents" },
+      { label: "Documents", href: "/documents" },
     ],
   },
   {

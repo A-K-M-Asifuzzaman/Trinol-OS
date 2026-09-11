@@ -3654,7 +3654,43 @@ endpoint.
       not the plan's original finer-grained no-op-guard idea), delete
       writes an audit event with the feed unchanged. All pass; full suite
       green.
-- [ ] Stage 4 — Frontend
+- [x] Stage 4 — Frontend. New route `/documents`: four-state list pattern
+      (loading/error/empty/populated) mirroring `leads/page.tsx`/
+      `meetings/page.tsx` exactly. "New document" form: title, URL
+      (`type="url"`), kind (select: Google Drive/GitHub/Other), and a
+      "link to" picker (none/project/client/meeting, then a specific
+      entity — decision 4's own UI simplification: the schema allows more
+      than one parent at once, the form only ever lets you pick one).
+      List row: title as an external link (`target="_blank"`), a kind
+      badge, the linked entity's name (looked up client-side against
+      already-fetched project/client/meeting lists), a delete button. No
+      client-side permission pre-check — matches Finance's own frontend
+      stage, not CRM's earlier `useCanManageCrm()`-hiding precedent (a
+      MEMBER attempting create/edit/delete simply gets the real 403 back).
+
+      `sidebar.tsx`: flipped the existing `{ label: "Documents" }`
+      placeholder (already scaffolded, `COMPANY` group, no
+      `restrictedToAdminPlus` flag) to a real `href="/documents"`.
+
+      `lib/api/client.ts`: added `DocumentReference`/`DocumentKind` types
+      and `fetchDocuments`/`createDocument`/`updateDocument`/
+      `deleteDocument`, same shape as every other module's own client
+      functions.
+
+      5 new component tests (`tests/documents.test.tsx`, all four list
+      states plus the create-form fields) and 1 new `sidebar.test.tsx`
+      case confirming Documents is a real, unrestricted link — all pass.
+      `pnpm typecheck`/`lint`/`prettier --check`/`test`/`build` all green.
+
+      Manual `make dev` walkthrough (real Chromium via a throwaway script,
+      the project's own bundled browser — the MCP Playwright tool's system-
+      Chrome requirement wasn't available in this environment): logged in
+      as the seeded founder, created a document (kind GitHub, linked to
+      the seeded "TrinolIT Website" project), confirmed it rendered with
+      the correct title/kind badge/linked-project name and the expected
+      `target="_blank"` external link, then deleted it and confirmed zero
+      rows remain in the database. `.env`/`apps/web/.env.local` reverted,
+      scratch script deleted, both dev servers stopped.
 - [ ] Stage 5 — Security matrices audit
 - [ ] Stage 6 — Seed script + E2E, final stage
 - [ ] Codex audit

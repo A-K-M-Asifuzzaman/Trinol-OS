@@ -546,6 +546,55 @@ export async function promoteMeetingAction(
   );
 }
 
+export type DocumentReference =
+  components["schemas"]["DocumentReferenceResponse"];
+export type DocumentReferenceList =
+  components["schemas"]["DocumentReferenceListResponse"];
+export type DocumentReferenceCreateRequest =
+  components["schemas"]["DocumentReferenceCreateRequest"];
+export type DocumentReferenceUpdateRequest =
+  components["schemas"]["DocumentReferenceUpdateRequest"];
+export type DocumentKind = components["schemas"]["DocumentKind"];
+
+export async function fetchDocuments(
+  options: { limit?: number; offset?: number; cookie?: string } = {},
+): Promise<DocumentReferenceList> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined)
+    params.set("offset", String(options.offset));
+  const query = params.toString();
+  return apiFetch<DocumentReferenceList>(
+    `/api/v1/documents${query ? `?${query}` : ""}`,
+    { cookie: options.cookie },
+  );
+}
+
+export async function createDocument(
+  body: DocumentReferenceCreateRequest,
+): Promise<DocumentReference> {
+  return apiFetch<DocumentReference>("/api/v1/documents", {
+    method: "POST",
+    body,
+  });
+}
+
+export async function updateDocument(
+  documentId: string,
+  body: DocumentReferenceUpdateRequest,
+): Promise<DocumentReference> {
+  return apiFetch<DocumentReference>(`/api/v1/documents/${documentId}`, {
+    method: "PATCH",
+    body,
+  });
+}
+
+export async function deleteDocument(documentId: string): Promise<void> {
+  return apiFetch<void>(`/api/v1/documents/${documentId}`, {
+    method: "DELETE",
+  });
+}
+
 export type FinanceStats = components["schemas"]["FinanceStatsResponse"];
 
 export async function fetchFinanceStats(
