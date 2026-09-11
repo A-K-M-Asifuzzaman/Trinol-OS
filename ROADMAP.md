@@ -3714,7 +3714,48 @@ endpoint.
 
       Full backend suite (1213 tests, unchanged — no new tests needed,
       only re-verified), ruff, and mypy all clean.
-- [ ] Stage 6 — Seed script + E2E, final stage
+- [x] Stage 6 — Seed script + E2E, final stage. `scripts/seed.py`: three
+      `document_references` rows, one per `DocumentKind` and one per
+      parent shape (decision 4) — a `GOOGLE_DRIVE` doc linked to the `WEB`
+      project, an `OTHER` doc linked to Acme Corp, a parent-less `GITHUB`
+      doc ("Trinol OS repository"). Natural key is `title` alone, no date
+      field to go stale (unlike income/expense's own `_TODAY`-relative
+      dates from Phase 5 Stage 12).
+
+      `tests/unit/test_seed_idempotent.py`: applied Phase 5 Stage 12's own
+      lesson proactively this time, not reactively — read the entire
+      existing cleanup function and fixture first, shadowed `_SEED_
+      DOCUMENT_REFERENCES` in `_isolated_seed` (remapping `project_code`/
+      `client_name` via the fixture's existing maps, same as `_SEED_
+      INVOICES` already does), and added a blanket per-organization purge
+      in `_cleanup_rows_created_since` positioned alongside the finance
+      block (document references reference clients/projects/memberships,
+      same ordering reason). All 3 tests passed on the first run — no
+      `KeyError` this time, confirming the proactive read actually worked.
+
+      `apps/web/e2e/documents.spec.ts` (decision 7): logs in as the seeded
+      founder, creates a document (kind GitHub, linked to the seeded
+      "TrinolIT Website" project), and asserts the real thing — the
+      correct title, the "GitHub" kind badge, the linked project's name,
+      and the link's exact `href`/`target="_blank"` — not just that a row
+      appears. Ran 3 times locally (once alongside the other 5 e2e specs
+      together), all green; each run's created row was deleted via `psql`
+      in the same turn, confirmed back to exactly the 3 seeded rows.
+
+      Re-ran the async/webhook/OAuth grep from this plan's own research
+      across `apps/api/src` — still only the pre-existing `BackgroundTasks`
+      email-sending hits (plus one new hit: this stage's own "no OAuth"
+      docstring comment in `documents/models.py`). Decision 1 held for the
+      whole phase, confirmed at the end, not just assumed from planning.
+
+      Verified directly against a real local Postgres: purged
+      `document_references`, ran `make seed` twice (identical 3 rows both
+      times). `.env`/`apps/web/.env.local` temporarily set for the manual
+      E2E run and fully reverted afterward; both dev servers stopped.
+
+      Full `make check` green end to end (1213 backend tests, ruff, mypy,
+      eslint, prettier, tsc, 89 vitest tests, `next build`, openapi diff
+      clean — no schema/route change this stage).
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 

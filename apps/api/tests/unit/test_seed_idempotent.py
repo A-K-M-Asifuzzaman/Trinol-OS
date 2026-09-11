@@ -11,6 +11,7 @@ import trinol.scripts.seed as seed_module
 from trinol.core.db.engine import get_session_factory
 from trinol.core.ids import uuid7
 from trinol.modules.crm.models import Client, Lead
+from trinol.modules.documents.models import DocumentReference
 from trinol.modules.finance.models import (
     Expense,
     Income,
@@ -269,6 +270,23 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         for entry in seed_module._SEED_INCOME
     )
+    document_references = tuple(
+        seed_module._SeedDocumentReference(
+            # Not suffixed: same reasoning as `invoices` above — title's
+            # uniqueness is org-scoped, and this fixture's org is always
+            # fresh.
+            title=entry.title,
+            url=entry.url,
+            kind=entry.kind,
+            project_code=(
+                project_code_for[entry.project_code] if entry.project_code is not None else None
+            ),
+            client_name=(
+                client_name_for[entry.client_name] if entry.client_name is not None else None
+            ),
+        )
+        for entry in seed_module._SEED_DOCUMENT_REFERENCES
+    )
 
     monkeypatch.setattr(seed_module, "_ORG_SLUG", f"trinolit-seed-test-{suffix}")
     monkeypatch.setattr(seed_module, "_SEED_USERS", users)
@@ -278,6 +296,7 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(seed_module, "_SEED_MEETINGS", meetings)
     monkeypatch.setattr(seed_module, "_SEED_INVOICES", invoices)
     monkeypatch.setattr(seed_module, "_SEED_INCOME", income)
+    monkeypatch.setattr(seed_module, "_SEED_DOCUMENT_REFERENCES", document_references)
 
 
 @dataclass
@@ -637,6 +656,15 @@ async def _cleanup_rows_created_since(db: AsyncSession, snapshot: _SeedSnapshot)
             delete(InvoiceCounter).where(InvoiceCounter.organization_id == organization.id)
         )
 
+        # Documents (Stage 6): document_references reference clients/
+        # projects/memberships (all RESTRICT) — same ordering reason as the
+        # finance block just above, and the same blanket-purge reasoning
+        # (every row under this fixture's organization is guaranteed
+        # test-created).
+        await db.execute(
+            delete(DocumentReference).where(DocumentReference.organization_id == organization.id)
+        )
+
         for project_entry in seed_module._SEED_PROJECTS:
             project = (
                 await db.execute(
@@ -942,6 +970,15 @@ async def test_seed_is_idempotent(_isolated_seed: None) -> None:
             assert counter.last_seq == len(seed_module._SEED_INVOICES), (
                 "re-running must not bump the counter past the seeded invoice count"
             )
+
+            document_result = await db.execute(
+                select(DocumentReference).where(
+                    DocumentReference.organization_id == organization.id
+                )
+            )
+            assert {d.title for d in document_result.scalars()} == {
+                entry.title for entry in seed_module._SEED_DOCUMENT_REFERENCES
+            }, "re-running must not duplicate or lose a document reference"
     finally:
         async with session_factory() as db:
             await _cleanup_rows_created_since(db, snapshot)

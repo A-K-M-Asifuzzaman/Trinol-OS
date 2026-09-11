@@ -61,6 +61,15 @@ invoice is deliberately overdue (`due_date` before `_TODAY`) to exercise
 `is_overdue`'s own derivation; one PARTIALLY_PAID and one PAID invoice
 each get a matching seed `Payment` row.
 
+Phase 6 Stage 6: three `document_references` rows, one per `DocumentKind`
+and one per parent shape (Phase 6 plan decision 4 — a reference may have
+zero, one, or more than one parent): a `GOOGLE_DRIVE` doc linked to the
+`WEB` project, an `OTHER` doc linked to Acme Corp, and a parent-less
+`GITHUB` doc ("Trinol OS repository"). Natural key is `title` alone, the
+same "identity doesn't depend on which run created it" reasoning
+`source`/`description` already established for income/expense above —
+these rows have no date field at all to worry about going stale.
+
 Idempotent: re-running never duplicates a row, matched on the organization's
 slug, each user's email, the (organization, user) membership pair, each
 project's code, each (project, user) project-member pair, each
@@ -68,8 +77,9 @@ project's code, each (project, user) project-member pair, each
 (organization, title, starts_at) meeting, each (meeting, user-or-email)
 participant, each (meeting, body) decision, each (meeting, description)
 action, each income row's `source`, each expense row's `description`,
-each invoice's `invoice_number`, and each invoice's own seed payment (at
-most one per invoice, matched by `invoice_id` alone).
+each invoice's `invoice_number`, each invoice's own seed payment (at
+most one per invoice, matched by `invoice_id` alone), and each document
+reference's `title`.
 """
 
 from __future__ import annotations
@@ -88,6 +98,7 @@ from trinol.core.db.engine import get_session_factory
 from trinol.core.db.org_session import register_org_scope_guard
 from trinol.core.ids import uuid7
 from trinol.modules.crm.models import Client, ClientStatus, Lead, LeadSource, LeadStage
+from trinol.modules.documents.models import DocumentKind, DocumentReference
 from trinol.modules.finance.models import (
     Expense,
     ExpenseCategory,
@@ -754,6 +765,40 @@ _SEED_INVOICES: tuple[_SeedInvoice, ...] = (
 _SEED_INVOICE_YEAR = 2026
 
 
+@dataclass(frozen=True, slots=True)
+class _SeedDocumentReference:
+    title: str
+    url: str
+    kind: DocumentKind
+    # Phase 6 plan decision 4: a reference may have zero, one, or more than
+    # one parent — these three rows deliberately exercise each of "linked
+    # to a project", "linked to a client", and "no parent at all" rather
+    # than picking one shape for all three.
+    project_code: str | None = None
+    client_name: str | None = None
+
+
+_SEED_DOCUMENT_REFERENCES: tuple[_SeedDocumentReference, ...] = (
+    _SeedDocumentReference(
+        title="Website redesign brief",
+        url="https://drive.google.com/drive/folders/website-redesign-brief",
+        kind=DocumentKind.GOOGLE_DRIVE,
+        project_code="WEB",
+    ),
+    _SeedDocumentReference(
+        title="Acme Corp signed contract",
+        url="https://example.com/contracts/acme-corp.pdf",
+        kind=DocumentKind.OTHER,
+        client_name=_ACME_CORP_NAME,
+    ),
+    _SeedDocumentReference(
+        title="Trinol OS repository",
+        url="https://github.com/trinolit/trinol-os",
+        kind=DocumentKind.GITHUB,
+    ),
+)
+
+
 async def _get_or_create_organization(db: AsyncSession) -> Organization:
     result = await db.execute(select(Organization).where(Organization.slug == _ORG_SLUG))
     organization = result.scalar_one_or_none()
@@ -1306,6 +1351,39 @@ async def _ensure_payment_for_invoice(
     )
 
 
+async def _get_or_create_document_reference(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    entry: _SeedDocumentReference,
+    project_id: uuid.UUID | None,
+    client_id: uuid.UUID | None,
+    added_by_user_id: uuid.UUID,
+) -> DocumentReference:
+    result = await db.execute(
+        select(DocumentReference).where(
+            DocumentReference.organization_id == organization.id,
+            DocumentReference.title == entry.title,
+        )
+    )
+    document_reference = result.scalar_one_or_none()
+    if document_reference is not None:
+        return document_reference
+    document_reference = DocumentReference(
+        id=uuid7(),
+        organization_id=organization.id,
+        title=entry.title,
+        url=entry.url,
+        kind=entry.kind,
+        project_id=project_id,
+        client_id=client_id,
+        added_by=added_by_user_id,
+    )
+    db.add(document_reference)
+    await db.flush()
+    return document_reference
+
+
 async def seed() -> None:
     register_org_scope_guard()
     session_factory = get_session_factory()
@@ -1506,6 +1584,26 @@ async def seed() -> None:
         for expense_entry in _SEED_EXPENSES:
             await _get_or_create_expense(
                 db, organization=organization, entry=expense_entry, created_by_user_id=founder_id
+            )
+
+        for document_entry in _SEED_DOCUMENT_REFERENCES:
+            project_id = (
+                projects_by_code[document_entry.project_code].id
+                if document_entry.project_code is not None
+                else None
+            )
+            client_id = (
+                clients_by_name[document_entry.client_name].id
+                if document_entry.client_name is not None
+                else None
+            )
+            await _get_or_create_document_reference(
+                db,
+                organization=organization,
+                entry=document_entry,
+                project_id=project_id,
+                client_id=client_id,
+                added_by_user_id=founder_id,
             )
 
         await db.commit()
