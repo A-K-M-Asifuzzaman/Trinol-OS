@@ -46,6 +46,10 @@ class Permission(StrEnum):
     MEETING_READ = "MEETING_READ"
     MEETING_WRITE_OWN = "MEETING_WRITE_OWN"
 
+    # Documents — Phase 6
+    DOCUMENT_READ = "DOCUMENT_READ"
+    DOCUMENT_WRITE = "DOCUMENT_WRITE"
+
     # Finance — Phase 5
     FINANCE_READ = "FINANCE_READ"
     FINANCE_WRITE = "FINANCE_WRITE"
@@ -81,6 +85,7 @@ _MEMBER: frozenset[Permission] = frozenset(
         Permission.CLIENT_READ,
         Permission.MEETING_READ,
         Permission.MEETING_WRITE_OWN,
+        Permission.DOCUMENT_READ,
         Permission.TEAM_READ,
     }
 )
@@ -92,6 +97,7 @@ _MANAGER: frozenset[Permission] = _MEMBER | frozenset(
         Permission.LEAD_WRITE,
         Permission.CLIENT_WRITE,
         Permission.LEAD_CONVERT,
+        Permission.DOCUMENT_WRITE,
     }
 )
 

@@ -48,6 +48,7 @@ from trinol.modules.work.models import (
 )
 from trinol.platform.file_storage.protocol import FileStorage
 from trinol.platform.files import create_file_object
+from trinol.platform.models import DocumentKind, DocumentReference
 
 # Plain factory functions, not factory_boy (TESTING.md §2): each adds+flushes
 # a row and returns it, so a caller can chain them without repeating
@@ -591,3 +592,31 @@ async def make_expense(
     db.add(expense)
     await db.flush()
     return expense
+
+
+async def make_document_reference(
+    db: AsyncSession,
+    *,
+    organization: Organization,
+    added_by: Membership,
+    title: str = "Test Document",
+    url: str = "https://drive.google.com/test",
+    kind: DocumentKind = DocumentKind.GOOGLE_DRIVE,
+    project: Project | None = None,
+    client: Client | None = None,
+    meeting: Meeting | None = None,
+) -> DocumentReference:
+    document_reference = DocumentReference(
+        id=uuid7(),
+        organization_id=organization.id,
+        title=title,
+        url=url,
+        kind=kind,
+        project_id=project.id if project is not None else None,
+        client_id=client.id if client is not None else None,
+        meeting_id=meeting.id if meeting is not None else None,
+        added_by=added_by.user_id,
+    )
+    db.add(document_reference)
+    await db.flush()
+    return document_reference

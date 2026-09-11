@@ -41,6 +41,8 @@ test, so a hand-edit to the map cannot quietly break the hierarchy.
 | Convert lead | – | ✓ | ✓ | ✓ |
 | Meetings: view | ✓ | ✓ | ✓ | ✓ |
 | Meetings: create/edit own | ✓ | ✓ | ✓ | ✓ |
+| Documents: view | ✓ | ✓ | ✓ | ✓ |
+| Documents: create/edit/delete | – | ✓ | ✓ | ✓ |
 | Finance: view | – | – | ✓ | ✓ |
 | Income/expenses: write | – | – | ✓ | ✓ |
 | Invoices: create/send | – | – | ✓ | ✓ |

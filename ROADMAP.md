@@ -3482,10 +3482,106 @@ verified. The phase-level Codex audit found no P0/P1 findings, closing
 Phase 5, mirroring how Phase 2, Phase 3, and Phase 4 each closed.
 
 ## Phase 6 — Documents + Integrations
-- [ ] Document references
-- [ ] Google Drive integration
-- [ ] GitHub integration
-- [ ] Additional useful integrations
+
+Status: **In progress.** Planned via a dedicated plan-mode session
+(mirroring how Phases 3-5 each started); plan file:
+`reactive-dreaming-lantern.md`.
+
+Unlike Phases 3-5, this phase is not "apply the established pattern to a
+well-specified module" — DATABASE.md §3 has exactly one line for this
+phase's schema (`document_references`: title/url/kind/project_id?/
+client_id?/meeting_id?/added_by/created_at, no constraints or enum values
+given), RBAC.md has zero rows for Documents or Integrations, and
+`core/authz/permissions.py` has no `DOCUMENT_*`/`INTEGRATION_*` values —
+all fresh decisions this plan makes, not confirmations of existing ones.
+MASTER_PROMPT.md has no dedicated section for either half of this phase;
+its spec is assembled from §16 (Google Drive/Docs, explicitly "V2":
+"Initially allow external document links... Do not rebuild Google Docs")
+and the §39 phase-list bullets. GitHub gets exactly one mention anywhere
+in the spec (the §39 bullet) — no fields, no flow, no section.
+
+**User-confirmed scope decision**: "Google Drive integration"/"GitHub
+integration"/"Additional useful integrations" are built as a single
+feature — `document_references` rows with a `kind` tag (`GOOGLE_DRIVE`,
+`GITHUB`, `OTHER`) distinguishing which external system a link points at.
+No OAuth, no API calls to Drive/GitHub, no background worker/webhook
+infrastructure (none exists anywhere in this codebase — confirmed by
+direct grep; ADR-0010 already rules out Redis/a worker in V1 and names
+"any job that must run reliably off the request path" as the trigger to
+revisit that, which real OAuth-based integrations would be). This is not
+a scope cut invented for this plan — ADR-0012 already decided exactly
+this for Drive ("V1 stores external links"); this phase implements that
+decision and extends it to GitHub by the same reasoning. Real OAuth-based
+integrations remain deferred to V2, same treatment Phase 4 gave Google
+Calendar and reminder emails.
+
+Fresh decisions this plan makes explicitly (see the plan file for full
+reasoning on each): (1) `kind` enum is `GOOGLE_DRIVE`/`GITHUB`/`OTHER`;
+(2) two new flat permissions, `DOCUMENT_READ` (MEMBER+)/`DOCUMENT_WRITE`
+(MANAGER+), tiered like Leads/Clients, not restricted like Finance;
+(3) no ownership-split and no per-parent visibility check beyond
+existence-in-org validation, departing deliberately from ADR-0008's
+"authorized like its parent" attachment rule since Documents has a looser
+shape (optional parent, or none at all) and RBAC.md already gives MEMBER
+blanket org-wide visibility on projects/clients/meetings anyway; (4) a
+reference may have zero, one, or more than one parent set simultaneously
+(no CHECK constraint forcing exactly one); (5) hard delete + audit event,
+no `archived_at` (not one of ADR-0011's four named entities);
+(6) `updated_at` added despite the one-line spec not naming it, since
+title/url/kind are editable; (7) one E2E flow added beyond MASTER_PROMPT
+§37's fixed eight, same precedent Phase 4's `meetings.spec.ts` already
+set; (8) the Phase-0-era "hosting target" open decision doesn't block this
+phase, since decision 1 rules out any real OAuth redirect URI/webhook
+endpoint.
+
+- [x] Stage 1 — `document_references` schema. `platform/models.py`:
+      `DocumentReference` (`OrgScoped`) and `DocumentKind` (3-value StrEnum
+      — decision 1). Columns per DATABASE.md's one-line spec plus decision
+      6: `title`, `url`, `kind` (native enum), `project_id`/`client_id`/
+      `meeting_id` (all nullable, composite FK to `(organization_id, id)`
+      on `projects`/`clients`/`meetings`, `ON DELETE RESTRICT` — those
+      parents are soft-deleted only, per the same reasoning `meetings.
+      project_id`/`.client_id` already use), `added_by` (composite FK to
+      `memberships`, matching DATABASE.md's own literal column name — not
+      `created_by`), `created_at`/`updated_at`. No `archived_at`
+      (decision 5); no unique constraint of its own — nothing composite-
+      FKs to a `document_references` row.
+
+      `migrations/versions/0008_document_references.py`, hand-written raw
+      SQL matching every prior migration's exact style, including the
+      `trg_document_references_updated_at` trigger reusing the
+      `set_updated_at()` function `0001_initial.py` already defines.
+
+      Fleshed out DATABASE.md's one-line `document_references` entry to
+      the same level of detail every other table gets; added two new
+      RBAC.md §2 rows ("Documents: view" MEMBER+, "Documents: create/
+      edit/delete" MANAGER+); added `DOCUMENT_READ`/`DOCUMENT_WRITE` to
+      `core/authz/permissions.py` under a new `# Documents — Phase 6`
+      block, `_MEMBER` gets `DOCUMENT_READ`, `_MANAGER` gets
+      `DOCUMENT_WRITE`. Confirmed directly (not assumed) that
+      `tests/security/test_schema_integrity.py` and `migrations/env.py`
+      already import `platform.models` for its metadata side effect — no
+      new wiring needed there, just a documented confirmation.
+      `tests/factories.py`: `make_document_reference`.
+
+      Verified directly against a real local Postgres: `alembic upgrade
+      head`/`downgrade -1`/`upgrade head` clean; `alembic check` reports
+      "No new upgrade operations detected". Proved the schema-integrity
+      test actually catches a real violation, not just passes vacuously —
+      temporarily replaced the composite `client_id` FK with a broken
+      single-column FK via `psql` (as the migrator role), confirmed
+      `test_every_fk_between_org_scoped_tables_is_composite` fails with
+      the exact violation message, then reverted cleanly via `alembic
+      downgrade -1 && alembic upgrade head` and confirmed the suite is
+      green again. `test_permission_hierarchy.py` passes with the two new
+      permissions correctly nested `MEMBER ⊂ MANAGER`. Full backend suite
+      (1161 tests, unchanged — schema-only stage, no new test functions
+      yet), ruff, mypy all clean.
+- [ ] Stage 2 — CRUD service + routes
+- [ ] Stage 3 — Activity feed wiring
+- [ ] Stage 4 — Frontend
+- [ ] Stage 5 — Security matrices audit
+- [ ] Stage 6 — Seed script + E2E, final stage
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 
