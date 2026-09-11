@@ -3691,7 +3691,29 @@ endpoint.
       `target="_blank"` external link, then deleted it and confirmed zero
       rows remain in the database. `.env`/`apps/web/.env.local` reverted,
       scratch script deleted, both dev servers stopped.
-- [ ] Stage 5 — Security matrices audit
+- [x] Stage 5 — Security matrices audit. No new code — the dedicated
+      confirmation pass the plan itself calls for (mirroring Phase 5
+      Stage 11), since authz/isolation rows were already wired inline
+      during Stage 2.
+
+      Confirmed by direct introspection of the live FastAPI app
+      (`iter_api_routes`, the same helper `startup_audit.py`'s own boot-
+      time check and the matrix test's meta-assertion both use), not just
+      by the meta-assertion passing: exactly 5 documents routes exist
+      (`POST /documents`, `GET /documents`, `GET/PATCH/DELETE /documents/
+      {id}`), and all 5 have an authz-matrix row. Confirmed via direct
+      grep that zero of them are in `_OWNERSHIP_SPLIT_ROUTES`, matching
+      decision 3 (no ownership-split anywhere in this module). 3 of the 5
+      also have an isolation-matrix row — `GET/PATCH/DELETE /documents/
+      {id}`, the only routes with an existing resource id to attempt
+      cross-org access against. `POST /documents` (create) and `GET
+      /documents` (bare list) are correctly excluded, same reasoning
+      Finance's own create/list routes were excluded: a create has no
+      existing target, and a list's own org-scoping is enforced by the
+      query filter itself, not a per-id lookup. 3 + 2 = 5, no gaps.
+
+      Full backend suite (1213 tests, unchanged — no new tests needed,
+      only re-verified), ruff, and mypy all clean.
 - [ ] Stage 6 — Seed script + E2E, final stage
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
