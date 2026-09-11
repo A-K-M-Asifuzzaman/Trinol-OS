@@ -3623,7 +3623,13 @@ endpoint.
       write × 3 roles × 2 methods) — all pass on the first run. Full
       backend suite (1213 tests, up from 1161), ruff, mypy, `make openapi`
       all clean.
-- [ ] Stage 3 — Activity feed wiring
+- [x] Stage 3 — Activity feed wiring (verification pass only — see Stage 2
+      above for why no new wiring belongs here). Extended
+      `test_activity_writer.py` with 3 tests: create writes a feed event,
+      update writes no event (matching income/expense's real behavior,
+      not the plan's original finer-grained no-op-guard idea), delete
+      writes an audit event with the feed unchanged. All pass; full suite
+      green.
 - [ ] Stage 4 — Frontend
 - [ ] Stage 5 — Security matrices audit
 - [ ] Stage 6 — Seed script + E2E, final stage

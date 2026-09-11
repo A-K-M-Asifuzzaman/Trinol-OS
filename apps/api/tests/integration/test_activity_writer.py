@@ -77,8 +77,13 @@ from trinol.modules.work.services.project_service import create_project, update_
 from trinol.modules.work.services.task_comment_service import create_comment
 from trinol.modules.work.services.task_service import create_task, update_task
 from trinol.platform.activity import list_audit, list_feed, record
+from trinol.platform.documents import (
+    create_document_reference,
+    delete_document_reference,
+    update_document_reference,
+)
 from trinol.platform.file_storage.local import LocalFileStorage
-from trinol.platform.models import ActivityEvent
+from trinol.platform.models import ActivityEvent, DocumentKind
 
 # ADR-0006: one append-only table serving both the activity feed
 # (is_audit=false, none exist yet — Phase 1 has no work/CRM content) and the
@@ -1254,3 +1259,105 @@ async def test_record_payment_writes_a_feed_event(db_session) -> None:
     assert rows[0].entity_id == payment.id
     assert rows[0].is_audit is False
     assert await list_audit(db_session, organization_id=org.id) == []
+
+
+# Phase 6 Stage 3: document_reference.created/.deleted were wired inline in
+# Stage 2 (same "wire it as you build it" precedent Phase 5 Stage 9 already
+# established for finance) — this is the verification pass, not new wiring.
+# No `document_reference.updated` event is written at all, matching
+# income/expense's own no-event-on-update precedent exactly (confirmed by
+# re-reading income_service.py/expense_service.py directly before writing
+# platform/documents.py's own update_document_reference).
+
+
+async def test_create_document_reference_writes_a_feed_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="document-owner@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MANAGER)
+    await db_session.commit()
+
+    document_reference = await create_document_reference(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        title="Feed document",
+        url="https://example.test",
+        kind=DocumentKind.OTHER,
+        project_id=None,
+        client_id=None,
+        meeting_id=None,
+    )
+
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["document_reference.created"]
+    assert rows[0].entity_type == "document_reference"
+    assert rows[0].entity_id == document_reference.id
+    assert rows[0].is_audit is False
+    assert await list_audit(db_session, organization_id=org.id) == []
+
+
+async def test_document_reference_update_writes_no_event(db_session) -> None:
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="document-noop@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MANAGER)
+    await db_session.commit()
+    document_reference = await create_document_reference(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        title="Original",
+        url="https://example.test",
+        kind=DocumentKind.OTHER,
+        project_id=None,
+        client_id=None,
+        meeting_id=None,
+    )
+
+    await update_document_reference(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        document_reference_id=document_reference.id,
+        updates={"title": "Renamed"},
+    )
+
+    # The create above already wrote one feed row — assert the update added
+    # no *additional* row rather than asserting an empty feed outright.
+    rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in rows] == ["document_reference.created"]
+
+
+async def test_delete_document_reference_writes_an_audit_event_not_feed(db_session) -> None:
+    """ADR-0011: document references are not one of the four soft-deleted
+    entities — a hard delete, the audit event is the only remaining
+    record."""
+    org = await make_organization(db_session)
+    user = await make_user(db_session, email="document-deleter@x.com")
+    actor = await make_membership(db_session, organization=org, user=user, role=Role.MANAGER)
+    await db_session.commit()
+    document_reference = await create_document_reference(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        title="To delete",
+        url="https://example.test",
+        kind=DocumentKind.OTHER,
+        project_id=None,
+        client_id=None,
+        meeting_id=None,
+    )
+    document_reference_id = document_reference.id
+
+    await delete_document_reference(
+        db_session,
+        organization_id=org.id,
+        actor=actor,
+        document_reference_id=document_reference_id,
+    )
+
+    audit_rows = await list_audit(db_session, organization_id=org.id)
+    by_event = {row.event: row for row in audit_rows}
+    assert set(by_event) == {"document_reference.deleted"}
+    assert by_event["document_reference.deleted"].entity_id == document_reference_id
+    feed_rows = await list_feed(db_session, organization_id=org.id)
+    assert [row.event for row in feed_rows] == ["document_reference.created"]
