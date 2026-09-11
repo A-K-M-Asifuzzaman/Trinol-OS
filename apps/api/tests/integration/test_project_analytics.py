@@ -151,6 +151,71 @@ async def test_per_project_breakdown_includes_a_project_with_zero_tasks(
     assert rows[str(project.id)]["overdue_tasks_count"] == 0
 
 
+async def test_member_cannot_see_a_same_org_project_they_are_not_a_member_of(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    """Codex Stage 1 P1: cross-org isolation alone doesn't catch this —
+    RBAC.md §3's "Project detail" rule (MANAGER+ or project_members
+    membership) applies within the SAME org too, same as list_projects."""
+    actor = await login_as(client, fake_verifier, db_session, role=Role.MEMBER)
+    own_project = await make_project(
+        db_session,
+        organization=actor.organization,
+        owner=actor.membership,
+        status=ProjectStatus.ACTIVE,
+    )
+    other_user = await make_user(db_session, email=f"other-{actor.organization.id}@x.com")
+    other_membership = await make_membership(
+        db_session, organization=actor.organization, user=other_user, role=Role.MEMBER
+    )
+    unrelated_project = await make_project(
+        db_session,
+        organization=actor.organization,
+        owner=other_membership,
+        name="Unrelated Project",
+        status=ProjectStatus.ACTIVE,
+    )
+    await make_task(
+        db_session,
+        organization=actor.organization,
+        created_by=other_membership,
+        project=unrelated_project,
+    )
+    await db_session.commit()
+
+    response = await client.get("/api/v1/projects/analytics")
+    assert response.status_code == 200
+    body = response.json()
+    # Only the actor's own project counts/appears — the unrelated one
+    # (same org, different project, actor not a member) is invisible.
+    assert body["active_projects_count"] == 1
+    project_ids = {row["project_id"] for row in body["projects"]}
+    assert str(own_project.id) in project_ids
+    assert str(unrelated_project.id) not in project_ids
+
+
+async def test_manager_sees_every_project_in_the_org(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.MANAGER)
+    other_user = await make_user(db_session, email=f"other-{actor.organization.id}@x.com")
+    other_membership = await make_membership(
+        db_session, organization=actor.organization, user=other_user, role=Role.MEMBER
+    )
+    project = await make_project(
+        db_session,
+        organization=actor.organization,
+        owner=other_membership,
+        name="Someone Else's Project",
+    )
+    await db_session.commit()
+
+    response = await client.get("/api/v1/projects/analytics")
+    assert response.status_code == 200
+    project_ids = {row["project_id"] for row in response.json()["projects"]}
+    assert str(project.id) in project_ids
+
+
 async def test_analytics_is_org_scoped(client: AsyncClient, fake_verifier, db_session) -> None:
     other_org = await make_organization(db_session)
     other_owner = await make_user(db_session, email=f"owner-{other_org.id}@x.com")

@@ -3835,11 +3835,15 @@ with zero tasks still appears), not a per-project loop; (8)
       one `LEFT JOIN`+`GROUP BY project_id` query for the per-project
       breakdown (decision 7) so a project with zero tasks still appears
       with `task_completion_rate=None`/`overdue_tasks_count=0`. Gated
-      `PROJECT_READ` only, no ownership check. New route `GET /projects/
-      analytics`, registered before `/{project_id}` (confirmed directly
-      that `list_projects_route`/`get_project_route`'s own static-then-
-      dynamic ordering is exactly where to insert it, same precedent
-      `leads/routes.py`'s own `/stats` route already established).
+      `PROJECT_READ` at the route, plus `project_service.py`'s own
+      established "Project detail" visibility rule (MANAGER+ or
+      `project_members` membership) applied to every Project-identifying
+      piece of the response — see the Codex P1 fix below. New route
+      `GET /projects/analytics`, registered before `/{project_id}`
+      (confirmed directly that `list_projects_route`/`get_project_route`'s
+      own static-then-dynamic ordering is exactly where to insert it, same
+      precedent `leads/routes.py`'s own `/stats` route already
+      established).
 
       `crm/services/lead_service.py`: extended `LeadStats`/`get_lead_
       stats` with `conversion_rate` (decision 4) — one `func.count()
@@ -3859,6 +3863,31 @@ with zero tasks still appears), not a per-project loop; (8)
       gap: the authz-matrix meta-assertion correctly flags the new route
       as missing its own row — Stage 2's own job, not deferred
       accidentally.
+
+      **Codex P1 (Stage 1 review)**: the first version gated the whole
+      response on `PROJECT_READ` alone, wrongly reusing Finance/CRM's own
+      "no ownership-split" precedent for a resource (`Project`) that
+      actually has one — `project_service.py`'s `ensure_project_visible`/
+      `list_projects` already restrict which *projects* a MEMBER can see
+      (MANAGER+ or `project_members` membership), and `list_projects`
+      filters its own `total` count by that rule too, not just its rows.
+      A MEMBER could see every non-archived project's id/name/status/
+      completion-rate/overdue-count regardless of membership — same-org
+      isolation, not just cross-org. Accepted and fixed: the
+      Project-identifying pieces (`active_projects_count`, the
+      per-project breakdown rows) now apply the identical
+      `project_members`-membership filter `list_projects` already uses;
+      the two task-only aggregates (`task_completion_rate`,
+      `overdue_tasks_count`) stay genuinely org-wide, since `list_tasks`
+      is separately, deliberately documented as org-wide transparency
+      with no per-resource restriction — confirmed by direct read of its
+      own docstring before deciding not to filter those two. Added the
+      exact regression test Codex asked for (a same-org project the actor
+      is not a member of must be invisible and excluded from the active
+      count) plus a MANAGER-sees-everything counterpart. 8 project-
+      analytics tests now (up from 6), full suite (1223 tests), ruff,
+      mypy, `make openapi` (no schema change — internal query logic only)
+      all clean.
 - [ ] Stage 2 — Security matrices
 - [ ] Stage 3 — Frontend
 - [ ] Stage 4 — Final verification, no seed/E2E changes
