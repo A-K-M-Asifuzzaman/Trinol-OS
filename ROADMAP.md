@@ -3776,10 +3776,92 @@ Codex audit found no P0/P1 findings, closing Phase 6, mirroring how
 Phases 2-5 each closed.
 
 ## Phase 7 — Analytics
-- [ ] Company analytics
-- [ ] Project analytics
-- [ ] Sales analytics
-- [ ] Finance analytics
+
+Status: **In progress.** Planned via a dedicated plan-mode session
+(mirroring how Phases 3-6 each started); plan file:
+`reactive-dreaming-lantern.md`.
+
+Unlike Phase 6, this phase's actual new-code surface turned out to be
+small once the real data sources were traced: MASTER_PROMPT §31's seven
+V1 metrics (`project completion`, `task completion`, `overdue tasks`,
+`pipeline value`, `lead conversion`, `revenue`, `expenses`) split cleanly
+across the four ROADMAP bullets (`company`/`project`/`sales`/`finance`
+from §39), and two of those four buckets already had a real backend
+aggregate — `crm.services.lead_service.get_lead_stats` already answers
+"pipeline value", `finance.services.dashboard_service.get_finance_stats`
+already fully answers "revenue"/"expenses". Tracing the mapping shows
+**Company analytics has no metric of its own** — it's a frontend-only
+overview combining one headline figure from each of the other three, the
+same `Promise.all`-of-independent-fetches shape `/dashboard` already
+uses, with no new backend route. The one genuinely new aggregate is
+"project completion"/"task completion"/"overdue tasks" — confirmed by
+direct read that `Project.progress` is a documented-but-never-implemented
+intention (`ADR-0012`, `TESTING.md` §2) — and it needs only `work` module
+data (`Project`, `Task`), so it lives in a new `work/services/analytics_
+service.py`, not a new cross-cutting module (deliberately avoiding the
+exact class of mistake Phase 6 Stage 2 made). "Lead conversion" needed
+only one new field on the *existing* `LeadStats`/`get_lead_stats`
+(`Lead.stage`'s `WON`/`LOST` already distinguish terminal outcomes — no
+`lead_stage_events` query needed for this flat V1 figure). No new
+`Permission`, no new module, no new table, no new RBAC.md row — every
+route reuses an existing, correctly-tiered permission (`PROJECT_READ`/
+`LEAD_READ`/`FINANCE_READ`).
+
+**User-confirmed scope decision**: the Reports page renders plain
+numbers/small tables, the same convention every existing tile already
+uses (confirmed directly that Finance's own "revenue trend"/"expense
+breakdown" render as plain text rows, not a chart) — no charting library
+is introduced. MASTER_PROMPT never names a visualization type.
+
+Fresh decisions this plan makes explicitly (see the plan file for full
+reasoning on each): (1) bucket mapping as above, Company has no metric of
+its own; (2) task completion rate = `count(DONE) / count(status !=
+CANCELLED)`, `None` on a zero denominator; (3) overdue tasks = the exact
+same predicate shape `Invoice.is_overdue` already uses (open status AND
+`due_date < today`); (4) lead conversion rate = `count(WON) / count(WON ∪
+LOST)`, all-time, directly from `Lead.stage`, deliberately not filtered
+by `archived_at` (a WON/LOST lead's place in this historical ratio
+shouldn't shrink just because it was archived later); (5) no new E2E flow
+this phase — Reports is a read-only view with no mutation to exercise;
+(6) no new permission/module/table; (7) the per-project breakdown is one
+`GROUP BY project_id` pass (a `LEFT JOIN` from `Project` so a project
+with zero tasks still appears), not a per-project loop; (8)
+`active_projects_count` = `count(status = ACTIVE)` literally.
+
+- [x] Stage 1 — Backend aggregates. `work/services/analytics_service.py`
+      (new file, `work` module): `ProjectAnalytics`/`ProjectAnalyticsRow`
+      dataclasses, `get_project_analytics` — one org-wide query for task
+      completion + overdue count, one `count(status=ACTIVE)` query, and
+      one `LEFT JOIN`+`GROUP BY project_id` query for the per-project
+      breakdown (decision 7) so a project with zero tasks still appears
+      with `task_completion_rate=None`/`overdue_tasks_count=0`. Gated
+      `PROJECT_READ` only, no ownership check. New route `GET /projects/
+      analytics`, registered before `/{project_id}` (confirmed directly
+      that `list_projects_route`/`get_project_route`'s own static-then-
+      dynamic ordering is exactly where to insert it, same precedent
+      `leads/routes.py`'s own `/stats` route already established).
+
+      `crm/services/lead_service.py`: extended `LeadStats`/`get_lead_
+      stats` with `conversion_rate` (decision 4) — one `func.count()
+      .filter(...)` pair query, `None` when no lead has reached WON/LOST
+      yet. `crm/schemas.py`'s `LeadStatsResponse` extended to match; no
+      route change, same `GET /leads/stats` endpoint. `tests/factories.py`'s
+      `make_task` gained a `due_date` parameter (didn't exist before —
+      needed to construct an overdue-task test case).
+
+      6 new integration tests for `get_project_analytics` (active-count,
+      completion-rate math with the zero-denominator `None` case, overdue
+      predicate with all four exclusion branches, zero-task project
+      breakdown, org isolation) and 2 new tests for the extended `get_
+      lead_stats` (conversion-rate math, no-decided-leads `None` case) —
+      all pass on the first run. Full backend suite (1221 tests, up from
+      1213), ruff, mypy, `make openapi` clean. The one expected, isolated
+      gap: the authz-matrix meta-assertion correctly flags the new route
+      as missing its own row — Stage 2's own job, not deferred
+      accidentally.
+- [ ] Stage 2 — Security matrices
+- [ ] Stage 3 — Frontend
+- [ ] Stage 4 — Final verification, no seed/E2E changes
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 

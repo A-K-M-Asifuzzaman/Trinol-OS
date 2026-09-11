@@ -124,7 +124,9 @@ async def get_lead_stats_route(
     # or FastAPI would try to parse "stats" as a lead_id UUID path param.
     stats = await get_lead_stats(db, organization_id=membership.organization_id, actor=membership)
     return LeadStatsResponse(
-        pipeline_value=stats.pipeline_value, follow_ups_due=stats.follow_ups_due
+        pipeline_value=stats.pipeline_value,
+        follow_ups_due=stats.follow_ups_due,
+        conversion_rate=stats.conversion_rate,
     )
 
 

@@ -32,6 +32,7 @@ class LeadList:
 class LeadStats:
     pipeline_value: Decimal | None
     follow_ups_due: int
+    conversion_rate: float | None
 
 
 def _violates_constraint(exc: IntegrityError, name: str) -> bool:
@@ -230,7 +231,29 @@ async def get_lead_stats(
         )
     )
     follow_ups_due = follow_ups_result.scalar_one()
-    return LeadStats(pipeline_value=pipeline_value, follow_ups_due=follow_ups_due)
+
+    # Phase 7 plan decision 4: a flat, all-time conversion rate computed
+    # directly from Lead.stage — no lead_stage_events query (that table
+    # stays available for the deferred "conversion by source" work, not
+    # needed for this flat figure). Deliberately does NOT filter
+    # archived_at like pipeline_value/follow_ups_due above: those are
+    # "current open work" tiles, but a WON/LOST lead's place in this
+    # historical ratio shouldn't shrink just because someone archived it
+    # later.
+    conversion_result = await db.execute(
+        select(
+            func.count().filter(Lead.stage == LeadStage.WON),
+            func.count().filter(Lead.stage.in_([LeadStage.WON, LeadStage.LOST])),
+        ).where(Lead.organization_id == organization_id)
+    )
+    won_count, decided_count = conversion_result.one()
+    conversion_rate = (won_count / decided_count) if decided_count else None
+
+    return LeadStats(
+        pipeline_value=pipeline_value,
+        follow_ups_due=follow_ups_due,
+        conversion_rate=conversion_rate,
+    )
 
 
 async def get_lead(

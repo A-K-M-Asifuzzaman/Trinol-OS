@@ -255,6 +255,7 @@ class LeadStatsResponse(BaseModel):
 
     pipeline_value: Decimal | None
     follow_ups_due: int
+    conversion_rate: float | None
 
 
 class PipelineColumn(BaseModel):

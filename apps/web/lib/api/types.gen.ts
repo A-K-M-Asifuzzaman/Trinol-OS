@@ -134,6 +134,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Analytics Route */
+        get: operations["get_project_analytics_route_api_v1_projects_analytics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -1911,6 +1928,8 @@ export interface components {
             pipeline_value: string | null;
             /** Follow Ups Due */
             follow_ups_due: number;
+            /** Conversion Rate */
+            conversion_rate: number | null;
         };
         /**
          * LeadUpdateRequest
@@ -2371,6 +2390,36 @@ export interface components {
             stage: components["schemas"]["LeadStage"];
             /** Leads */
             leads: components["schemas"]["LeadResponse"][];
+        };
+        /**
+         * ProjectAnalyticsResponse
+         * @description Phase 7's "project completion"/"task completion"/"overdue tasks" —
+         *     org-wide headline figures plus a per-project breakdown.
+         */
+        ProjectAnalyticsResponse: {
+            /** Active Projects Count */
+            active_projects_count: number;
+            /** Task Completion Rate */
+            task_completion_rate: number | null;
+            /** Overdue Tasks Count */
+            overdue_tasks_count: number;
+            /** Projects */
+            projects: components["schemas"]["ProjectAnalyticsRowResponse"][];
+        };
+        /** ProjectAnalyticsRowResponse */
+        ProjectAnalyticsRowResponse: {
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Name */
+            name: string;
+            status: components["schemas"]["ProjectStatus"];
+            /** Task Completion Rate */
+            task_completion_rate: number | null;
+            /** Overdue Tasks Count */
+            overdue_tasks_count: number;
         };
         /**
          * ProjectBoardResponse
@@ -3283,6 +3332,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_analytics_route_api_v1_projects_analytics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectAnalyticsResponse"];
                 };
             };
         };

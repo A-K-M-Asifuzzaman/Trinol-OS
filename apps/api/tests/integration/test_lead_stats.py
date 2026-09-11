@@ -96,6 +96,45 @@ async def test_follow_ups_due_counts_today_and_earlier_not_future(
     assert response.json()["follow_ups_due"] == 2
 
 
+async def test_conversion_rate_computed_from_won_and_lost_leads(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    """Phase 7 plan decision 4: won / (won + lost), all-time, ignoring
+    still-open leads entirely."""
+    actor = await login_as(client, fake_verifier, db_session, role=Role.MANAGER)
+    await make_lead(
+        db_session, organization=actor.organization, email="won1@x.com", stage=LeadStage.WON
+    )
+    await make_lead(
+        db_session, organization=actor.organization, email="won2@x.com", stage=LeadStage.WON
+    )
+    await make_lead(
+        db_session, organization=actor.organization, email="lost1@x.com", stage=LeadStage.LOST
+    )
+    await make_lead(
+        db_session, organization=actor.organization, email="open1@x.com", stage=LeadStage.NEW
+    )
+    await db_session.commit()
+
+    response = await client.get("/api/v1/leads/stats")
+    assert response.status_code == 200
+    assert response.json()["conversion_rate"] == pytest.approx(2 / 3)
+
+
+async def test_conversion_rate_is_null_with_no_decided_leads(
+    client: AsyncClient, fake_verifier, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.MANAGER)
+    await make_lead(
+        db_session, organization=actor.organization, email="open1@x.com", stage=LeadStage.NEW
+    )
+    await db_session.commit()
+
+    response = await client.get("/api/v1/leads/stats")
+    assert response.status_code == 200
+    assert response.json()["conversion_rate"] is None
+
+
 async def test_stats_is_org_scoped(client: AsyncClient, fake_verifier, db_session) -> None:
     other_org = await make_organization(db_session)
     other_owner = await make_user(db_session, email=f"owner-{other_org.id}@x.com")
@@ -118,3 +157,4 @@ async def test_stats_is_org_scoped(client: AsyncClient, fake_verifier, db_sessio
     body = response.json()
     assert body["pipeline_value"] is None
     assert body["follow_ups_due"] == 0
+    assert body["conversion_rate"] is None

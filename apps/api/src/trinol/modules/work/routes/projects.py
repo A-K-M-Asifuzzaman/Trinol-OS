@@ -17,6 +17,8 @@ from trinol.modules.work.schemas import (
     MilestoneCreateRequest,
     MilestoneListResponse,
     MilestoneResponse,
+    ProjectAnalyticsResponse,
+    ProjectAnalyticsRowResponse,
     ProjectBoardResponse,
     ProjectCreateRequest,
     ProjectListResponse,
@@ -27,6 +29,7 @@ from trinol.modules.work.schemas import (
     ProjectResponse,
     ProjectUpdateRequest,
 )
+from trinol.modules.work.services.analytics_service import get_project_analytics
 from trinol.modules.work.services.board_service import get_project_board
 from trinol.modules.work.services.milestone_service import create_milestone, list_milestones
 from trinol.modules.work.services.project_member_service import (
@@ -125,6 +128,38 @@ async def list_projects_route(
     )
     return ProjectListResponse(
         items=[project_to_response(p) for p in result.items], total=result.total
+    )
+
+
+@router.get(
+    "/analytics",
+    response_model=ProjectAnalyticsResponse,
+    dependencies=[Depends(require(Permission.PROJECT_READ))],
+)
+async def get_project_analytics_route(
+    membership: Membership = Depends(get_current_membership),
+    db: AsyncSession = Depends(get_db_session),
+) -> ProjectAnalyticsResponse:
+    # Registered before /{project_id} — a static path must be matched
+    # first, the same ordering leads/routes.py's own /stats route already
+    # establishes.
+    analytics = await get_project_analytics(
+        db, organization_id=membership.organization_id, actor=membership
+    )
+    return ProjectAnalyticsResponse(
+        active_projects_count=analytics.active_projects_count,
+        task_completion_rate=analytics.task_completion_rate,
+        overdue_tasks_count=analytics.overdue_tasks_count,
+        projects=[
+            ProjectAnalyticsRowResponse(
+                project_id=row.project_id,
+                name=row.name,
+                status=row.status,
+                task_completion_rate=row.task_completion_rate,
+                overdue_tasks_count=row.overdue_tasks_count,
+            )
+            for row in analytics.projects
+        ],
     )
 
 

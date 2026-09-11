@@ -198,6 +198,24 @@ class ProjectListResponse(BaseModel):
     total: int
 
 
+class ProjectAnalyticsRowResponse(BaseModel):
+    project_id: uuid.UUID
+    name: str
+    status: ProjectStatus
+    task_completion_rate: float | None
+    overdue_tasks_count: int
+
+
+class ProjectAnalyticsResponse(BaseModel):
+    """Phase 7's "project completion"/"task completion"/"overdue tasks" —
+    org-wide headline figures plus a per-project breakdown."""
+
+    active_projects_count: int
+    task_completion_rate: float | None
+    overdue_tasks_count: int
+    projects: list[ProjectAnalyticsRowResponse]
+
+
 class LeadConversionResponse(BaseModel):
     """work may import crm (ARCHITECTURE.md §3), so the cross-module
     conversion response lives here rather than in crm/schemas.py."""
