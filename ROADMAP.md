@@ -3906,7 +3906,67 @@ with zero tasks still appears), not a per-project loop; (8)
       Full backend suite (1228 tests, up from 1223), ruff, mypy clean;
       `test_matrix_covers_every_permission_gated_route`'s meta-assertion
       now passes with the new route represented.
-- [ ] Stage 3 — Frontend
+- [x] Stage 3 — Frontend. New route `/reports`: client-rendered (not
+      server-rendered like `/dashboard`) — the Project section's four
+      list states need to be MSW-testable, the same reasoning
+      `team/page.tsx`'s own departure from ARCHITECTURE.md §5's default
+      already established. Three independent `useQuery` calls
+      (`fetchProjectAnalytics`/`fetchLeadStats`/`fetchFinanceStats`, no
+      new endpoint needed beyond Stage 1's). **Company** (headline
+      numbers combining one figure from each of the other three, no
+      metric of its own — decision 1); **Project** (org-wide headline
+      numbers + the per-project breakdown table, the one section with
+      real loading/error/empty/populated states); **Sales** (pipeline
+      value, conversion rate, follow-ups due); **Finance** (reuses
+      `finance/page.tsx`'s own plain-text-row rendering for `revenue_
+      trend`/`expense_breakdown` verbatim — no charting library, per the
+      confirmed scope decision). Finance section rendered only when its
+      own query has data — omitted, not shown as "—", for MEMBER/MANAGER.
+      `sidebar.tsx`'s existing disabled "Reports" placeholder flipped to
+      a real `href`, no `restrictedToAdminPlus` flag.
+
+      5 new component tests (`tests/reports.test.tsx`): loading, full
+      OWNER-view populated state (all four sections, percentages
+      correctly formatted), MEMBER/MANAGER view (Finance section
+      correctly absent), empty-projects state, error state. Plus
+      `sidebar.test.tsx` implicitly covered by the existing suite (no new
+      case needed — Reports isn't role-restricted, so no analogous "hides
+      for MEMBER" test the way Finance's own sidebar test needed).
+      `pnpm typecheck`/`lint`/`prettier`/`test`/`build` all green (94
+      frontend tests, up from 89).
+
+      **Caught by the manual walkthrough, not by any automated test**: the
+      first version gated the whole page's loading/error state on *all
+      three* queries (`isLoading = projectAnalytics.isLoading ||
+      leadStats.isLoading || financeStats.isLoading`). react-query's
+      default retry behavior (3 retries, exponential backoff — this app's
+      `QueryProvider` sets no custom retry policy) means an *expected*
+      403 from `financeStats` for a MEMBER/MANAGER kept retrying for
+      several seconds, and the combined gate kept the *entire* page stuck
+      on the loading skeleton that whole time — Company/Project/Sales
+      never appeared even though their own queries had already succeeded.
+      MSW-backed component tests never caught this because MSW responds
+      immediately and the test `QueryClient` sets `retry: false`; only a
+      real browser against a real backend reproduced the delay. Fixed by
+      gating the page's loading/error state on `projectAnalytics` alone
+      (the one section everyone with `PROJECT_READ` is guaranteed);
+      `leadStats`/`financeStats`-derived tiles already degrade
+      gracefully (`?? "—"`, or omitted entirely for Finance) regardless of
+      whether they're still pending or have errored, so decoupling the
+      gate cost nothing.
+
+      Manual `make dev` walkthrough (real Chromium, the project's own
+      bundled browser via a throwaway script — same as Phase 6's own
+      approach) as both MEMBER (`developer@trinolit.com`) and OWNER
+      (`founder@trinolit.com`): confirmed Company/Project/Sales render
+      for both, Finance renders only for OWNER. Independently verified
+      two figures against a `psql` hand-count scoped to the correct
+      organization (a first attempt without the org scope gave a
+      misleading mismatch, caught and corrected before trusting the
+      result): task completion `3/11 = 27%` and lead conversion
+      `2/3 = 67%` both matched the rendered page exactly. `.env`/`apps/
+      web/.env.local` reverted, scratch scripts deleted, both dev servers
+      stopped.
 - [ ] Stage 4 — Final verification, no seed/E2E changes
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings

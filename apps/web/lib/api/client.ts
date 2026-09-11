@@ -145,6 +145,10 @@ export type ProjectUpdateRequest =
   components["schemas"]["ProjectUpdateRequest"];
 export type ProjectBoard = components["schemas"]["ProjectBoardResponse"];
 export type BoardColumn = components["schemas"]["BoardColumn"];
+export type ProjectAnalytics =
+  components["schemas"]["ProjectAnalyticsResponse"];
+export type ProjectAnalyticsRow =
+  components["schemas"]["ProjectAnalyticsRowResponse"];
 export type Task = components["schemas"]["TaskResponse"];
 export type TaskList = components["schemas"]["TaskListResponse"];
 export type TaskCreateRequest = components["schemas"]["TaskCreateRequest"];
@@ -169,6 +173,12 @@ export async function fetchProject(
   cookie?: string,
 ): Promise<Project> {
   return apiFetch<Project>(`/api/v1/projects/${projectId}`, { cookie });
+}
+
+export async function fetchProjectAnalytics(
+  cookie?: string,
+): Promise<ProjectAnalytics> {
+  return apiFetch<ProjectAnalytics>("/api/v1/projects/analytics", { cookie });
 }
 
 export async function createProject(
