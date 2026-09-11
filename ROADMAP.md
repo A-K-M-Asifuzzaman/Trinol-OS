@@ -3483,9 +3483,10 @@ Phase 5, mirroring how Phase 2, Phase 3, and Phase 4 each closed.
 
 ## Phase 6 — Documents + Integrations
 
-Status: **In progress.** Planned via a dedicated plan-mode session
-(mirroring how Phases 3-5 each started); plan file:
-`reactive-dreaming-lantern.md`.
+Status: **APPROVED by Codex.** All 6 stages complete and independently
+reviewed; the final Phase 6 audit found no P0/P1 findings. Planned via a
+dedicated plan-mode session (mirroring how Phases 3-5 each started); plan
+file: `reactive-dreaming-lantern.md`.
 
 Unlike Phases 3-5, this phase is not "apply the established pattern to a
 well-specified module" — DATABASE.md §3 has exactly one line for this
@@ -3756,8 +3757,23 @@ endpoint.
       Full `make check` green end to end (1213 backend tests, ruff, mypy,
       eslint, prettier, tsc, 89 vitest tests, `next build`, openapi diff
       clean — no schema/route change this stage).
-- [ ] Codex audit
-- [ ] Resolve P0/P1 findings
+- [x] Codex audit — final phase-level audit found no P0/P1 findings: all
+      6 stages consistent and complete — architecture boundaries
+      corrected (the Stage 2 P1 fix), schema/migration and FK integrity
+      intact, CRUD permissions and org isolation covered, activity-feed
+      semantics verified, frontend/E2E behavior meaningful, and seed/
+      idempotency cleanup FK-safe.
+- [x] Resolve P0/P1 findings — the one P0/P1 finding raised across all 6
+      stages (Stage 2's `platform → work/crm/meetings` architecture
+      violation) was resolved and re-verified before the final audit;
+      none remain open.
+
+Phase 6 is complete across all 6 planned stages — schema (in its own
+`documents` module, not `platform`, after the Stage 2 correction),
+CRUD service/routes, activity feed wiring, frontend, security matrices,
+and idempotent seed data with an E2E flow all verified. The phase-level
+Codex audit found no P0/P1 findings, closing Phase 6, mirroring how
+Phases 2-5 each closed.
 
 ## Phase 7 — Analytics
 - [ ] Company analytics
