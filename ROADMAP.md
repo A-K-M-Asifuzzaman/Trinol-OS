@@ -3777,8 +3777,8 @@ Phases 2-5 each closed.
 
 ## Phase 7 — Analytics
 
-Status: **In progress.** Planned via a dedicated plan-mode session
-(mirroring how Phases 3-6 each started); plan file:
+Status: **Approved and closed.** Planned via a dedicated plan-mode
+session (mirroring how Phases 3-6 each started); plan file:
 `reactive-dreaming-lantern.md`.
 
 Unlike Phase 6, this phase's actual new-code surface turned out to be
@@ -4027,8 +4027,22 @@ with zero tasks still appears), not a per-project loop; (8)
       Full `make check` green end to end (ruff, mypy, pytest, eslint,
       prettier, tsc, vitest, `next build`, openapi diff clean — no
       schema/route change this stage).
-- [ ] Codex audit
-- [ ] Resolve P0/P1 findings
+- [x] Codex audit — final phase-level audit found no P0/P1 findings: the
+      analytics aggregates, repaired project-visibility filtering, matrix
+      coverage, Reports UI, and seed overdue-task backfill are coherent
+      and complete; the pre-existing seed-task upgrade path is idempotent
+      with user-set dates preserved.
+- [x] Resolve P0/P1 findings — both findings raised across the 4 stages
+      (Stage 1's project-visibility leak, Stage 4's seed backfill gap)
+      were resolved and re-verified before the final audit; none remain
+      open.
+
+Phase 7 is complete across all 4 planned stages — project/task analytics
+(with the repaired ownership-visibility split), extended lead conversion
+stats, unchanged finance stats reused as-is, the read-only Reports page,
+security matrices, and idempotent seed data all verified. The phase-level
+Codex audit found no P0/P1 findings, closing Phase 7, mirroring how
+Phases 2-6 each closed.
 
 ## Phase 8 — AI
 - [ ] Meeting summarization
