@@ -985,6 +985,81 @@ async def test_seed_is_idempotent(_isolated_seed: None) -> None:
             await _cleanup_rows_created_since(db, snapshot)
 
 
+async def test_seed_backfills_due_date_on_a_pre_existing_task_without_duplicating_it(
+    _isolated_seed: None,
+) -> None:
+    """Codex Stage 4 P1: an org seeded before this stage already has the
+    one seed task that now gets a due_date, with due_date still NULL —
+    _ensure_task's own get-or-create returns early on a title match, so
+    it would never apply the backfill on its own. Reproduced directly:
+    seed once (creates the row with the date already set, since this is
+    a fresh org), manually null the date to simulate the pre-Stage-4 row,
+    then seed twice and confirm the date is backfilled without
+    duplicating the task."""
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        snapshot = await _snapshot(db)
+
+    task_entry = next(
+        t for p in seed_module._SEED_PROJECTS for t in p.tasks if t.due_date is not None
+    )
+    project_entry = next(p for p in seed_module._SEED_PROJECTS if task_entry in p.tasks)
+
+    try:
+        await seed_module.seed()
+
+        async with session_factory() as db:
+            organization = (
+                await db.execute(
+                    select(Organization).where(Organization.slug == seed_module._ORG_SLUG)
+                )
+            ).scalar_one()
+            project = (
+                await db.execute(
+                    select(Project).where(
+                        Project.organization_id == organization.id,
+                        Project.project_code == project_entry.project_code,
+                    )
+                )
+            ).scalar_one()
+            task = (
+                await db.execute(
+                    select(Task).where(
+                        Task.organization_id == organization.id,
+                        Task.project_id == project.id,
+                        Task.title == task_entry.title,
+                    )
+                )
+            ).scalar_one()
+            assert task.due_date == task_entry.due_date, "sanity: a fresh seed sets it directly"
+            # Simulates the org having been seeded before this stage
+            # existed — the row is real and pre-existing, just missing
+            # the field this stage added.
+            task.due_date = None
+            await db.commit()
+
+        await seed_module.seed()
+        await seed_module.seed()
+
+        async with session_factory() as db:
+            tasks = (
+                await db.execute(
+                    select(Task).where(
+                        Task.organization_id == organization.id,
+                        Task.project_id == project.id,
+                        Task.title == task_entry.title,
+                    )
+                )
+            ).scalars().all()
+            assert len(tasks) == 1, "re-running must not duplicate the pre-existing task"
+            assert tasks[0].due_date == task_entry.due_date, (
+                "re-running must backfill the due_date onto the pre-existing row"
+            )
+    finally:
+        async with session_factory() as db:
+            await _cleanup_rows_created_since(db, snapshot)
+
+
 async def test_seed_fills_in_missing_users_without_touching_a_pre_existing_org(
     _isolated_seed: None,
 ) -> None:

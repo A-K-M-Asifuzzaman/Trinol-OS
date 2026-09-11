@@ -935,7 +935,16 @@ async def _ensure_task(
             Task.title == entry.title,
         )
     )
-    if result.scalar_one_or_none() is not None:
+    task = result.scalar_one_or_none()
+    if task is not None:
+        # Codex Stage 4 P1: an org seeded before this stage already has
+        # this row with due_date=NULL — get-or-create alone would never
+        # apply the new overdue date to it. Backfill only an unset field,
+        # same reasoning _get_or_create_project's own client_id backfill
+        # already uses — never overwrite a due_date a later run's data
+        # (or a real user edit through the app) might disagree with.
+        if task.due_date is None and entry.due_date is not None:
+            task.due_date = entry.due_date
         return
     db.add(
         Task(

@@ -4001,10 +4001,32 @@ with zero tasks still appears), not a per-project loop; (8)
       genuinely non-zero from the seed data itself.
 
       No new E2E flow (decision 5, explicitly re-confirmed here, not
-      silently skipped) — Reports has no mutation to exercise. Full
-      `make check` green end to end (1228 backend tests, 94 frontend
-      tests, ruff, mypy, eslint, prettier, tsc, `next build`, openapi
-      diff clean — no schema/route change this stage).
+      silently skipped) — Reports has no mutation to exercise.
+
+      **Codex P1 (Stage 4 review)**: the manual verification above
+      deleted the pre-existing task before re-seeding, which masked a
+      real bug — `_ensure_task`'s get-or-create returns immediately on a
+      title match, so an organization already seeded before this stage
+      would keep `due_date = NULL` on that row forever; `make seed`
+      alone would never apply the new overdue date to a real developer's
+      existing database. Fixed by backfilling: `_ensure_task` now sets
+      `due_date` on the existing row only when it's currently unset,
+      mirroring `_get_or_create_project`'s own `client_id` backfill
+      precedent exactly (only ever fills an unset field, never overwrites
+      one a later run's data — or a real user edit through the app —
+      might disagree with). Added the exact regression test requested:
+      seed once (fresh row, date set directly), manually null the date to
+      simulate a pre-Stage-4 row, seed twice more, and confirm the date
+      is backfilled with no duplicate row. Re-verified directly against
+      the real local dev database this time without deleting anything
+      first — manually nulled the same task's `due_date`, ran `make seed`
+      twice, confirmed exactly one row with the date correctly restored
+      both times. Full backend suite (1229 tests, up from 1228), ruff,
+      mypy clean.
+
+      Full `make check` green end to end (ruff, mypy, pytest, eslint,
+      prettier, tsc, vitest, `next build`, openapi diff clean — no
+      schema/route change this stage).
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 
