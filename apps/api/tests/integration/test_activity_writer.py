@@ -24,6 +24,12 @@ from trinol.core.ids import uuid7
 from trinol.modules.crm.models import ClientStatus, LeadSource, LeadStage
 from trinol.modules.crm.services.client_service import create_client
 from trinol.modules.crm.services.lead_service import create_lead, update_lead
+from trinol.modules.documents.models import DocumentKind
+from trinol.modules.documents.services.document_service import (
+    create_document_reference,
+    delete_document_reference,
+    update_document_reference,
+)
 from trinol.modules.finance.models import ExpenseCategory, InvoiceStatus
 from trinol.modules.finance.services.expense_service import (
     create_expense,
@@ -77,13 +83,8 @@ from trinol.modules.work.services.project_service import create_project, update_
 from trinol.modules.work.services.task_comment_service import create_comment
 from trinol.modules.work.services.task_service import create_task, update_task
 from trinol.platform.activity import list_audit, list_feed, record
-from trinol.platform.documents import (
-    create_document_reference,
-    delete_document_reference,
-    update_document_reference,
-)
 from trinol.platform.file_storage.local import LocalFileStorage
-from trinol.platform.models import ActivityEvent, DocumentKind
+from trinol.platform.models import ActivityEvent
 
 # ADR-0006: one append-only table serving both the activity feed
 # (is_audit=false, none exist yet — Phase 1 has no work/CRM content) and the
@@ -1267,7 +1268,7 @@ async def test_record_payment_writes_a_feed_event(db_session) -> None:
 # No `document_reference.updated` event is written at all, matching
 # income/expense's own no-event-on-update precedent exactly (confirmed by
 # re-reading income_service.py/expense_service.py directly before writing
-# platform/documents.py's own update_document_reference).
+# document_service.py's own update_document_reference).
 
 
 async def test_create_document_reference_writes_a_feed_event(db_session) -> None:

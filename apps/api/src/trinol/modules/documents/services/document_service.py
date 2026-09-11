@@ -11,15 +11,22 @@ from trinol.core.db.org_session import OrgSession
 from trinol.core.errors import ForbiddenError, NotFoundError
 from trinol.core.ids import uuid7
 from trinol.modules.crm.services.client_service import get_client_in_org
+from trinol.modules.documents.models import DocumentKind, DocumentReference
 from trinol.modules.identity.models import Membership
 from trinol.modules.meetings.services.meeting_service import get_meeting_in_org
 from trinol.modules.work.services.project_service import get_project_in_org
 from trinol.platform.activity import record
-from trinol.platform.models import DocumentKind, DocumentReference
 
 # Phase 6 plan decision 3: no ownership-split anywhere in this module —
 # DOCUMENT_READ/DOCUMENT_WRITE (route-level `require(...)`) are the entire
 # authorization check, same shape as finance's income_service.py.
+#
+# This lives under `modules/documents/services/`, not `platform/` (Codex
+# Phase 6 Stage 2 P1): the cross-reference validation below imports
+# work/crm/meetings services, which `platform` may never do
+# (ARCHITECTURE.md §3's `platform ← everything` — platform is only ever
+# imported, never the importer). `documents → work/crm/meetings` is a new
+# one-way edge, the same shape `finance → work/crm` already has.
 
 
 @dataclass(frozen=True, slots=True)

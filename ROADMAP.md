@@ -3623,6 +3623,30 @@ endpoint.
       write × 3 roles × 2 methods) — all pass on the first run. Full
       backend suite (1213 tests, up from 1161), ruff, mypy, `make openapi`
       all clean.
+
+      **Codex P1 (Stage 2 review)**: `platform/documents.py` imported
+      `crm`/`meetings`/`work` services to validate the optional
+      `project_id`/`client_id`/`meeting_id` — a `platform → work/crm/
+      meetings` edge, forbidden by ARCHITECTURE.md §3's `platform ←
+      everything` rule (platform may only ever be imported, never the
+      importer). Accepted: moved the whole feature — model, schemas,
+      service, routes — out of `platform` into a new `modules/documents/`
+      package (following every other domain module's `services/`/
+      `routes/` subfolder convention, not `platform`'s own flat-file
+      style), with an explicit `documents → work/crm/meetings` edge added
+      to ARCHITECTURE.md §3, the same shape `finance → work/crm` and
+      `meetings → work/crm` already use — not a special case. The
+      `document_references` table itself is unchanged (same name, same
+      columns, same migration — this is a Python-package reorganization,
+      not a schema change); moved its DATABASE.md entry from `### platform`
+      into a new `### documents` section accordingly. Updated every
+      import site (`main.py`, `tests/factories.py`, `tests/security/
+      test_schema_integrity.py`, `migrations/env.py`, `tests/integration/
+      test_activity_writer.py`) and confirmed no stale `platform.documents`
+      references remain anywhere in the tree via a repo-wide grep.
+      Verified: `alembic check` still reports no new operations (schema
+      genuinely unchanged), full backend suite (1213 tests) green, ruff
+      and mypy clean across the whole repo.
 - [x] Stage 3 — Activity feed wiring (verification pass only — see Stage 2
       above for why no new wiring belongs here). Extended
       `test_activity_writer.py` with 3 tests: create writes a feed event,

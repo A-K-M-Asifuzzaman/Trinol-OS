@@ -82,13 +82,26 @@ tables.
 | `crm` | Client, Lead, LeadStageEvent, ContactSubmission | 3 |
 | `meetings` | Meeting, MeetingParticipant, MeetingDecision, MeetingAction | 4 |
 | `finance` | Income, Expense, Invoice, InvoiceItem, Payment, InvoiceCounter | 5 |
-| `platform` | ActivityEvent, Notification, DocumentReference, FileObject | cross-cutting |
+| `documents` | DocumentReference | 6 |
+| `platform` | ActivityEvent, Notification, FileObject | cross-cutting |
 
 Dependency direction is one-way: `platform` ← everything, `identity` ← everything,
 and otherwise `work → crm` (project belongs to a client), `meetings → work/crm`,
-`finance → work/crm`. No cycles. `crm` must not import from `work`; the
-lead→project conversion lives in `work` because that is where the Project is
-created.
+`finance → work/crm`, `documents → work/crm/meetings`. No cycles. `crm` must not
+import from `work`; the lead→project conversion lives in `work` because that is
+where the Project is created.
+
+`DocumentReference` is *not* `platform`-owned, despite an earlier draft of this
+table (Phase 6 planning) assuming it would sit alongside `ActivityEvent`/
+`FileObject` as cross-cutting infrastructure. It isn't: validating a document
+reference's optional `project_id`/`client_id`/`meeting_id` means calling into
+`work`/`crm`/`meetings` services, and `platform ← everything` means `platform`
+may only ever be imported, never the importer (Codex Phase 6 Stage 2 P1: the
+first implementation put this service under `platform`, creating exactly the
+forbidden `platform → work/crm/meetings` edge this rule exists to prevent). A
+dedicated `documents` module with an explicit `documents → work/crm/meetings`
+edge is the same shape `finance`'s and `meetings`' own edges already use — not
+a special case.
 
 The two documented cross-module writes:
 

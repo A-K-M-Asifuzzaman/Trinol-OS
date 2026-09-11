@@ -8,24 +8,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trinol.core.authz.permissions import Permission
 from trinol.core.authz.require import require
 from trinol.core.db.engine import get_db_session
-from trinol.modules.identity.deps import get_current_membership
-from trinol.modules.identity.models import Membership
-from trinol.platform.documents import (
+from trinol.modules.documents.models import DocumentReference
+from trinol.modules.documents.schemas import (
+    DocumentReferenceCreateRequest,
+    DocumentReferenceListResponse,
+    DocumentReferenceResponse,
+    DocumentReferenceUpdateRequest,
+)
+from trinol.modules.documents.services.document_service import (
     create_document_reference,
     delete_document_reference,
     get_document_reference,
     list_document_references,
     update_document_reference,
 )
-from trinol.platform.models import DocumentReference
-from trinol.platform.schemas import (
-    DocumentReferenceCreateRequest,
-    DocumentReferenceListResponse,
-    DocumentReferenceResponse,
-    DocumentReferenceUpdateRequest,
-)
+from trinol.modules.identity.deps import get_current_membership
+from trinol.modules.identity.models import Membership
 
-router = APIRouter(prefix="/api/v1/documents", tags=["platform"])
+router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
 
 def _document_reference_to_response(

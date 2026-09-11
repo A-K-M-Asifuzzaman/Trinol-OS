@@ -674,9 +674,7 @@ async def test_document_write_routes_isolated_across_orgs(
     await db_session.commit()
 
     org_b = await make_organization(db_session)
-    actor_user = await make_user(
-        db_session, email=f"doc-iso-w-actor-{org_b.id}-{role.value}@x.com"
-    )
+    actor_user = await make_user(db_session, email=f"doc-iso-w-actor-{org_b.id}-{role.value}@x.com")
     actor_membership = await make_membership(
         db_session, organization=org_b, user=actor_user, role=role
     )

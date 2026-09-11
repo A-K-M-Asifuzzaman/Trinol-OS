@@ -22,6 +22,7 @@ from trinol.modules.crm.routes.clients import router as clients_router
 from trinol.modules.crm.routes.leads import router as leads_router
 from trinol.modules.crm.routes.pipeline import router as pipeline_router
 from trinol.modules.crm.routes.public import router as public_router
+from trinol.modules.documents.routes.documents import router as documents_router
 from trinol.modules.finance.routes.dashboard import router as finance_dashboard_router
 from trinol.modules.finance.routes.expenses import router as expenses_router
 from trinol.modules.finance.routes.income import router as income_router
@@ -36,7 +37,6 @@ from trinol.modules.work.routes.lead_conversion import router as lead_conversion
 from trinol.modules.work.routes.projects import router as projects_router
 from trinol.modules.work.routes.tasks import router as tasks_router
 from trinol.platform.routes.activity import router as activity_router
-from trinol.platform.routes.documents import router as documents_router
 
 _ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 

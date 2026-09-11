@@ -1197,12 +1197,12 @@ export interface components {
         };
         /**
          * DocumentKind
-         * @description DATABASE.md §3 (platform) leaves `kind`'s values undefined — invented
-         *     this phase (Phase 6 plan decision 1), directly matching ROADMAP.md's own
-         *     three non-"document references" checklist bullets one-to-one: Google
-         *     Drive, GitHub, and "additional useful integrations" (`OTHER`, a
-         *     catch-all). `ponytail: extend if a specific system earns its own icon/
-         *     filter later — nothing forces more values now.
+         * @description DATABASE.md §3 (documents) leaves `kind`'s values undefined —
+         *     invented this phase (Phase 6 plan decision 1), directly matching
+         *     ROADMAP.md's own three non-"document references" checklist bullets
+         *     one-to-one: Google Drive, GitHub, and "additional useful integrations"
+         *     (`OTHER`, a catch-all). `ponytail: extend if a specific system earns
+         *     its own icon/filter later — nothing forces more values now.
          * @enum {string}
          */
         DocumentKind: "GOOGLE_DRIVE" | "GITHUB" | "OTHER";

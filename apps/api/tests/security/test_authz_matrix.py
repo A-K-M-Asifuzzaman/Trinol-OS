@@ -1450,9 +1450,7 @@ async def test_matrix_row_respects_required_permission(
             db_session, organization=actor.organization, added_by=target
         )
         await db_session.commit()
-        resolved_path = resolved_path.replace(
-            "{document_reference_id}", str(document_reference.id)
-        )
+        resolved_path = resolved_path.replace("{document_reference_id}", str(document_reference.id))
     if "{income_id}" in resolved_path:
         # FINANCE_READ/FINANCE_WRITE have no per-resource restriction (no
         # ownership-split rule for finance at all, ROADMAP.md Phase 5

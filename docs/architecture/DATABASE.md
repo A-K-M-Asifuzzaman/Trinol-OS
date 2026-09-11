@@ -242,6 +242,28 @@ See [ADR-0007](../adr/0007-money-and-invoice-totals.md) for the arithmetic rules
 `(organization_id, year)`. Number generation takes `SELECT … FOR UPDATE` on this
 row, so two concurrent invoices cannot produce `TRI-2026-0001` twice.
 
+### documents
+
+**document_references** — `id`, `organization_id`, `title`, `url`, `kind`
+(enum: `GOOGLE_DRIVE|GITHUB|OTHER`, Phase 6), `project_id?`, `client_id?`,
+`meeting_id?`, `added_by`, timestamps.
+A plain external-link table, not a `file_objects` wrapper — Phase 6/
+[ADR-0012](../adr/0012-v1-scope-trims.md): "V1 stores external links" for
+Google Drive; GitHub and other systems get the same treatment via `kind`.
+No OAuth, no file upload. `project_id`/`client_id`/`meeting_id` are each
+independently optional and not mutually exclusive — a reference may have
+none, one, or more than one parent set; a parent-less row is a general
+org-wide link. No unique constraint of its own (nothing composite-FKs to
+a `document_references` row). No `archived_at` — not one of ADR-0011's
+four soft-deleted entities, so deletion is a hard delete with an audit
+event.
+
+Owned by its own `documents` module, not `platform`
+([ARCHITECTURE.md §3](ARCHITECTURE.md#3-domain-modules)) — validating the
+optional parent ids means calling into `work`/`crm`/`meetings` services,
+and `platform` may never import a domain module (Codex Phase 6 Stage 2
+P1).
+
 ### platform
 
 **activity_events** — `id`, `organization_id`, `actor_id?`, `event` (text),
@@ -267,20 +289,6 @@ afterward, so later migrations don't need to repeat the grant.
 
 **notifications** — `id`, `organization_id`, `user_id`, `type`, `title`,
 `body?`, `link?`, `read_at?`, `created_at`.
-
-**document_references** — `id`, `organization_id`, `title`, `url`, `kind`
-(enum: `GOOGLE_DRIVE|GITHUB|OTHER`, Phase 6), `project_id?`, `client_id?`,
-`meeting_id?`, `added_by`, timestamps.
-A plain external-link table, not a `file_objects` wrapper — Phase 6/
-[ADR-0012](../adr/0012-v1-scope-trims.md): "V1 stores external links" for
-Google Drive; GitHub and other systems get the same treatment via `kind`.
-No OAuth, no file upload. `project_id`/`client_id`/`meeting_id` are each
-independently optional and not mutually exclusive — a reference may have
-none, one, or more than one parent set; a parent-less row is a general
-org-wide link. No unique constraint of its own (nothing composite-FKs to
-a `document_references` row). No `archived_at` — not one of ADR-0011's
-four soft-deleted entities, so deletion is a hard delete with an audit
-event.
 
 **file_objects** — `id`, `organization_id`, `storage_key` (uq), `filename`,
 `content_type`, `size_bytes`, `checksum_sha256`, `uploaded_by`, `created_at`.

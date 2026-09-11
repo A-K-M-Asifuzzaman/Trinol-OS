@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trinol.core.authz.permissions import Role
 from trinol.core.ids import uuid7
 from trinol.modules.crm.models import Client, ClientStatus, Lead, LeadSource, LeadStage
+from trinol.modules.documents.models import DocumentKind, DocumentReference
 from trinol.modules.finance.models import (
     Expense,
     ExpenseCategory,
@@ -48,7 +49,6 @@ from trinol.modules.work.models import (
 )
 from trinol.platform.file_storage.protocol import FileStorage
 from trinol.platform.files import create_file_object
-from trinol.platform.models import DocumentKind, DocumentReference
 
 # Plain factory functions, not factory_boy (TESTING.md §2): each adds+flushes
 # a row and returns it, so a caller can chain them without repeating
