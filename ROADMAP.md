@@ -3967,7 +3967,44 @@ with zero tasks still appears), not a per-project loop; (8)
       `2/3 = 67%` both matched the rendered page exactly. `.env`/`apps/
       web/.env.local` reverted, scratch scripts deleted, both dev servers
       stopped.
-- [ ] Stage 4 — Final verification, no seed/E2E changes
+- [x] Stage 4 — Final verification. **One seed script change was needed
+      after all** — the plan's own exit criterion ("existing seed data
+      already produces non-zero, non-trivial figures for every new
+      metric") was verified directly rather than assumed, and turned out
+      to be wrong for one metric: `scripts/seed.py`'s `_SeedTask`
+      dataclass had no `due_date` field at all, so **zero** seed project
+      tasks could ever be overdue — `overdue_tasks_count` would read `0`
+      from a genuinely fresh seed, not the non-trivial figure the plan
+      claimed. Fixed by adding an optional `due_date` to `_SeedTask`
+      (computed relative to `date.today()` at seed time, same reasoning
+      invoices' own one deliberately-overdue SENT invoice already uses —
+      Phase 5 Stage 12) and setting one existing TODO task ("Set up
+      hosting and domain") 3 days overdue. Threaded through `_ensure_
+      task`'s `Task(...)` construction and `test_seed_idempotent.py`'s
+      `_isolated_seed` fixture's own `_SeedTask` reconstruction (which
+      would otherwise have silently dropped the new field for its own
+      shadow tasks).
+
+      Confirmed the rest of the plan's claim directly and it held: seed
+      tasks already span `TODO`/`IN_PROGRESS`/`REVIEW`/`DONE`/`CANCELLED`
+      across both seed projects, and seed leads already include one `WON`
+      and one `LOST` entry — both exercise decisions 2/4 without any
+      further change.
+
+      Verified against the real local dev database (not just tests):
+      deleted the one affected task, ran `make seed` twice (idempotent —
+      re-running didn't duplicate it), confirmed via `psql` — scoped to
+      the correct organization, the same lesson Stage 3's own walkthrough
+      already learned the hard way — that `overdue_tasks_count` moved
+      from 1 (previously accumulated dev-DB test debris, not reliable)
+      to 2 (1 debris + 1 real seed row), proving the metric is now
+      genuinely non-zero from the seed data itself.
+
+      No new E2E flow (decision 5, explicitly re-confirmed here, not
+      silently skipped) — Reports has no mutation to exercise. Full
+      `make check` green end to end (1228 backend tests, 94 frontend
+      tests, ruff, mypy, eslint, prettier, tsc, `next build`, openapi
+      diff clean — no schema/route change this stage).
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 

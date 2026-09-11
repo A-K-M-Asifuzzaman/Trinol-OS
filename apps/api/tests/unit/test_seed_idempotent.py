@@ -147,6 +147,7 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
                     status=task.status,
                     priority=task.priority,
                     assignee_email=email_for[task.assignee_email],
+                    due_date=task.due_date,
                 )
                 for task in project.tasks
             ),

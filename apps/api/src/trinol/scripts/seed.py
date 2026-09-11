@@ -171,6 +171,14 @@ class _SeedTask:
     status: TaskStatus
     priority: TaskPriority
     assignee_email: str
+    # Phase 7 Stage 4: computed relative to `date.today()` at seed time,
+    # not a fixed absolute date — same reasoning invoices' own one
+    # deliberately-overdue SENT invoice already uses (Phase 5 Stage 12), so
+    # this stays overdue no matter which real day `make seed` runs on.
+    # None for every task but one: get_project_analytics's "overdue tasks"
+    # metric (Phase 7) needs at least one real example, discovered missing
+    # here — no seed task had a due_date at all before this stage.
+    due_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,7 +203,11 @@ _SEED_PROJECTS: tuple[_SeedProject, ...] = (
         client_name=_ACME_CORP_NAME,
         tasks=(
             _SeedTask(
-                "Set up hosting and domain", TaskStatus.TODO, TaskPriority.HIGH, _DEVELOPER_EMAIL
+                "Set up hosting and domain",
+                TaskStatus.TODO,
+                TaskPriority.HIGH,
+                _DEVELOPER_EMAIL,
+                due_date=date.today() - timedelta(days=3),
             ),
             _SeedTask(
                 "Build homepage layout",
@@ -935,6 +947,7 @@ async def _ensure_task(
             priority=entry.priority,
             assignee_id=assignee_user_id,
             created_by=created_by_user_id,
+            due_date=entry.due_date,
             # ck_task_completed (migration 0003): a DONE task must have
             # completed_at set — same invariant task_service.create_task
             # enforces for a real request.
