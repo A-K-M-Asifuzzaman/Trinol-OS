@@ -261,4 +261,131 @@ describe("MeetingDetailPage", () => {
       ),
     );
   });
+
+  it("generates an AI summary from the Notes tab", async () => {
+    let summarized = false;
+    const summaryBody = {
+      id: "summary-1",
+      meeting_id: "meeting-1",
+      content: "We discussed scope and agreed on next steps.",
+      model: "gpt-4o-mini",
+      generated_by: "01960000-0000-7000-8000-000000000002",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    server.use(
+      http.get(`${APP_ORIGIN}/api/v1/meetings/meeting-1`, () =>
+        HttpResponse.json(meeting),
+      ),
+      // No summary yet until the POST below succeeds, then the refetch
+      // sees it — same stateful pattern the promote/attendee tests above
+      // already use. The pre-generation 404 must not get the panel stuck
+      // (Phase 7 Stage 3's retry lesson), and must still show a
+      // "Summarize" button rather than an error state.
+      http.get(`${APP_ORIGIN}/api/v1/meetings/meeting-1/summary`, () =>
+        summarized
+          ? HttpResponse.json(summaryBody)
+          : HttpResponse.json(
+              {
+                error: {
+                  code: "NOT_FOUND",
+                  message: "This meeting has not been summarized yet",
+                  request_id: null,
+                  details: {},
+                },
+              },
+              { status: 404 },
+            ),
+      ),
+      http.post(`${APP_ORIGIN}/api/v1/meetings/meeting-1/summary`, () => {
+        summarized = true;
+        return HttpResponse.json(summaryBody);
+      }),
+    );
+    renderMeetingDetailPage();
+    await waitFor(() =>
+      expect(screen.getByText("Kickoff")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Notes" }));
+    await waitFor(() =>
+      expect(screen.getByText("Not summarized yet.")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Summarize" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("We discussed scope and agreed on next steps."),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("extracts action items from the Action Items tab", async () => {
+    let extracted = false;
+    server.use(
+      http.get(`${APP_ORIGIN}/api/v1/meetings/meeting-1`, () =>
+        HttpResponse.json(meeting),
+      ),
+      http.get(`${APP_ORIGIN}/api/v1/meetings/meeting-1/actions`, () =>
+        HttpResponse.json(
+          extracted
+            ? {
+                items: [
+                  {
+                    id: "action-ai-1",
+                    meeting_id: "meeting-1",
+                    description: "Draft the timeline",
+                    owner_id: null,
+                    due_date: null,
+                    task_id: null,
+                    source: "AI",
+                    created_at: "2026-01-01T00:00:00Z",
+                  },
+                ],
+                total: 1,
+              }
+            : { items: [], total: 0 },
+        ),
+      ),
+      http.post(
+        `${APP_ORIGIN}/api/v1/meetings/meeting-1/actions/extract`,
+        () => {
+          extracted = true;
+          return HttpResponse.json(
+            {
+              items: [
+                {
+                  id: "action-ai-1",
+                  meeting_id: "meeting-1",
+                  description: "Draft the timeline",
+                  owner_id: null,
+                  due_date: null,
+                  task_id: null,
+                  source: "AI",
+                  created_at: "2026-01-01T00:00:00Z",
+                },
+              ],
+              total: 1,
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+    renderMeetingDetailPage();
+    await waitFor(() =>
+      expect(screen.getByText("Kickoff")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Action Items" }));
+    await waitFor(() =>
+      expect(screen.getByText(/no action items yet/i)).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Extract actions" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Draft the timeline")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("AI")).toBeInTheDocument();
+  });
 });

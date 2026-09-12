@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field, WithJsonSchema, model_validator
 # Response class below is the API schema for a participant row — same name
 # would collide, so the enum is imported under a name that says what it is.
 from trinol.modules.meetings.models import (
+    MeetingActionSource,
+)
+from trinol.modules.meetings.models import (
     MeetingParticipantResponse as ParticipantInviteStatus,
 )
 
@@ -179,6 +182,7 @@ class MeetingActionResponse(BaseModel):
     owner_id: uuid.UUID | None
     due_date: date | None
     task_id: uuid.UUID | None
+    source: MeetingActionSource
     created_at: datetime
 
 

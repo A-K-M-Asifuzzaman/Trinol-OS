@@ -992,6 +992,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/meetings/{meeting_id}/actions/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Extract Meeting Actions Route */
+        post: operations["extract_meeting_actions_route_api_v1_meetings__meeting_id__actions_extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2030,12 +2047,23 @@ export interface components {
             due_date: string | null;
             /** Task Id */
             task_id: string | null;
+            source: components["schemas"]["MeetingActionSource"];
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
         };
+        /**
+         * MeetingActionSource
+         * @description Phase 8 Stage 2: distinguishes a human-authored action item from one
+         *     an LLM suggested (`ai.services.action_extraction_service.
+         *     extract_actions`) — purely informational (e.g. a badge in the UI), no
+         *     permission weight of its own. Defaults to HUMAN so every pre-Stage-2
+         *     row (and every route that doesn't set it) means what it always meant.
+         * @enum {string}
+         */
+        MeetingActionSource: "HUMAN" | "AI";
         /**
          * MeetingActionUpdateRequest
          * @description Partial update (`exclude_unset=True`) — `task_id` is deliberately
@@ -6265,6 +6293,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeetingSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extract_meeting_actions_route_api_v1_meetings__meeting_id__actions_extract_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingActionListResponse"];
                 };
             };
             /** @description Validation Error */

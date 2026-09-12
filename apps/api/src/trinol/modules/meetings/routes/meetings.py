@@ -367,6 +367,7 @@ def _action_to_response(action: MeetingAction) -> MeetingActionResponse:
         owner_id=action.owner_id,
         due_date=action.due_date,
         task_id=action.task_id,
+        source=action.source,
         created_at=action.created_at,
     )
 

@@ -4144,7 +4144,50 @@ cron is introduced.
       Full backend suite (1249 tests, up from 1229), ruff, mypy,
       `alembic check`, `make openapi` clean; `next build`/tsc/vitest
       clean (no frontend UI yet — that's Stage 2).
-- [ ] Stage 2 — Action extraction + meetings frontend
+- [x] Stage 2 — Action extraction + meetings frontend.
+      `MeetingAction.source` (`HUMAN|AI`, default `HUMAN`) added via a
+      `meetings`-owned migration (`0010_meeting_action_source`) — a
+      normal schema evolution of `meetings`' own table, not an `ai`-owned
+      write (ADR-0014).
+
+      `ai.services.action_extraction_service.extract_actions()` lives in
+      `ai`, not `meetings` (plan §0(c)): one transaction, inline
+      `MeetingAction(...)` construction (never via `meetings`' own
+      auto-committing `create_action`), reusing `can_write_meeting`'s
+      exact creator-or-MANAGER+ rule — no new permission. Parses the
+      model's response line-by-line (not JSON — far more robust to real
+      model output variance, and just as easy to cap), stripping a
+      leading bullet/number marker per line, capped at 10 suggestions
+      regardless of how many lines come back. No owner/due_date is
+      guessed; a human reviews/edits/deletes suggestions through the
+      pre-existing action-item UI, no new review/approve flow.
+
+      Route `POST /meetings/{id}/actions/extract` registered in the
+      ownership-split matrix set, same as decisions/actions/summary.
+      `FakeAIClient` gained a `next_response` test seam (returns a set
+      string verbatim instead of the default template) — needed to
+      actually exercise the 10-item cap with more than 10 fake lines.
+
+      Frontend: a "Summarize"/"Regenerate summary" button + panel added
+      to the meeting detail page's Notes tab (`retry: false` on the
+      summary query — a fresh meeting's expected 404 must not hit
+      react-query's default 3-retry backoff, the same lesson Phase 7
+      Stage 3's stuck-loading bug already taught this app); an "Extract
+      actions" button added to the Action Items tab, with a small "AI"
+      badge on extracted rows.
+
+      7 new backend integration tests (creator/non-creator, the 10-item
+      cap with 30 fake lines, bullet/number-marker parsing, zero
+      suggestions creates no rows/feed event, an extracted action
+      deletable through the existing DELETE endpoint with no new code
+      path, cross-org 404). Two new frontend component tests (generate a
+      summary from the Notes tab; extract actions and see the AI badge).
+      Both new routes added to `test_isolation_matrix.py`'s
+      `_MEETING_CONTENT_ISOLATION_ROUTES` too.
+
+      Full backend suite (1261 tests, up from 1249), ruff, mypy, `alembic
+      check`, `make openapi` clean; frontend tsc/eslint/prettier/vitest
+      (96 tests, up from 94)/`next build` clean.
 - [ ] Stage 3 — RAG infrastructure
 - [ ] Stage 4 — Company assistant + semantic search + retrieval filter
 - [ ] Stage 5 — Lead scoring

@@ -16,13 +16,16 @@ import {
   deleteMeeting,
   deleteMeetingAction,
   deleteMeetingDecision,
+  extractMeetingActions,
   fetchMeeting,
   fetchMeetingActions,
   fetchMeetingDecisions,
   fetchMeetingParticipants,
+  fetchMeetingSummary,
   fetchTeamMembers,
   promoteMeetingAction,
   removeMeetingParticipant,
+  summarizeMeeting,
   updateMeetingParticipantResponse,
   type Meeting,
   type MeetingAction,
@@ -163,15 +166,87 @@ function AgendaTab({ meeting }: { meeting: Meeting }) {
 }
 
 function NotesTab({ meeting }: { meeting: Meeting }) {
-  if (!meeting.notes) {
-    return (
-      <ListEmptyState
-        title="No notes yet"
-        description="Add notes during or after the meeting."
-      />
-    );
+  return (
+    <div className="space-y-6">
+      {meeting.notes ? (
+        <p className="whitespace-pre-wrap text-sm">{meeting.notes}</p>
+      ) : (
+        <ListEmptyState
+          title="No notes yet"
+          description="Add notes during or after the meeting."
+        />
+      )}
+      <MeetingSummaryPanel meetingId={meeting.id} />
+    </div>
+  );
+}
+
+function MeetingSummaryPanel({ meetingId }: { meetingId: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const summary = useQuery({
+    queryKey: ["meeting-summary", meetingId],
+    queryFn: () => fetchMeetingSummary(meetingId),
+    // A meeting with no summary yet 404s — that's the common case, not a
+    // transient failure worth react-query's default 3-retry backoff (the
+    // same lesson Phase 7 Stage 3's stuck-loading-state bug already
+    // taught this app about an *expected* non-200 response).
+    retry: false,
+  });
+
+  async function handleGenerate() {
+    setError(null);
+    setGenerating(true);
+    try {
+      await summarizeMeeting(meetingId);
+      await summary.refetch();
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Could not summarize this meeting.",
+      );
+    } finally {
+      setGenerating(false);
+    }
   }
-  return <p className="whitespace-pre-wrap text-sm">{meeting.notes}</p>;
+
+  return (
+    <div className="rounded border border-border p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-muted-foreground">
+          AI summary
+        </h3>
+        <Button
+          variant="outline"
+          onClick={handleGenerate}
+          disabled={generating}
+        >
+          {generating
+            ? "Summarizing..."
+            : summary.data
+              ? "Regenerate summary"
+              : "Summarize"}
+        </Button>
+      </div>
+      {error ? (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {summary.data ? (
+        <p className="mt-2 whitespace-pre-wrap text-sm">
+          {summary.data.content}
+        </p>
+      ) : summary.isLoading ? (
+        <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Not summarized yet.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function AttendeesTab({ meetingId }: { meetingId: string }) {
@@ -455,10 +530,30 @@ function ActionItemsTab({ meetingId }: { meetingId: string }) {
   const [description, setDescription] = useState("");
   const [rowError, setRowError] = useState<string | null>(null);
   const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
   const actions = useQuery({
     queryKey: ["meeting-actions", meetingId],
     queryFn: () => fetchMeetingActions(meetingId),
   });
+
+  async function handleExtract() {
+    setRowError(null);
+    setExtracting(true);
+    try {
+      await extractMeetingActions(meetingId);
+      queryClient.invalidateQueries({
+        queryKey: ["meeting-actions", meetingId],
+      });
+    } catch (err) {
+      setRowError(
+        err instanceof ApiError
+          ? err.message
+          : "Could not extract action items from this meeting.",
+      );
+    } finally {
+      setExtracting(false);
+    }
+  }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -528,6 +623,14 @@ function ActionItemsTab({ meetingId }: { meetingId: string }) {
           />
         </div>
         <Button type="submit">Add action item</Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleExtract}
+          disabled={extracting}
+        >
+          {extracting ? "Extracting..." : "Extract actions"}
+        </Button>
       </form>
       {rowError ? (
         <p role="alert" className="text-sm text-destructive">
@@ -550,7 +653,14 @@ function ActionItemsTab({ meetingId }: { meetingId: string }) {
               key={action.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded border border-border p-3 text-sm"
             >
-              <span>{action.description}</span>
+              <span>
+                {action.description}
+                {action.source === "AI" ? (
+                  <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    AI
+                  </span>
+                ) : null}
+              </span>
               <div className="flex items-center gap-2">
                 {action.task_id ? (
                   <Link

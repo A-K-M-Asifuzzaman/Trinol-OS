@@ -31,6 +31,7 @@ from trinol.modules.identity.models import (
 from trinol.modules.meetings.models import (
     Meeting,
     MeetingAction,
+    MeetingActionSource,
     MeetingDecision,
     MeetingParticipant,
     MeetingParticipantResponse,
@@ -424,6 +425,7 @@ async def make_meeting_action(
     description: str = "Test action",
     due_date: date | None = None,
     task_id: uuid.UUID | None = None,
+    source: MeetingActionSource = MeetingActionSource.HUMAN,
 ) -> MeetingAction:
     action = MeetingAction(
         id=uuid7(),
@@ -433,6 +435,7 @@ async def make_meeting_action(
         owner_id=owner.user_id if owner is not None else None,
         due_date=due_date,
         task_id=task_id,
+        source=source,
     )
     db.add(action)
     await db.flush()

@@ -186,6 +186,17 @@ class MeetingDecision(OrgScoped, Base):
     )
 
 
+class MeetingActionSource(StrEnum):
+    """Phase 8 Stage 2: distinguishes a human-authored action item from one
+    an LLM suggested (`ai.services.action_extraction_service.
+    extract_actions`) — purely informational (e.g. a badge in the UI), no
+    permission weight of its own. Defaults to HUMAN so every pre-Stage-2
+    row (and every route that doesn't set it) means what it always meant."""
+
+    HUMAN = "HUMAN"
+    AI = "AI"
+
+
 class MeetingAction(OrgScoped, Base):
     """`task_id` is set exactly once, by
     `meetings.services.meeting_action_service.promote_action`
@@ -201,6 +212,15 @@ class MeetingAction(OrgScoped, Base):
     owner_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
     due_date: Mapped[date | None] = mapped_column(sa.Date, default=None)
     task_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    source: Mapped[MeetingActionSource] = mapped_column(
+        PgEnum(
+            MeetingActionSource,
+            name="meeting_action_source",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        server_default=MeetingActionSource.HUMAN.value,
+    )
     created_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
 
     __table_args__ = (

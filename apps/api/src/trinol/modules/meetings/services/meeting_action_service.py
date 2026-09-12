@@ -12,7 +12,7 @@ from trinol.core.db.org_session import OrgSession
 from trinol.core.errors import ConflictError, ForbiddenError, NotFoundError
 from trinol.core.ids import uuid7
 from trinol.modules.identity.models import Membership
-from trinol.modules.meetings.models import MeetingAction
+from trinol.modules.meetings.models import MeetingAction, MeetingActionSource
 from trinol.modules.meetings.services.meeting_service import (
     can_write_meeting,
     ensure_actor_in_org,
@@ -113,6 +113,7 @@ async def create_action(
         description=description,
         owner_id=owner_id,
         due_date=due_date,
+        source=MeetingActionSource.HUMAN,
     )
     org_session.add(action)
     # Meaningful meeting content worth surfacing, same tier as

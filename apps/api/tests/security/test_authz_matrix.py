@@ -511,6 +511,9 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     # decisions/actions above).
     ("POST", "/api/v1/meetings/{meeting_id}/summary"),
     ("GET", "/api/v1/meetings/{meeting_id}/summary"),
+    # Phase 8 Stage 2: extracted actions inherit the meeting's own edit
+    # rule too — covered by test_meeting_action_extraction.py instead.
+    ("POST", "/api/v1/meetings/{meeting_id}/actions/extract"),
 }
 
 

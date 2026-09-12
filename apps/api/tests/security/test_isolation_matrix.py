@@ -561,6 +561,10 @@ _MEETING_CONTENT_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] 
     # meaningful).
     ("GET", "/api/v1/meetings/{meeting_id}/summary", None),
     ("POST", "/api/v1/meetings/{meeting_id}/summary", None),
+    # Phase 8 Stage 2: extraction org-scoped the same way — the org check
+    # in get_meeting_in_org 404s before any AI call is ever made, so no
+    # fake_ai_client override is needed for this cross-org check.
+    ("POST", "/api/v1/meetings/{meeting_id}/actions/extract", None),
 ]
 
 

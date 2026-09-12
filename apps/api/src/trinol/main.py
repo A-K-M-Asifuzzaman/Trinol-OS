@@ -18,6 +18,7 @@ from trinol.core.logging import configure_logging
 from trinol.core.request_id import RequestIDMiddleware
 from trinol.core.security.body_size_cap import BodySizeCapMiddleware
 from trinol.core.security.origin_check import OriginCheckMiddleware
+from trinol.modules.ai.routes.meeting_actions import router as ai_meeting_actions_router
 from trinol.modules.ai.routes.meeting_summaries import router as meeting_summaries_router
 from trinol.modules.crm.routes.clients import router as clients_router
 from trinol.modules.crm.routes.leads import router as leads_router
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(finance_dashboard_router)
     app.include_router(documents_router)
     app.include_router(meeting_summaries_router)
+    app.include_router(ai_meeting_actions_router)
 
     @app.get("/health", tags=["meta"])
     @public

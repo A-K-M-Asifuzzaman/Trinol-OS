@@ -556,6 +556,34 @@ export async function promoteMeetingAction(
   );
 }
 
+export type MeetingSummary = components["schemas"]["MeetingSummaryResponse"];
+
+export async function fetchMeetingSummary(
+  meetingId: string,
+  cookie?: string,
+): Promise<MeetingSummary> {
+  return apiFetch<MeetingSummary>(`/api/v1/meetings/${meetingId}/summary`, {
+    cookie,
+  });
+}
+
+export async function summarizeMeeting(
+  meetingId: string,
+): Promise<MeetingSummary> {
+  return apiFetch<MeetingSummary>(`/api/v1/meetings/${meetingId}/summary`, {
+    method: "POST",
+  });
+}
+
+export async function extractMeetingActions(
+  meetingId: string,
+): Promise<MeetingActionList> {
+  return apiFetch<MeetingActionList>(
+    `/api/v1/meetings/${meetingId}/actions/extract`,
+    { method: "POST" },
+  );
+}
+
 export type DocumentReference =
   components["schemas"]["DocumentReferenceResponse"];
 export type DocumentReferenceList =
