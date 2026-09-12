@@ -192,6 +192,14 @@ class _SeedProject:
     # (or a genuinely internal project, like Trinol OS itself) — set for
     # the one project this stage links to a seeded client.
     client_name: str | None = None
+    # Phase 8 Stage 7 P1 fix: only the "Founder Ops" project sets this —
+    # gives the company-assistant E2E flow real *project* content to ask
+    # about. A project's description is gated by `ensure_project_visible`
+    # (MANAGER+ or project_members membership); unlike a project's tasks,
+    # which RBAC.md documents as org-wide with no ownership-split at all,
+    # so a task's own content is never a valid "MEMBER can't see this"
+    # probe (Codex Stage 7 P1 caught the E2E test using one anyway).
+    description: str | None = None
 
 
 _SEED_PROJECTS: tuple[_SeedProject, ...] = (
@@ -267,6 +275,10 @@ _SEED_PROJECTS: tuple[_SeedProject, ...] = (
         name="Founder Ops",
         owner_email=_FOUNDER_EMAIL,
         member_emails=(),
+        description=(
+            "Confidential fundraising track: preparing materials for a new "
+            "investor round and evaluating a strategic acquisition offer."
+        ),
         tasks=(
             _SeedTask(
                 "Renegotiate the Series A term sheet with investors",
@@ -908,16 +920,20 @@ async def _get_or_create_project(
     project = result.scalar_one_or_none()
     if project is not None:
         # Backfill for a project seeded before Stage 10 introduced
-        # clients — only ever sets an unset link, never overwrites one a
-        # later run's data might disagree with.
+        # clients, or before Stage 7 added descriptions — only ever sets
+        # an unset field, never overwrites one a later run's data (or a
+        # real user edit through the app) might disagree with.
         if project.client_id is None and client_id is not None:
             project.client_id = client_id
+        if project.description is None and entry.description is not None:
+            project.description = entry.description
         return project
     project = Project(
         id=uuid7(),
         organization_id=organization.id,
         project_code=entry.project_code,
         name=entry.name,
+        description=entry.description,
         owner_id=owner_user_id,
         client_id=client_id,
     )

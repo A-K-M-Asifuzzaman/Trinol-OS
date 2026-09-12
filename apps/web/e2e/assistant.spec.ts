@@ -46,17 +46,23 @@ test("a MEMBER summarizes a meeting they attended, then the assistant admits it 
     timeout: 30_000,
   });
 
-  // "Founder Ops" is a seeded project with no member_emails at all — the
-  // developer genuinely is not a project_members row on it (scripts/
-  // seed.py, Phase 8 Stage 7), so its one task ("Renegotiate the Series A
-  // term sheet...") must never reach the assistant's answer.
+  // Codex Stage 7 P1: this must probe the *project's own* content, not
+  // one of its tasks — RBAC.md documents task read as org-wide with no
+  // ownership-split at all (retrieval_service._is_visible's TASK branch
+  // passes every task through unconditionally), so a task would have
+  // been legitimately retrievable regardless of project membership,
+  // proving nothing about project isolation. "Founder Ops" is a seeded
+  // project with no member_emails at all (scripts/seed.py) — the
+  // developer genuinely is not a project_members row on it, and its
+  // *description* (unlike its tasks) is gated by ensure_project_visible,
+  // so it must never reach the assistant's answer.
   await page.goto("/assistant");
   await page
     .getByLabel(/ask a question/i)
-    .fill("What is the status of the Series A term sheet renegotiation?");
+    .fill("What is the Founder Ops project working on?");
   await page.getByRole("button", { name: "Ask" }).click();
 
   const answer = page.locator("li").filter({ hasText: "Assistant" }).last();
   await expect(answer).toBeVisible({ timeout: 30_000 });
-  await expect(answer).not.toContainText(/series a|term sheet/i);
+  await expect(answer).not.toContainText(/fundraising|investor|acquisition/i);
 });

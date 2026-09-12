@@ -4486,20 +4486,46 @@ cron is introduced.
       meeting they only *participate* in ("Website Kickoff"), which
       correctly 403s (RBAC.md: a participant doesn't gain edit rights
       merely by being invited) — switched to "Sprint Retrospective",
-      which that MEMBER actually created. Confirmed via the running
-      dev server's own logs that the flow makes genuine `api.openai.com`
-      calls (an embedding for retrieval, chat completions for both the
-      summary and the answer) and the assistant's answer never contains
-      the hidden project's one fact.
+      which that MEMBER actually created.
 
-      Full backend suite green outside of one pre-existing test
-      (`test_referer_fallback_is_accepted_when_origin_absent`) that
-      fails only because `APP_ORIGIN`/`API_PORT` were temporarily
-      pointed at alternate ports (8010/3010) for an interactive manual
-      walkthrough of this phase's own features at the user's request —
-      confirmed directly (not assumed) that this is an environment
-      artifact of that temporary override, not a regression, and the
-      final clean confirmation is pending that override being reverted.
+      **Codex P1 (Stage 7 review)**: the E2E flow's second half asked
+      the assistant about "Founder Ops"'s one seed *task* ("Renegotiate
+      the Series A term sheet..."), not the project itself — but
+      `retrieval_service._is_visible`'s `TASK` branch passes every task
+      through unconditionally (RBAC.md documents task read as org-wide
+      transparency with no ownership-split at all, and Stage 4's own
+      `_is_visible` design deliberately never checks project membership
+      for a task chunk). The task was therefore legitimately embeddable
+      and retrievable by the MEMBER regardless of the parent project's
+      privacy — a pass here would have proven nothing about project
+      isolation, and could as easily have failed or passed by accident
+      depending on reindex/ranking order. Fixed by giving "Founder Ops"
+      an actual `description` (a new field on `_SeedProject`, threaded
+      through `_get_or_create_project` with the same backfill-only-if-
+      unset treatment as every other seed field addition this phase —
+      confirmed against the real dev database the same way, and a
+      matching regression test) and switching the E2E question to probe
+      that description specifically — a `PROJECT` chunk, which *is*
+      gated by `ensure_project_visible`, the same real boundary
+      `test_company_assistant.py` already proves deterministically at
+      the API level. Also caught while fixing this: the `_isolated_seed`
+      test fixture's own shadow reconstruction of `_SEED_PROJECTS`
+      silently dropped `description` entirely (present for `_SeedTask.
+      due_date` and `_SeedMeeting.notes` already, just never added here)
+      — fixed alongside, or the new regression test would have failed
+      with a `StopIteration` instead of actually testing anything.
+      Re-verified end-to-end against a real running dev server: the
+      flow makes genuine `api.openai.com` calls (an embedding for
+      retrieval, chat completions for both the summary and the answer),
+      and the assistant's answer now never contains the hidden
+      project's *description* content.
+
+      Full `make check` green end to end once the temporary alternate-
+      port override (used for an interactive manual walkthrough at the
+      user's request) was reverted — the one test that failed under
+      that override (`test_referer_fallback_is_accepted_when_origin_
+      absent`) passes again with `APP_ORIGIN`/`API_PORT` back to their
+      real values; confirmed directly, not assumed.
 - [ ] Stage 8 — AI audit
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings

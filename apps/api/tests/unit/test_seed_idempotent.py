@@ -141,6 +141,7 @@ def _isolated_seed(monkeypatch: pytest.MonkeyPatch) -> None:
             client_name=(
                 client_name_for[project.client_name] if project.client_name is not None else None
             ),
+            description=project.description,
             tasks=tuple(
                 seed_module._SeedTask(
                     title=task.title,
@@ -1126,6 +1127,72 @@ async def test_seed_backfills_meeting_notes_on_a_pre_existing_meeting_without_du
             assert len(meetings) == 1, "re-running must not duplicate the pre-existing meeting"
             assert meetings[0].notes == meeting_entry.notes, (
                 "re-running must backfill the notes onto the pre-existing row"
+            )
+    finally:
+        async with session_factory() as db:
+            await _cleanup_rows_created_since(db, snapshot)
+
+
+async def test_seed_backfills_project_description_on_a_pre_existing_project_without_duplicating_it(
+    _isolated_seed: None,
+) -> None:
+    """Codex Stage 7 P1 fix (self-caught while fixing it, same class of bug
+    as the meeting-notes/due_date backfills above): an org seeded before
+    the "Founder Ops" project had a description already has the project,
+    with description still NULL — _get_or_create_project's own get-or-
+    create returned early on a project_code match, so it would never
+    apply the backfill on its own."""
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        snapshot = await _snapshot(db)
+
+    project_entry = next(p for p in seed_module._SEED_PROJECTS if p.description is not None)
+
+    try:
+        await seed_module.seed()
+
+        async with session_factory() as db:
+            organization = (
+                await db.execute(
+                    select(Organization).where(Organization.slug == seed_module._ORG_SLUG)
+                )
+            ).scalar_one()
+            project = (
+                await db.execute(
+                    select(Project).where(
+                        Project.organization_id == organization.id,
+                        Project.project_code == project_entry.project_code,
+                    )
+                )
+            ).scalar_one()
+            assert project.description == project_entry.description, (
+                "sanity: a fresh seed sets it directly"
+            )
+            # Simulates the org having been seeded before this project's
+            # description existed — the row is real and pre-existing,
+            # just missing the field this fix added.
+            project.description = None
+            await db.commit()
+
+        await seed_module.seed()
+        await seed_module.seed()
+
+        async with session_factory() as db:
+            projects = (
+                (
+                    await db.execute(
+                        select(Project).where(
+                            Project.organization_id == organization.id,
+                            Project.project_code == project_entry.project_code,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(projects) == 1, "re-running must not duplicate the pre-existing project"
+            assert projects[0].description == project_entry.description, (
+                "re-running must backfill the description onto the pre-existing row"
             )
     finally:
         async with session_factory() as db:
