@@ -264,6 +264,20 @@ optional parent ids means calling into `work`/`crm`/`meetings` services,
 and `platform` may never import a domain module (Codex Phase 6 Stage 2
 P1).
 
+### ai
+
+Phase 8. Owned by its own `ai` module, not `platform`
+([ARCHITECTURE.md §3](ARCHITECTURE.md#3-domain-modules)) — same reasoning
+as `documents`: retrieval/summarization/scoring need to call into
+`work`/`crm`/`meetings`/`finance` services, and `platform` may never import
+a domain module. Grows across Phase 8's stages; this stage adds:
+
+**meeting_summaries** — `id`, `organization_id`, `meeting_id` (uq — 1:1,
+regenerated in place, not versioned), `content` (text), `model` (text,
+which `OPENAI_CHAT_MODEL` produced it), `generated_by` (→ memberships),
+timestamps. Visibility is the meeting's own (`ensure_meeting_visible`) —
+no separate permission, no ownership-split of its own.
+
 ### platform
 
 **activity_events** — `id`, `organization_id`, `actor_id?`, `event` (text),

@@ -1043,14 +1043,18 @@ async def test_seed_backfills_due_date_on_a_pre_existing_task_without_duplicatin
 
         async with session_factory() as db:
             tasks = (
-                await db.execute(
-                    select(Task).where(
-                        Task.organization_id == organization.id,
-                        Task.project_id == project.id,
-                        Task.title == task_entry.title,
+                (
+                    await db.execute(
+                        select(Task).where(
+                            Task.organization_id == organization.id,
+                            Task.project_id == project.id,
+                            Task.title == task_entry.title,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(tasks) == 1, "re-running must not duplicate the pre-existing task"
             assert tasks[0].due_date == task_entry.due_date, (
                 "re-running must backfill the due_date onto the pre-existing row"

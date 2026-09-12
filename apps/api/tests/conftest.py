@@ -18,6 +18,8 @@ from trinol.core.authz.permissions import Role
 from trinol.core.db.engine import get_db_session
 from trinol.core.db.org_session import register_org_scope_guard
 from trinol.core.deps import get_settings
+from trinol.modules.ai.services.deps import get_ai_client
+from trinol.modules.ai.services.fake_client import FakeAIClient
 from trinol.modules.identity.deps import get_identity_verifier
 from trinol.modules.identity.models import Membership, Organization, User
 from trinol.platform.email.deps import get_email_sender
@@ -110,6 +112,21 @@ def fake_email_sender() -> MemoryEmailSender:
         yield sender
     finally:
         app.dependency_overrides.pop(get_email_sender, None)
+
+
+@pytest.fixture
+def fake_ai_client() -> FakeAIClient:
+    """Overrides get_ai_client for the duration of the test — no test
+    anywhere in the suite calls the real OpenAI API (ADR-0014, same
+    posture as fake_email_sender/fake_verifier above)."""
+    from trinol.main import app
+
+    ai_client = FakeAIClient()
+    app.dependency_overrides[get_ai_client] = lambda: ai_client
+    try:
+        yield ai_client
+    finally:
+        app.dependency_overrides.pop(get_ai_client, None)
 
 
 @dataclass(frozen=True, slots=True)

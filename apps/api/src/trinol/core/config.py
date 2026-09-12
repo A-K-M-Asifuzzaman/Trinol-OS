@@ -80,3 +80,12 @@ class Settings(BaseSettings):
     # different origin for. None until Phase 3 builds the route and this is
     # actually configured — no code change needed then, only this env var.
     public_contact_origin: str | None = None
+
+    # ADR-0014: Phase 8 AI. Absent in dev/CI until provided — ai/services/
+    # deps.py inits lazily and only raises if a real OpenAI call is actually
+    # made without it (same posture as firebase_credentials above); tests
+    # never reach that code path since fake_ai_client overrides the
+    # dependency entirely.
+    openai_api_key: str | None = None
+    openai_chat_model: str = "gpt-4o-mini"
+    openai_embedding_model: str = "text-embedding-3-small"

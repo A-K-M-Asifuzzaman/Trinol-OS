@@ -4045,13 +4045,113 @@ Codex audit found no P0/P1 findings, closing Phase 7, mirroring how
 Phases 2-6 each closed.
 
 ## Phase 8 — AI
-- [ ] Meeting summarization
-- [ ] Action extraction
-- [ ] Company assistant
-- [ ] RAG / semantic company search
-- [ ] Lead scoring
-- [ ] Project risk intelligence
-- [ ] AI audit
+
+Status: **In progress.** Planned via a dedicated plan-mode session
+(mirroring how Phases 3-7 each started); plan file:
+`reactive-dreaming-lantern.md`.
+
+MASTER_PROMPT §30 ("AI — Later") lists this phase's features as a bare
+"Future" bucket with two hard rules that shape every stage: "Do not
+make V1 dependent on an LLM" and "Do not let an LLM calculate
+authoritative financial totals." §39's own Phase 8 entry sequences the
+work explicitly: "Only after enough real company data exists. Start
+with meeting summary/action extraction." No AI infrastructure existed
+anywhere in the repo before this phase — no SDK dependency, no
+`AI_*` permission, no ADR, no schema stub.
+
+**User-confirmed decisions**: (1) LLM provider is **OpenAI** (chat
+completions + embeddings); (2) RAG scope is **full vector RAG**
+(real pgvector storage/embeddings/retrieval), with "Company assistant"
+built as the chat UI on the same retrieval rather than a second data
+source.
+
+**Architecture**: a new `ai` module (ARCHITECTURE.md §3), following the
+`documents`-module precedent exactly — `ai → meetings/crm/work/finance`
+(read-only into finance), never the reverse. The hardest design problem
+(a cross-module RAG index has no inherent concept of permissions) is
+resolved two ways, detailed fully in the plan file: finance rows are
+never embedded at all (the assistant's finance awareness is a separate,
+already-permission-gated tool call, never a vector search — this is
+also the concrete form of §30's "no LLM financial totals" rule), and
+every other chunk's visibility is re-validated live against its source
+module's own existing visibility rule at query time, never trusted from
+cached metadata (arrives in Stage 4).
+
+Almost no new `Permission` is needed — meeting summarization/action
+extraction reuse `MEETING_WRITE_OWN`/`MEETING_READ` (same creator/
+participant/MANAGER+ rule meeting decisions/actions already use), lead
+scoring reuses `LEAD_READ`/`LEAD_WRITE`, project risk reuses
+`PROJECT_READ` with Phase 7's own established ownership filter. Only
+the company-assistant/search surface needs a genuinely new value
+(`AI_ASSISTANT_USE`, arriving Stage 4).
+
+Every LLM call happens synchronously inside the request an explicit
+user action triggers (Summarize/Extract/Ask/Score) — the same pattern
+this codebase already uses for PDF rendering and SMTP email. ADR-0010
+("no Redis or worker in V1") is not revisited this phase; no queue, no
+cron is introduced.
+
+- [x] Stage 1 — AI client foundations + meeting summarization.
+      New `modules/ai/` package (models.py, schemas.py, routes/,
+      services/) — the first row in ARCHITECTURE.md's module table
+      since `documents` (Phase 6), with the same "not platform, needs
+      cross-module reads" reasoning. `AIClient` Protocol (`complete()`
+      only this stage — `embed()` arrives in Stage 3 once RAG actually
+      needs it); `OpenAIClient` (wraps `openai.AsyncOpenAI`);
+      `FakeAIClient` (deterministic templated output, records every
+      call); `get_ai_client()` dependency mirroring `platform/email/
+      deps.py`'s `get_email_sender` exactly, lazy-initialized the same
+      way `identity/firebase_verifier.py`'s `_get_app()` is — a missing
+      `OPENAI_API_KEY` fails only an actual call, never app boot.
+      `fake_ai_client` conftest fixture mirrors `fake_email_sender`;
+      every test in the suite uses it, none calls the real API.
+
+      `MeetingSummary` (1:1 with a meeting, regenerated in place, no
+      history) + migration `0009_ai_meeting_summaries`; `summarize_
+      meeting()`/`get_meeting_summary()` reuse `meeting_service`'s own
+      `can_write_meeting`/`ensure_meeting_visible` — no new permission,
+      no ownership-split of its own (RBAC.md's existing "Meeting edit"/
+      "Meeting visibility" rules already cover this exactly, same as
+      decisions/actions). Routes `POST/GET /meetings/{id}/summary`
+      registered in the ownership-split matrix set (not the flat authz
+      matrix), matching the existing meeting-decisions/actions
+      precedent — visibility/edit are ownership rules, not a flat
+      per-row permission check.
+
+      `openai` added as a dependency (`pyproject.toml`); `OPENAI_API_
+      KEY`/`OPENAI_CHAT_MODEL` (default `gpt-4o-mini`)/`OPENAI_
+      EMBEDDING_MODEL` (default `text-embedding-3-small`, declared now
+      though unused until Stage 3 — one env-var pass, not two) added to
+      `.env`/`.env.example`/`core/config.py`. `migrations/env.py` needed
+      one addition (`from trinol.modules.ai import models`) so
+      `alembic check`'s autogenerate diffing actually sees the new
+      table — caught immediately by running `alembic check` itself
+      after the first migration, before any review round.
+
+      10 new integration tests (`test_meeting_summaries.py`): creator/
+      MANAGER+ can summarize, a non-creator MEMBER cannot (403), GET
+      before generation is 404, a participant can view but not
+      generate, regenerating replaces content in place without
+      duplicating the row, a feed event is recorded, and cross-org
+      summary/POST are 404 (pre-seeding a real summary row first, so
+      the 404 proves isolation rather than merely "not summarized
+      yet" — the same subtlety the shared isolation-matrix row below
+      also has to account for). The two new routes also added to
+      `test_isolation_matrix.py`'s `_MEETING_CONTENT_ISOLATION_ROUTES`
+      (parametrized across every role, not just one), and a new
+      `make_meeting_summary` test factory.
+
+      Full backend suite (1249 tests, up from 1229), ruff, mypy,
+      `alembic check`, `make openapi` clean; `next build`/tsc/vitest
+      clean (no frontend UI yet — that's Stage 2).
+- [ ] Stage 2 — Action extraction + meetings frontend
+- [ ] Stage 3 — RAG infrastructure
+- [ ] Stage 4 — Company assistant + semantic search + retrieval filter
+- [ ] Stage 5 — Lead scoring
+- [ ] Stage 6 — Project risk intelligence
+- [ ] Stage 7 — Security matrices, RBAC.md, seed data, E2E
+- [ ] Stage 8 — AI audit
+- [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 
 ## Technical debt ledger

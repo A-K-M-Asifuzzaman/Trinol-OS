@@ -83,13 +83,33 @@ tables.
 | `meetings` | Meeting, MeetingParticipant, MeetingDecision, MeetingAction | 4 |
 | `finance` | Income, Expense, Invoice, InvoiceItem, Payment, InvoiceCounter | 5 |
 | `documents` | DocumentReference | 6 |
+| `ai` | MeetingSummary, KnowledgeChunk, LeadScore, ProjectRiskAssessment | 8 |
 | `platform` | ActivityEvent, Notification, FileObject | cross-cutting |
 
 Dependency direction is one-way: `platform` ← everything, `identity` ← everything,
 and otherwise `work → crm` (project belongs to a client), `meetings → work/crm`,
-`finance → work/crm`, `documents → work/crm/meetings`. No cycles. `crm` must not
+`finance → work/crm`, `documents → work/crm/meetings`, `ai → meetings/crm/work/
+finance` (read-only into finance — see below). No cycles. `crm` must not
 import from `work`; the lead→project conversion lives in `work` because that is
 where the Project is created.
+
+`ai` needs read access across `meetings`/`crm`/`work` simultaneously (meeting
+summarization, action extraction, RAG retrieval, lead scoring, project risk all
+read into their respective modules) plus one narrow, tool-call-only read into
+`finance` (the company assistant's finance awareness, gated on `FINANCE_READ`)
+— the same `documents`-module reasoning above applies here, just with a wider
+fan-out. Financial rows (`Income`/`Expense`/`Invoice`/`Payment`) are never
+embedded or indexed by `ai` — the assistant's only access to them is that one
+direct, already-permission-gated service call, never a vector search (Phase 8
+plan §0(b): this is also the concrete form of MASTER_PROMPT §30's "do not let
+an LLM calculate authoritative financial totals" rule). Action extraction
+writes `MeetingAction` rows from `ai.services.action_extraction_service`, not
+from `meetings.services` — since the dependency arrow is `ai → meetings` (not
+the reverse), the cross-module transaction belongs on the importing (`ai`)
+side, inline-constructing the row directly, the same "construct it inline,
+never via the other module's auto-committing `create_x()`" shape the two
+writes below already use, just with the module roles reversed because the
+arrow itself is reversed here.
 
 `DocumentReference` is *not* `platform`-owned, despite an earlier draft of this
 table (Phase 6 planning) assuming it would sit alongside `ActivityEvent`/

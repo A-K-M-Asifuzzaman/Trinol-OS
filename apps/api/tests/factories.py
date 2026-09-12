@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Role
 from trinol.core.ids import uuid7
+from trinol.modules.ai.models import MeetingSummary
 from trinol.modules.crm.models import Client, ClientStatus, Lead, LeadSource, LeadStage
 from trinol.modules.documents.models import DocumentKind, DocumentReference
 from trinol.modules.finance.models import (
@@ -392,6 +393,27 @@ async def make_meeting_decision(
     db.add(decision)
     await db.flush()
     return decision
+
+
+async def make_meeting_summary(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    generated_by: Membership,
+    content: str = "Test summary",
+    model: str = "test-model",
+) -> MeetingSummary:
+    summary = MeetingSummary(
+        id=uuid7(),
+        organization_id=meeting.organization_id,
+        meeting_id=meeting.id,
+        content=content,
+        model=model,
+        generated_by=generated_by.user_id,
+    )
+    db.add(summary)
+    await db.flush()
+    return summary
 
 
 async def make_meeting_action(

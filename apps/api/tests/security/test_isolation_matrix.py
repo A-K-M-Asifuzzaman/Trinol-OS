@@ -16,6 +16,7 @@ from tests.factories import (
     make_meeting_action,
     make_meeting_decision,
     make_meeting_participant,
+    make_meeting_summary,
     make_membership,
     make_organization,
     make_project,
@@ -554,6 +555,12 @@ _MEETING_CONTENT_ISOLATION_ROUTES: list[tuple[str, str, dict[str, str] | None]] 
     # Phase 4 Stage 5: promote is org-scoped the same way every other
     # action route is — same reasoning, no separate table needed.
     ("POST", "/api/v1/meetings/{meeting_id}/actions/{action_id}/promote", None),
+    # Phase 8 Stage 1: a summary is org-scoped the same way — pre-seeded
+    # below (unlike a fresh meeting, "not summarized yet" would 404
+    # regardless of isolation, so GET needs a real row to make the check
+    # meaningful).
+    ("GET", "/api/v1/meetings/{meeting_id}/summary", None),
+    ("POST", "/api/v1/meetings/{meeting_id}/summary", None),
 ]
 
 
@@ -574,6 +581,7 @@ async def test_meeting_content_routes_isolated_across_orgs(
     meeting = await make_meeting(db_session, organization=org_a, created_by=owner)
     decision = await make_meeting_decision(db_session, meeting=meeting, decided_by=owner)
     action = await make_meeting_action(db_session, meeting=meeting, owner=owner)
+    await make_meeting_summary(db_session, meeting=meeting, generated_by=owner)
     await db_session.commit()
 
     org_b = await make_organization(db_session)

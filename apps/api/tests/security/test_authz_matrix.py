@@ -505,6 +505,12 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     # Phase 4 Stage 5: promote inherits the meeting's own edit rule too —
     # same shape as create/update/delete above.
     ("POST", "/api/v1/meetings/{meeting_id}/actions/{action_id}/promote"),
+    # Phase 8 Stage 1: a meeting summary inherits the meeting's own
+    # visibility (GET) / edit (POST) rule too — no independent permission,
+    # covered by test_meeting_summaries.py instead (same reasoning as
+    # decisions/actions above).
+    ("POST", "/api/v1/meetings/{meeting_id}/summary"),
+    ("GET", "/api/v1/meetings/{meeting_id}/summary"),
 }
 
 

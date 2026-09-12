@@ -17,6 +17,7 @@ dependencies = [
     "boto3>=1.35",
     "python-multipart>=0.0.12",
     "xhtml2pdf>=0.2.16",
+    "openai>=1.50",
 ]
 
 [dependency-groups]
