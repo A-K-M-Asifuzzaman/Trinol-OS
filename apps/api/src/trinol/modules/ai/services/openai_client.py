@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from openai import AsyncOpenAI
 
+from trinol.modules.ai.models import EMBEDDING_DIMENSIONS
+
 
 class OpenAIClient:
     """Phase 8 (ADR-0014): the real `AIClient`, wrapping `openai.AsyncOpenAI`.
@@ -26,5 +28,14 @@ class OpenAIClient:
         return content or ""
 
     async def embed(self, text: str) -> list[float]:
-        response = await self._client.embeddings.create(model=self._embedding_model, input=text)
-        return list(response.data[0].embedding)
+        return (await self.embed_many([text]))[0]
+
+    async def embed_many(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        response = await self._client.embeddings.create(
+            model=self._embedding_model,
+            input=texts,
+            dimensions=EMBEDDING_DIMENSIONS,
+        )
+        return [list(item.embedding) for item in sorted(response.data, key=lambda item: item.index)]

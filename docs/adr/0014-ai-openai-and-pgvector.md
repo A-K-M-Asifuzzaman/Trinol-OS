@@ -71,7 +71,7 @@ schema change to an existing module (`MeetingAction.source`, Stage 2) is
 authored as a normal `meetings`-owned migration, not an `ai`-owned write.
 
 **Tests never call the real API.** `AIClient` is a `Protocol` (`complete()`,
-`embed()` from Stage 3); `get_ai_client()` is a lazy-initialized dependency
+`embed()`/`embed_many()` from Stage 3); `get_ai_client()` is a lazy-initialized dependency
 mirroring `platform/email/deps.py`'s `get_email_sender` exactly, and every
 test overrides it with a deterministic `FakeAIClient` via a `fake_ai_client`
 fixture (same shape as `fake_email_sender`/`fake_verifier`). A missing
@@ -101,6 +101,12 @@ permission check Phase 7 Stage 1's Codex review already flagged this
 project for getting wrong once. Re-validating live against the source
 module's real rule costs one extra lookup per candidate and is never wrong.
 
+**Treating a system prompt as a security boundary.** Rejected: retrieved
+company text is explicitly labeled as untrusted data and the model is told
+not to follow instructions inside it, but authorization is enforced before
+provider calls and retrieval. Prompt wording is defense in depth, never what
+keeps a hidden project or finance row out of context.
+
 ## Consequences
 
 - One new server-side secret: `OPENAI_API_KEY`. Never in the repository,
@@ -125,4 +131,12 @@ module's real rule costs one extra lookup per candidate and is never wrong.
   are on any existing request's hot path (they are their own new routes,
   triggered by their own new user actions).
 - A phase-level cost/latency sanity pass on `reindex_stale`'s bounded batch
-  size is part of Stage 8's closing audit, not deferred indefinitely.
+  size is part of Stage 8's closing audit, not deferred indefinitely. That
+  audit found the original implementation made up to 20 embedding HTTP calls
+  serially. The bounded candidates are now submitted in one provider batch,
+  with the response pinned to the database column's 1536 dimensions.
+- The 1:1 AI cache writes use PostgreSQL conflict upserts, so concurrent first
+  generation cannot turn a valid request into a unique-constraint failure.
+- Project-risk narratives record `computed_by` as well as `computed_at`.
+  Upgrade-era rows whose original actor is unknowable remain nullable and are
+  treated as stale until regenerated; no actor is fabricated during migration.

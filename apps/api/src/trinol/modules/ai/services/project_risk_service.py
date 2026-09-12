@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.db.org_session import OrgSession
@@ -149,7 +150,11 @@ async def get_project_risk(
     )
 
     existing = await _get_assessment_row(db, organization_id=organization_id, project_id=project_id)
-    if existing is not None and existing.signals_snapshot == snapshot:
+    if (
+        existing is not None
+        and existing.computed_by is not None
+        and existing.signals_snapshot == snapshot
+    ):
         return ProjectRisk(
             project_id=project_id,
             project_name=project.name,
@@ -162,22 +167,28 @@ async def get_project_risk(
     narrative = await ai_client.complete(system=_SYSTEM_PROMPT, prompt=prompt)
     now = datetime.now(UTC)
 
-    if existing is None:
-        org_session = OrgSession(db, organization_id=organization_id)
-        existing = ProjectRiskAssessment(
-            id=uuid7(),
-            project_id=project_id,
-            level=level,
-            narrative=narrative,
-            signals_snapshot=snapshot,
-            computed_at=now,
+    statement = insert(ProjectRiskAssessment).values(
+        id=uuid7(),
+        organization_id=organization_id,
+        project_id=project_id,
+        level=level,
+        narrative=narrative,
+        signals_snapshot=snapshot,
+        computed_at=now,
+        computed_by=actor.user_id,
+    )
+    await db.execute(
+        statement.on_conflict_do_update(
+            constraint="uq_project_risk_assessments_org_project",
+            set_={
+                "level": statement.excluded.level,
+                "narrative": statement.excluded.narrative,
+                "signals_snapshot": statement.excluded.signals_snapshot,
+                "computed_at": statement.excluded.computed_at,
+                "computed_by": statement.excluded.computed_by,
+            },
         )
-        org_session.add(existing)
-    else:
-        existing.level = level
-        existing.narrative = narrative
-        existing.signals_snapshot = snapshot
-        existing.computed_at = now
+    )
 
     await db.commit()
     return ProjectRisk(
@@ -197,10 +208,10 @@ async def list_project_risk(
     project list here). Deliberately never calls the AI provider: a
     list of every project's risk would otherwise risk one real API call
     per project on a single page load. `level` is always fresh; only
-    whatever `narrative` is already cached is returned (`None` for a
-    project never assessed via the single-project route) — regenerating
-    it is `get_project_risk`'s job, triggered by an explicit single-
-    project view, not this list."""
+    a cached `narrative` is returned only while its signal snapshot still
+    matches (`None` for a never-assessed or changed project) — regenerating
+    it is `get_project_risk`'s job, triggered by an explicit single-project
+    view, not this list."""
     ensure_actor_in_org(actor, organization_id)
     analytics = await get_project_analytics(db, organization_id=organization_id, actor=actor)
     project_ids = [row.project_id for row in analytics.projects]
@@ -237,13 +248,27 @@ async def list_project_risk(
             overdue_tasks_count=row.overdue_tasks_count,
         )
         existing = assessments_by_project_id.get(row.project_id)
+        snapshot = _signals_snapshot(
+            project=project,
+            task_completion_rate=row.task_completion_rate,
+            overdue_tasks_count=row.overdue_tasks_count,
+        )
+        narrative = None
+        computed_at = None
+        if (
+            existing is not None
+            and existing.computed_by is not None
+            and existing.signals_snapshot == snapshot
+        ):
+            narrative = existing.narrative
+            computed_at = existing.computed_at
         results.append(
             ProjectRisk(
                 project_id=row.project_id,
                 project_name=row.name,
                 level=level,
-                narrative=existing.narrative if existing is not None else None,
-                computed_at=existing.computed_at if existing is not None else None,
+                narrative=narrative,
+                computed_at=computed_at,
             )
         )
     return results

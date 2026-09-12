@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.authz.permissions import Role
-from trinol.core.db.org_session import OrgSession
 from trinol.core.errors import ForbiddenError
 from trinol.core.ids import uuid7
 from trinol.modules.ai.models import KnowledgeChunk, KnowledgeSourceType
@@ -238,38 +238,39 @@ async def chunk_and_embed(
     ai_client: AIClient,
     candidates: list[_Candidate],
 ) -> int:
-    """Upserts one `KnowledgeChunk` (chunk_index=0) per candidate — embeds,
-    then replaces the existing row's content/embedding/source_updated_at
-    if one exists, else inserts a new one. One commit for the whole batch."""
+    """Upserts one `KnowledgeChunk` (chunk_index=0) per candidate.
+
+    The provider receives the bounded candidate set in one embedding batch,
+    and PostgreSQL resolves concurrent first-index attempts atomically.
+    """
     if not candidates:
         return 0
 
-    org_session = OrgSession(db, organization_id=organization_id)
-    for candidate in candidates:
-        embedding = await ai_client.embed(candidate.content)
-        result = await db.execute(
-            org_session.select(KnowledgeChunk).where(
-                KnowledgeChunk.source_type == candidate.source_type,
-                KnowledgeChunk.source_id == candidate.source_id,
-                KnowledgeChunk.chunk_index == 0,
-            )
+    embeddings = await ai_client.embed_many([candidate.content for candidate in candidates])
+    values = [
+        {
+            "id": uuid7(),
+            "organization_id": organization_id,
+            "source_type": candidate.source_type,
+            "source_id": candidate.source_id,
+            "source_updated_at": candidate.source_updated_at,
+            "chunk_index": 0,
+            "content": candidate.content,
+            "embedding": embedding,
+        }
+        for candidate, embedding in zip(candidates, embeddings, strict=True)
+    ]
+    statement = insert(KnowledgeChunk).values(values)
+    await db.execute(
+        statement.on_conflict_do_update(
+            constraint="uq_knowledge_chunks_org_source",
+            set_={
+                "source_updated_at": statement.excluded.source_updated_at,
+                "content": statement.excluded.content,
+                "embedding": statement.excluded.embedding,
+            },
         )
-        chunk = result.scalar_one_or_none()
-        if chunk is None:
-            chunk = KnowledgeChunk(
-                id=uuid7(),
-                source_type=candidate.source_type,
-                source_id=candidate.source_id,
-                source_updated_at=candidate.source_updated_at,
-                chunk_index=0,
-                content=candidate.content,
-                embedding=embedding,
-            )
-            org_session.add(chunk)
-        else:
-            chunk.source_updated_at = candidate.source_updated_at
-            chunk.content = candidate.content
-            chunk.embedding = embedding
+    )
 
     await db.commit()
     return len(candidates)

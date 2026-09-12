@@ -4046,7 +4046,7 @@ Phases 2-6 each closed.
 
 ## Phase 8 — AI
 
-Status: **In progress.** Planned via a dedicated plan-mode session
+Status: **Approved and closed.** Planned via a dedicated plan-mode session
 (mirroring how Phases 3-7 each started); plan file:
 `reactive-dreaming-lantern.md`.
 
@@ -4526,7 +4526,64 @@ cron is introduced.
       that override (`test_referer_fallback_is_accepted_when_origin_
       absent`) passes again with `APP_ORIGIN`/`API_PORT` back to their
       real values; confirmed directly, not assumed.
-- [ ] Stage 8 — AI audit
+- [x] Stage 8 — AI audit. Adversarial review re-verified the full Phase 8
+      implementation against its plan, ADR-0014, architecture boundaries,
+      permission-before-provider rule, finance exclusion, migrations, and
+      generated API surface.
+
+      Four correctness/reliability findings were fixed before closure. (1)
+      `reindex_stale`'s 20-source bound still meant up to 20 serial OpenAI
+      embedding requests; the same bounded inputs are now sent as one provider
+      batch, pinned explicitly to the schema's 1536 dimensions. (2) The
+      project-risk list recomputed `level` live but returned an old narrative
+      even when its `signals_snapshot` no longer matched, allowing a HIGH row
+      to carry LOW-risk prose; stale narrative/timestamp values are now omitted
+      until the single-project route regenerates them. (3) all four 1:1/cache
+      writers used query-then-insert and could lose concurrent first-generation
+      races to their unique constraints; PostgreSQL conflict upserts now make
+      those writes atomic. (4) project-risk narratives recorded when but not
+      who, violating this phase's own attribution exit criterion; migration
+      `0014_project_risk_computed_by` adds the membership-backed actor. Legacy
+      rows remain nullable because inventing an actor would be false, and are
+      treated as stale until regenerated.
+
+      Prompt-injection review confirmed authorization, not prompt wording, is
+      the security boundary: inaccessible project/meeting content is excluded
+      before embedding and retrieval, and finance is structurally absent from
+      `KnowledgeSourceType`. The assistant system prompt now additionally
+      labels instructions inside retrieved content as untrusted data; a
+      deterministic adversarial test proves the malicious visible text reaches
+      only the untrusted context while hidden project and finance content do
+      not. DATABASE.md was completed for every Phase 8 table/column, and a unit
+      contract pins the exact non-finance source enum plus the real client's
+      batched 1536-dimensional request.
+
+      Migration downgrade/upgrade/check passed. Full `make check` passed end
+      to end: 1309 backend tests, 103 frontend tests, ruff, formatting, mypy,
+      ESLint, TypeScript, Vitest, production build, and OpenAPI drift.
+- [x] Codex audit — final phase-level audit passed after the Stage 8 fixes:
+      all eight stages are coherent with ADR-0014 and the Phase 8 exit
+      criteria; no P0/P1 findings remain.
+- [x] Resolve P0/P1 findings — the Stage 4 pre-embedding visibility leak,
+      Stage 7 invalid task-based isolation proof, and Stage 8 batching,
+      stale-narrative, concurrent-cache-write, and attribution findings were
+      fixed and re-verified; none remain open.
+
+Phase 8 is complete across all 8 planned stages — meeting summarization,
+action extraction, permission-filtered vector RAG and company assistant,
+lead scoring, deterministic project risk, frontend integration, security
+matrices, seed/E2E coverage, and the final adversarial audit are all verified.
+This closes the final feature phase in MASTER_PROMPT §39.
+
+## Post-V1 — UI/UX upgrade
+
+Status: **Not started.** Explicitly requested by the product owner only after
+the full feature build was complete. It needs its own dedicated planning and
+design-audit session before implementation; no piecemeal visual changes were
+mixed into the Phase 8 correctness closeout.
+
+- [ ] Plan the cohesive full-app UI/UX upgrade
+- [ ] Implement and verify the approved design direction
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings
 
@@ -4548,7 +4605,7 @@ not mean "never".
 | App-layer org scoping, not RLS | ADR-0003 | V4 multi-tenant SaaS |
 | Session revocation reconciled on exchange + daily sweep | AUTH.md §8 | near-instant revocation needed |
 | minio omitted from Phase 1 Compose | Stage 1 plan (`docs/adr/0001-monorepo-and-stack.md`'s sibling decisions) | whichever phase first adds file uploads (task attachments, Phase 2) |
-| Org-scope guard covers select/update/delete, not bulk Core `insert()` | `core/db/org_session.py` | a bulk insert is ever written instead of `session.add()`/`OrgSession.add()` |
+| Org-scope guard covers select/update/delete, not Core `insert()` | `core/db/org_session.py`; AI cache upserts explicitly bind the actor-checked `organization_id` | a Core insert ever derives its organization from caller input instead of authenticated context; add a guarded helper then |
 | Contact-endpoint origin exception is a single hardcoded special case, not a general allowlist | `core/security/origin_check.py` | a second endpoint ever needs a non-default origin |
 | No membership reactivation path — a former (INACTIVE/ON_LEAVE) member can't be brought back except directly in the DB; invitation_service now deliberately refuses to re-invite them instead of creating a dead invitation | `invitation_service.create_invitation` | Team endpoints (Stage 9) or whichever stage needs to let an ADMIN reactivate someone |
 | Auth rejections with no determinable organization are logged, not audited | `session_service.py` (AUTH.md §5) | never — `activity_events.organization_id` is NOT NULL by design; would need a schema change (a nullable org column, or a separate unattributed-events table) to close |

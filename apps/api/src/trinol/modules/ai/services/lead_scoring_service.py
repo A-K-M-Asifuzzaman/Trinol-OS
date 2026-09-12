@@ -4,6 +4,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.db.org_session import OrgSession
@@ -87,23 +88,27 @@ async def score_lead(
     score, rationale = _parse_score_and_rationale(raw)
     now = datetime.now(UTC)
 
-    existing = await _get_score_row(db, organization_id=organization_id, lead_id=lead_id)
-    if existing is None:
-        org_session = OrgSession(db, organization_id=organization_id)
-        existing = LeadScore(
-            id=uuid7(),
-            lead_id=lead_id,
-            score=score,
-            rationale=rationale,
-            computed_at=now,
-            computed_by=actor.user_id,
-        )
-        org_session.add(existing)
-    else:
-        existing.score = score
-        existing.rationale = rationale
-        existing.computed_at = now
-        existing.computed_by = actor.user_id
+    statement = insert(LeadScore).values(
+        id=uuid7(),
+        organization_id=organization_id,
+        lead_id=lead_id,
+        score=score,
+        rationale=rationale,
+        computed_at=now,
+        computed_by=actor.user_id,
+    )
+    result = await db.execute(
+        statement.on_conflict_do_update(
+            constraint="uq_lead_scores_org_lead",
+            set_={
+                "score": statement.excluded.score,
+                "rationale": statement.excluded.rationale,
+                "computed_at": statement.excluded.computed_at,
+                "computed_by": statement.excluded.computed_by,
+            },
+        ).returning(LeadScore)
+    )
+    existing = result.scalar_one()
 
     await db.commit()
     return existing

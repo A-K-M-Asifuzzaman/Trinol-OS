@@ -10,9 +10,11 @@ class AIClientError(Exception):
 
 
 class AIClient(Protocol):
-    """Phase 8 (ADR-0014). `embed()` added in Stage 3, once RAG
-    infrastructure actually needs it."""
+    """Phase 8 (ADR-0014). Embedding supports single-query and bounded
+    batch calls so reindexing does not serialize provider round trips."""
 
     async def complete(self, *, system: str, prompt: str) -> str: ...
 
     async def embed(self, text: str) -> list[float]: ...
+
+    async def embed_many(self, texts: list[str]) -> list[list[float]]: ...

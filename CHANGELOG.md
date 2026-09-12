@@ -4,6 +4,24 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+## Phase 8 — AI — APPROVED
+
+- Added OpenAI-backed meeting summaries and action extraction, lead scoring,
+  deterministic project-risk intelligence, and a company assistant over
+  permission-filtered pgvector retrieval. Financial rows are never embedded;
+  authorized finance figures come only from the existing deterministic
+  aggregate service.
+- Added the AI frontend surfaces, role/isolation matrices, representative seed
+  data, and a real-provider E2E flow. The normal 1,309-test backend suite uses
+  only the deterministic fake client and makes zero OpenAI network calls.
+- Final audit fixes batch each bounded reindex into one embedding request,
+  suppress stale project-risk narratives, atomically upsert concurrent AI
+  caches, record the project-risk generating actor, and harden the assistant's
+  treatment of instructions inside retrieved content as untrusted data.
+- Phase 8 is the final feature phase in MASTER_PROMPT §39. A cohesive full-app
+  UI/UX upgrade is tracked separately and deliberately starts only after this
+  feature build is closed.
+
 ## Phase 2 — Projects + Tasks
 
 Full history and per-stage Codex review notes live in ROADMAP.md; this is

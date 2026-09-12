@@ -198,7 +198,8 @@ config rather than anything the caller can influence.
 `decided_by?`, `created_at`.
 
 **meeting_actions** — `id`, `organization_id`, `meeting_id`, `description`,
-`owner_id?`, `due_date?`, `task_id?` (set once promoted), `created_at`.
+`owner_id?`, `due_date?`, `task_id?` (set once promoted), `source`
+(`HUMAN|AI`), `created_at`.
 
 ### finance
 
@@ -270,13 +271,29 @@ Phase 8. Owned by its own `ai` module, not `platform`
 ([ARCHITECTURE.md §3](ARCHITECTURE.md#3-domain-modules)) — same reasoning
 as `documents`: retrieval/summarization/scoring need to call into
 `work`/`crm`/`meetings`/`finance` services, and `platform` may never import
-a domain module. Grows across Phase 8's stages; this stage adds:
+a domain module.
 
 **meeting_summaries** — `id`, `organization_id`, `meeting_id` (uq — 1:1,
 regenerated in place, not versioned), `content` (text), `model` (text,
 which `OPENAI_CHAT_MODEL` produced it), `generated_by` (→ memberships),
 timestamps. Visibility is the meeting's own (`ensure_meeting_visible`) —
 no separate permission, no ownership-split of its own.
+
+**knowledge_chunks** — `id`, `organization_id`, `source_type`
+(`MEETING|LEAD|PROJECT|TASK`; deliberately no finance member), `source_id`,
+`source_updated_at`, `chunk_index`, `content`, `embedding vector(1536)`,
+`created_at`. Unique on `(organization_id, source_type, source_id,
+chunk_index)` with an HNSW cosine-distance index. Polymorphic by design;
+live source visibility is re-validated before embedding and retrieval.
+
+**lead_scores** — `id`, `organization_id`, `lead_id` (uq — 1:1), `score`
+(0–100), `rationale`, `computed_at`, `computed_by` (→ memberships).
+
+**project_risk_assessments** — `id`, `organization_id`, `project_id` (uq —
+1:1), deterministic `level`, LLM-authored `narrative`, `signals_snapshot`
+(jsonb), `computed_at`, `computed_by?` (→ memberships). `computed_by` is
+nullable only for upgrade compatibility; legacy rows without it are treated
+as stale and regenerated before their narrative is surfaced.
 
 ### platform
 

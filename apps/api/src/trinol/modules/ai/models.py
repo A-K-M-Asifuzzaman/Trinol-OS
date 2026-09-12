@@ -233,6 +233,10 @@ class ProjectRiskAssessment(OrgScoped, Base):
         nullable=False,
     )
     computed_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+    # Nullable only for rows created before migration 0014. Services never
+    # surface those legacy narratives as fresh; the next single-project
+    # assessment regenerates them with a real actor.
+    computed_by: Mapped[uuid.UUID | None] = mapped_column(default=None)
 
     __table_args__ = (
         UniqueConstraint(
@@ -247,7 +251,14 @@ class ProjectRiskAssessment(OrgScoped, Base):
             # FK elsewhere in this codebase already uses.
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            ["organization_id", "computed_by"],
+            ["memberships.organization_id", "memberships.user_id"],
+            name="fk_project_risk_org_computed_by_memberships",
+            ondelete="RESTRICT",
+        ),
         # uq_project_risk_assessments_org_project above already covers
         # the project_id FK (DATABASE.md §1: "left prefix of a composite
         # one").
+        Index("ix_project_risk_org_computed_by", "organization_id", "computed_by"),
     )

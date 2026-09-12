@@ -4,10 +4,12 @@ from datetime import date, timedelta
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from tests.factories import make_membership, make_organization, make_project, make_task, make_user
 from tests.helpers import login_as
 from trinol.core.authz.permissions import Role
+from trinol.modules.ai.models import ProjectRiskAssessment
 
 # Reuses project_service's own visibility rule for the single-project
 # route (real ownership-split, RBAC.md §3 "Project detail") and
@@ -84,6 +86,15 @@ async def test_narrative_is_not_regenerated_when_signals_are_unchanged(
     assert first.status_code == 200
     assert len(fake_ai_client.calls) == 1
     first_narrative = first.json()["narrative"]
+    assessment = (
+        await db_session.execute(
+            select(ProjectRiskAssessment).where(
+                ProjectRiskAssessment.organization_id == actor.organization.id,
+                ProjectRiskAssessment.project_id == project.id,
+            )
+        )
+    ).scalar_one()
+    assert assessment.computed_by == actor.membership.user_id
 
     second = await client.get(f"/api/v1/projects/{project.id}/risk")
     assert second.status_code == 200
@@ -121,6 +132,37 @@ async def test_narrative_is_regenerated_when_signals_change(
     assert len(fake_ai_client.calls) == 2  # signals changed -- one more LLM call
     assert second.json()["narrative"] == "Now overdue and needs attention."
     assert second.json()["level"] != first.json()["level"]
+
+
+async def test_risk_list_never_pairs_a_fresh_level_with_a_stale_narrative(
+    client: AsyncClient, fake_verifier, fake_ai_client, db_session
+) -> None:
+    actor = await login_as(client, fake_verifier, db_session, role=Role.MANAGER)
+    project = await make_project(
+        db_session, organization=actor.organization, owner=actor.membership
+    )
+    await db_session.commit()
+
+    fake_ai_client.next_response = "This project currently looks healthy."
+    generated = await client.get(f"/api/v1/projects/{project.id}/risk")
+    assert generated.status_code == 200
+    assert generated.json()["level"] == "LOW"
+
+    for _ in range(3):
+        await _add_overdue_task(
+            db_session,
+            organization=actor.organization,
+            created_by=actor.membership,
+            project=project,
+        )
+    await db_session.commit()
+
+    listed = await client.get("/api/v1/ai/project-risk")
+    row = next(item for item in listed.json()["items"] if item["project_id"] == str(project.id))
+    assert row["level"] == "HIGH"
+    assert row["narrative"] is None
+    assert row["computed_at"] is None
+    assert len(fake_ai_client.calls) == 1  # the list remains provider-free
 
 
 async def test_member_cannot_view_risk_for_a_project_they_are_not_a_member_of(

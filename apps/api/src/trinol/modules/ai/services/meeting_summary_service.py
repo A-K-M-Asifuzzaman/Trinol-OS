@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trinol.core.db.org_session import OrgSession
@@ -68,21 +69,25 @@ async def summarize_meeting(
     content = await ai_client.complete(system=_SYSTEM_PROMPT, prompt=prompt)
     model = get_settings().openai_chat_model
 
-    summary = await _get_summary_row(db, organization_id=organization_id, meeting_id=meeting_id)
-    if summary is None:
-        org_session = OrgSession(db, organization_id=organization_id)
-        summary = MeetingSummary(
-            id=uuid7(),
-            meeting_id=meeting_id,
-            content=content,
-            model=model,
-            generated_by=actor.user_id,
-        )
-        org_session.add(summary)
-    else:
-        summary.content = content
-        summary.model = model
-        summary.generated_by = actor.user_id
+    statement = insert(MeetingSummary).values(
+        id=uuid7(),
+        organization_id=organization_id,
+        meeting_id=meeting_id,
+        content=content,
+        model=model,
+        generated_by=actor.user_id,
+    )
+    result = await db.execute(
+        statement.on_conflict_do_update(
+            constraint="uq_meeting_summaries_org_meeting",
+            set_={
+                "content": statement.excluded.content,
+                "model": statement.excluded.model,
+                "generated_by": statement.excluded.generated_by,
+            },
+        ).returning(MeetingSummary)
+    )
+    summary = result.scalar_one()
 
     await record(
         db,

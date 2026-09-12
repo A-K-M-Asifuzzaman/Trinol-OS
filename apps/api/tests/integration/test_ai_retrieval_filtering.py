@@ -55,6 +55,8 @@ async def test_reindex_creates_one_chunk_per_seeded_row(
     assert (KnowledgeSourceType.MEETING, meeting.id) in chunks
     assert (KnowledgeSourceType.LEAD, lead.id) in chunks
     assert (KnowledgeSourceType.PROJECT, project.id) in chunks
+    assert len(fake_ai_client.embed_batch_calls) == 1
+    assert len(fake_ai_client.embed_batch_calls[0]) == 3
 
     meeting_chunk = chunks[(KnowledgeSourceType.MEETING, meeting.id)]
     assert meeting_chunk.source_updated_at == meeting.updated_at
@@ -149,6 +151,8 @@ async def test_reindex_respects_max_sources_budget(
         )
     )
     assert len(result.scalars().all()) == 3
+    assert len(fake_ai_client.embed_batch_calls) == 1
+    assert len(fake_ai_client.embed_batch_calls[0]) == 3
 
 
 async def test_reindex_stale_never_embeds_a_meeting_or_project_the_actor_cannot_see(

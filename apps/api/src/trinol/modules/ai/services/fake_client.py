@@ -29,6 +29,7 @@ class FakeAIClient:
         self.calls: list[tuple[str, str]] = []
         self.next_response: str | None = None
         self.embed_calls: list[str] = []
+        self.embed_batch_calls: list[list[str]] = []
         # Test seam for Stage 4's retrieval-ranking tests: force every
         # embed() call to return the same vector, so similarity ordering
         # is fully deterministic regardless of input text.
@@ -41,7 +42,11 @@ class FakeAIClient:
         return f"[fake summary of {len(prompt)} chars]"
 
     async def embed(self, text: str) -> list[float]:
-        self.embed_calls.append(text)
+        return (await self.embed_many([text]))[0]
+
+    async def embed_many(self, texts: list[str]) -> list[list[float]]:
+        self.embed_batch_calls.append(texts)
+        self.embed_calls.extend(texts)
         if self.next_embedding is not None:
-            return self.next_embedding
-        return _deterministic_vector(text)
+            return [self.next_embedding for _ in texts]
+        return [_deterministic_vector(text) for text in texts]
