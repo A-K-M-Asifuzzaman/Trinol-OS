@@ -6,8 +6,9 @@ from enum import StrEnum
 
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import JSON, FetchedValue, ForeignKeyConstraint, Index, UniqueConstraint, text
 from sqlalchemy import Enum as PgEnum
-from sqlalchemy import FetchedValue, ForeignKeyConstraint, Index, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from trinol.core.db.base import Base
@@ -182,4 +183,71 @@ class LeadScore(OrgScoped, Base):
         # uq_lead_scores_org_lead above already covers the lead_id FK
         # (DATABASE.md §1: "left prefix of a composite one").
         Index("ix_lead_scores_org_computed_by", "organization_id", "computed_by"),
+    )
+
+
+class ProjectRiskLevel(StrEnum):
+    """Phase 8 Stage 6. Always computed by a fixed threshold rule over
+    `work.services.analytics_service.get_project_analytics()` output plus
+    `Project.health`/`deadline` — never by the LLM (generalizes §30's "no
+    LLM financial totals" rule to any figure this project's leadership
+    would treat as authoritative)."""
+
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+class ProjectRiskAssessment(OrgScoped, Base):
+    """Phase 8 Stage 6. 1:1 with `work.projects.id`, regenerated in place
+    — same shape `MeetingSummary`/`LeadScore` already use. `level` is
+    recomputed deterministically on every read (never cached — cheap,
+    and never trusted stale); only `narrative` (the LLM-authored prose
+    explaining `level`) is cached, and only regenerated when
+    `signals_snapshot` no longer matches what a fresh computation would
+    produce. Visibility is entirely the project's own (`project_service.
+    ensure_project_visible`) — this table carries no separate rule."""
+
+    __tablename__ = "project_risk_assessments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid7)
+    project_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    # Persisted alongside the narrative it was written from — not the
+    # authoritative level (that's always recomputed live), just a record
+    # of what the cached narrative is about.
+    level: Mapped[ProjectRiskLevel] = mapped_column(
+        PgEnum(
+            ProjectRiskLevel,
+            name="project_risk_level",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+    )
+    narrative: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    # The exact deterministic inputs the narrative was written from, so a
+    # later read can tell "did anything relevant change" without another
+    # LLM call — JSONB, mirrors platform.models.ActivityEvent.
+    # event_metadata's own type exactly.
+    signals_snapshot: Mapped[dict[str, object]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"),
+        nullable=False,
+    )
+    computed_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "project_id", name="uq_project_risk_assessments_org_project"
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "project_id"],
+            ["projects.organization_id", "projects.id"],
+            name="fk_project_risk_assessments_org_project_projects",
+            # Projects are soft-deleted (archived_at), never hard-deleted
+            # — RESTRICT, same reasoning every other project-referencing
+            # FK elsewhere in this codebase already uses.
+            ondelete="RESTRICT",
+        ),
+        # uq_project_risk_assessments_org_project above already covers
+        # the project_id FK (DATABASE.md §1: "left prefix of a composite
+        # one").
     )

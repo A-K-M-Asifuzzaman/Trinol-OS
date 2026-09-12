@@ -4386,7 +4386,64 @@ cron is introduced.
       `make openapi` clean, zero real network calls anywhere (re-
       verified); frontend tsc/eslint/prettier/vitest (102 tests, up from
       99)/`next build` clean.
-- [ ] Stage 6 — Project risk intelligence
+- [x] Stage 6 — Project risk intelligence.
+      `ProjectRiskAssessment` (1:1 with a project, regenerated in place)
+      + migration `0013_ai_project_risk`. `level` (`LOW|MEDIUM|HIGH`) is
+      always a fixed threshold rule over `work.services.analytics_
+      service.get_project_analytics()` output plus `Project.health`/
+      `deadline` — never the LLM, recomputed fresh on every read, never
+      trusted from the cached row. Only `narrative` (the LLM-authored
+      prose explaining `level`) is cached, keyed by a `signals_snapshot`
+      JSONB column — regenerated only when a fresh computation's
+      snapshot no longer matches the stored one, bounded to at most one
+      LLM call per single-project view.
+
+      **A fresh decision this stage had to make, informed directly by
+      the Stage 5 live-API incident**: the org-wide `GET /ai/project-
+      risk` list deliberately **never** calls the AI provider at all —
+      `list_project_risk()` returns the always-fresh deterministic
+      `level` for every project plus whatever `narrative` happens to
+      already be cached (`None` if a project has never been viewed via
+      the single-project route), rather than regenerating narratives
+      for every project on one list load. A naive version would have
+      risked one real LLM call per project per page view — exactly the
+      kind of automatic, unbounded AI-provider fan-out Stage 5 had just
+      shown this project needs to guard against. This also means the
+      list route needed no `fake_ai_client` at all and is a plain,
+      always-safe row in the generic authz matrix (same shape `/projects/
+      analytics` already established) — only the single-project `GET
+      /projects/{id}/risk` (real ownership-split *and* a genuine
+      AI-provider route) went into `_OWNERSHIP_SPLIT_ROUTES`/
+      `_AI_PROVIDER_ROUTES` alongside Stage 5's finding.
+
+      Also fixed an N+1 query pattern caught while writing
+      `list_project_risk()` itself (not Codex-flagged): the first draft
+      re-fetched each project and its cached assessment row one at a
+      time in a loop; rewritten to two bulk queries (`Project.id.in_
+      (...)`, `ProjectRiskAssessment.project_id.in_(...)`) keyed into
+      dicts before the loop.
+
+      7 new backend integration tests: level crosses MEDIUM then HIGH
+      purely from overdue-task count, with the fake client's call count
+      staying at zero throughout (proving the level never depends on the
+      LLM, per the plan's own required proof); narrative not regenerated
+      when signals are unchanged (call count stays at 1) and regenerated
+      when they change (call count becomes 2, narrative text changes);
+      MEMBER 403s viewing a project they aren't a member of; MEMBER's
+      risk list excludes that same project while MANAGER's includes it;
+      cross-org 404.
+
+      Frontend: an "AI risk assessment" panel (level badge + narrative)
+      added to the project detail page (`retry: false`, same AI-panel
+      convention as every prior stage); a new "At-risk projects"
+      dashboard tile using the org-wide list endpoint specifically
+      (never the single-project one, for the same "never let a page load
+      trigger N real AI calls" reason above).
+
+      Full backend suite (1303 tests), ruff, mypy, `alembic check`,
+      `make openapi` clean, zero real network calls (re-verified);
+      frontend tsc/eslint/prettier/vitest (103 tests, up from 102)/`next
+      build` clean.
 - [ ] Stage 7 — Security matrices, RBAC.md, seed data, E2E
 - [ ] Stage 8 — AI audit
 - [ ] Codex audit

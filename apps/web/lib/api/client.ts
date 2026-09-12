@@ -612,6 +612,24 @@ export async function scoreLead(leadId: string): Promise<LeadScore> {
   });
 }
 
+export type ProjectRisk = components["schemas"]["ProjectRiskResponse"];
+export type ProjectRiskList = components["schemas"]["ProjectRiskListResponse"];
+
+export async function fetchProjectRisk(
+  projectId: string,
+  cookie?: string,
+): Promise<ProjectRisk> {
+  return apiFetch<ProjectRisk>(`/api/v1/projects/${projectId}/risk`, {
+    cookie,
+  });
+}
+
+export async function fetchProjectRiskList(
+  cookie?: string,
+): Promise<ProjectRiskList> {
+  return apiFetch<ProjectRiskList>("/api/v1/ai/project-risk", { cookie });
+}
+
 export type DocumentReference =
   components["schemas"]["DocumentReferenceResponse"];
 export type DocumentReferenceList =

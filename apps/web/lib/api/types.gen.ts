@@ -1078,6 +1078,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Risk Route */
+        get: operations["get_project_risk_route_api_v1_projects__project_id__risk_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/project-risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Project Risk Route */
+        get: operations["list_project_risk_route_api_v1_ai_project_risk_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2777,6 +2811,36 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * ProjectRiskLevel
+         * @description Phase 8 Stage 6. Always computed by a fixed threshold rule over
+         *     `work.services.analytics_service.get_project_analytics()` output plus
+         *     `Project.health`/`deadline` — never by the LLM (generalizes §30's "no
+         *     LLM financial totals" rule to any figure this project's leadership
+         *     would treat as authoritative).
+         * @enum {string}
+         */
+        ProjectRiskLevel: "LOW" | "MEDIUM" | "HIGH";
+        /** ProjectRiskListResponse */
+        ProjectRiskListResponse: {
+            /** Items */
+            items: components["schemas"]["ProjectRiskResponse"][];
+        };
+        /** ProjectRiskResponse */
+        ProjectRiskResponse: {
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Project Name */
+            project_name: string;
+            level: components["schemas"]["ProjectRiskLevel"];
+            /** Narrative */
+            narrative: string | null;
+            /** Computed At */
+            computed_at: string | null;
         };
         /**
          * ProjectStatus
@@ -6622,6 +6686,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_risk_route_api_v1_projects__project_id__risk_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRiskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_project_risk_route_api_v1_ai_project_risk_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRiskListResponse"];
                 };
             };
         };

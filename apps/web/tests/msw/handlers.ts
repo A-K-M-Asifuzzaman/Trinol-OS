@@ -70,4 +70,21 @@ export const handlers = [
       { status: 404 },
     ),
   ),
+  // Phase 8 Stage 6: a low-risk default for every project (ProjectRiskPanel
+  // always fetches this on the project detail page), and an empty risk
+  // list by default (the dashboard's "At-risk projects" tile) — same
+  // reasoning as the lead-score default above, individual tests override
+  // with server.use() when risk itself is what's being tested.
+  http.get(`${APP_ORIGIN}/api/v1/projects/:projectId/risk`, ({ params }) =>
+    HttpResponse.json({
+      project_id: params.projectId,
+      project_name: "Project",
+      level: "LOW",
+      narrative: "No notable risk signals.",
+      computed_at: "2026-01-01T00:00:00Z",
+    }),
+  ),
+  http.get(`${APP_ORIGIN}/api/v1/ai/project-risk`, () =>
+    HttpResponse.json({ items: [] }),
+  ),
 ];

@@ -193,6 +193,11 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # tested directly in test_project_analytics.py). A plain matrix row
     # is the right shape here, not _OWNERSHIP_SPLIT_ROUTES.
     ("GET", "/api/v1/projects/analytics", Permission.PROJECT_READ, None),
+    # Phase 8 Stage 6: same shape as /projects/analytics above — filters,
+    # never 403s, and never calls the AI provider at all (list_project_
+    # risk deliberately only returns cached narratives, ADR-0014) — a
+    # plain matrix row, tested directly in test_project_risk.py.
+    ("GET", "/api/v1/ai/project-risk", Permission.PROJECT_READ, None),
     (
         "PATCH",
         "/api/v1/projects/{project_id}",
@@ -455,6 +460,11 @@ _AI_PROVIDER_ROUTES: set[tuple[str, str]] = {
     ("GET", "/api/v1/ai/search"),
     ("POST", "/api/v1/ai/assistant/ask"),
     ("POST", "/api/v1/leads/{lead_id}/score"),
+    # Also listed in _OWNERSHIP_SPLIT_ROUTES (that's the set that actually
+    # excludes it from the generic test, since it's also a real
+    # ownership-split) — kept here too so every AI-provider route is
+    # discoverable in one place.
+    ("GET", "/api/v1/projects/{project_id}/risk"),
 }
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
@@ -481,6 +491,12 @@ _OWNERSHIP_SPLIT_ROUTES: set[tuple[str, str]] = {
     # Same shape again: the Kanban board is just another view of the
     # project's own data (ROADMAP.md Stage 4).
     ("GET", "/api/v1/projects/{project_id}/board"),
+    # Phase 8 Stage 6: same "Project detail" ownership-split rule again
+    # (ensure_project_visible) — also calls the real AI client on a first
+    # view (no cached assessment yet), so it belongs here rather than
+    # _AI_PROVIDER_ROUTES alone; listed there too for discoverability.
+    # Covered by test_project_risk.py.
+    ("GET", "/api/v1/projects/{project_id}/risk"),
     # RBAC.md §3 "Task edit": route is TASK_WRITE_OWN (MEMBER-tier), service
     # is TASK_WRITE_ANY (MANAGER+) or assignee or creator. Delete follows
     # the same rule (task_service.can_write_task's docstring, ROADMAP.md

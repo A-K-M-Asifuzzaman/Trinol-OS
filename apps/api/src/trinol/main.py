@@ -22,6 +22,8 @@ from trinol.modules.ai.routes.assistant import router as ai_assistant_router
 from trinol.modules.ai.routes.lead_scores import router as ai_lead_scores_router
 from trinol.modules.ai.routes.meeting_actions import router as ai_meeting_actions_router
 from trinol.modules.ai.routes.meeting_summaries import router as meeting_summaries_router
+from trinol.modules.ai.routes.project_risk import ai_router as ai_project_risk_router
+from trinol.modules.ai.routes.project_risk import project_router as project_risk_router
 from trinol.modules.ai.routes.reindex import router as ai_reindex_router
 from trinol.modules.ai.routes.search import router as ai_search_router
 from trinol.modules.crm.routes.clients import router as clients_router
@@ -96,6 +98,8 @@ def create_app() -> FastAPI:
     app.include_router(ai_search_router)
     app.include_router(ai_assistant_router)
     app.include_router(ai_lead_scores_router)
+    app.include_router(project_risk_router)
+    app.include_router(ai_project_risk_router)
 
     @app.get("/health", tags=["meta"])
     @public

@@ -114,4 +114,32 @@ describe("ProjectDetailPage", () => {
       ),
     );
   });
+
+  it("shows the AI risk assessment's level and narrative", async () => {
+    server.use(
+      http.get(`${APP_ORIGIN}/api/v1/projects/project-1`, () =>
+        HttpResponse.json(project),
+      ),
+      http.get(`${APP_ORIGIN}/api/v1/projects/project-1/board`, () =>
+        HttpResponse.json(boardWith([])),
+      ),
+      http.get(`${APP_ORIGIN}/api/v1/projects/project-1/risk`, () =>
+        HttpResponse.json({
+          project_id: "project-1",
+          project_name: "Website Redesign",
+          level: "HIGH",
+          narrative: "Several tasks are overdue and the deadline has passed.",
+          computed_at: "2026-01-01T00:00:00Z",
+        }),
+      ),
+    );
+    renderProjectDetailPage();
+
+    await waitFor(() => expect(screen.getByText("HIGH")).toBeInTheDocument());
+    expect(
+      screen.getByText(
+        "Several tasks are overdue and the deadline has passed.",
+      ),
+    ).toBeInTheDocument();
+  });
 });

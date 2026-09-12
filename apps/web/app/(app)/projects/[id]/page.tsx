@@ -11,6 +11,7 @@ import {
   ApiError,
   fetchProject,
   fetchProjectBoard,
+  fetchProjectRisk,
   updateTask,
   type TaskStatus,
 } from "@/lib/api/client";
@@ -88,6 +89,42 @@ export default function ProjectDetailPage() {
         columns={boardQuery.data.columns}
         onMoveTask={handleMoveTask}
       />
+      <ProjectRiskPanel projectId={projectId} />
+    </div>
+  );
+}
+
+// Phase 8 Stage 6: `retry: false` for the same "an AI-provider call is
+// bounded and shouldn't be retried automatically" reason every other AI
+// panel in this app already follows — a slow first-time assessment is
+// not a transient failure to retry into a second real API call.
+function ProjectRiskPanel({ projectId }: { projectId: string }) {
+  const risk = useQuery({
+    queryKey: ["project-risk", projectId],
+    queryFn: () => fetchProjectRisk(projectId),
+    retry: false,
+  });
+
+  if (risk.isLoading) {
+    return (
+      <div className="rounded border border-border p-4 text-sm text-muted-foreground">
+        Assessing project risk...
+      </div>
+    );
+  }
+  if (!risk.data) return null;
+
+  return (
+    <div className="rounded border border-border p-4">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-muted-foreground">
+          AI risk assessment
+        </h3>
+        <Badge>{risk.data.level}</Badge>
+      </div>
+      {risk.data.narrative ? (
+        <p className="mt-2 text-sm">{risk.data.narrative}</p>
+      ) : null}
     </div>
   );
 }

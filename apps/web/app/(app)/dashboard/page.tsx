@@ -3,6 +3,7 @@ import {
   fetchFinanceStats,
   fetchLeads,
   fetchLeadStats,
+  fetchProjectRiskList,
   fetchProjects,
   fetchTasks,
   fetchTeamMembers,
@@ -68,6 +69,20 @@ async function getFinanceStats(): Promise<{
   }
 }
 
+// Phase 8 Stage 6: uses the org-wide risk *list*, never the single-
+// project route — that one can trigger a real AI call to (re)generate a
+// narrative; the list never does (project_risk_service.list_project_risk
+// deliberately only reads cached narratives), so this tile is free to
+// load on every dashboard view like every other count here.
+async function getAtRiskProjectCount(): Promise<number | null> {
+  try {
+    const result = await fetchProjectRiskList(await getServerCookieHeader());
+    return result.items.filter((item) => item.level !== "LOW").length;
+  } catch {
+    return null;
+  }
+}
+
 export default async function DashboardPage() {
   const [
     teamCount,
@@ -76,6 +91,7 @@ export default async function DashboardPage() {
     leadCount,
     leadStats,
     financeStats,
+    atRiskProjectCount,
   ] = await Promise.all([
     getCount(fetchTeamMembers),
     // `ponytail: total task/project count, not a status-filtered one — the
@@ -91,6 +107,7 @@ export default async function DashboardPage() {
     getCount(fetchLeads),
     getLeadStats(),
     getFinanceStats(),
+    getAtRiskProjectCount(),
   ]);
 
   return (
@@ -132,6 +149,10 @@ export default async function DashboardPage() {
         <DashboardTile
           label="Total leads"
           value={leadCount === null ? "—" : String(leadCount)}
+        />
+        <DashboardTile
+          label="At-risk projects"
+          value={atRiskProjectCount === null ? "—" : String(atRiskProjectCount)}
         />
         <DashboardTile
           label="Pipeline value"

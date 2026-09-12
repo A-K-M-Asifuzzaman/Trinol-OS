@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from trinol.modules.ai.models import KnowledgeSourceType
+from trinol.modules.ai.models import KnowledgeSourceType, ProjectRiskLevel
 
 
 class ReindexResponse(BaseModel):
@@ -29,6 +29,18 @@ class AssistantAskRequest(BaseModel):
 class AssistantAskResponse(BaseModel):
     answer: str
     source_count: int
+
+
+class ProjectRiskResponse(BaseModel):
+    project_id: uuid.UUID
+    project_name: str
+    level: ProjectRiskLevel
+    narrative: str | None
+    computed_at: datetime | None
+
+
+class ProjectRiskListResponse(BaseModel):
+    items: list[ProjectRiskResponse]
 
 
 class LeadScoreResponse(BaseModel):
