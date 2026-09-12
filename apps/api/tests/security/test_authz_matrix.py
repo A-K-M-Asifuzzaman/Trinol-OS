@@ -427,6 +427,12 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # every other read in this module — no placeholder to resolve, a
     # static path with no parent resource.
     ("GET", "/api/v1/finance/stats", Permission.FINANCE_READ, None),
+    # Phase 8 Stage 3: a manual recovery/backfill trigger, not routine use
+    # (retrieval's own reindex_stale call already keeps the index fresh) —
+    # reuses ORG_SETTINGS_WRITE's ADMIN+ tier rather than a new permission,
+    # same reasoning the plan gives for this being an operational action.
+    # No ownership split, no parent resource.
+    ("POST", "/api/v1/ai/reindex", Permission.ORG_SETTINGS_WRITE, None),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the

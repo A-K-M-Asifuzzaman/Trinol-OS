@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+
+from trinol.modules.ai.models import EMBEDDING_DIMENSIONS
+
+
+def _deterministic_vector(text: str, dim: int = EMBEDDING_DIMENSIONS) -> list[float]:
+    """Same text -> same vector, different text -> (almost certainly)
+    a different one — real embeddings without a real network call, cheap
+    enough to run in every test. `reindex_stale`'s own "did this change"
+    tests rely on this determinism directly."""
+    digest = hashlib.sha256(text.encode()).digest()
+    return [(digest[i % len(digest)] / 127.5) - 1.0 for i in range(dim)]
+
 
 class FakeAIClient:
     """Deterministic test double for `AIClient` (TESTING.md's rule: no test
@@ -15,9 +28,20 @@ class FakeAIClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
         self.next_response: str | None = None
+        self.embed_calls: list[str] = []
+        # Test seam for Stage 4's retrieval-ranking tests: force every
+        # embed() call to return the same vector, so similarity ordering
+        # is fully deterministic regardless of input text.
+        self.next_embedding: list[float] | None = None
 
     async def complete(self, *, system: str, prompt: str) -> str:
         self.calls.append((system, prompt))
         if self.next_response is not None:
             return self.next_response
         return f"[fake summary of {len(prompt)} chars]"
+
+    async def embed(self, text: str) -> list[float]:
+        self.embed_calls.append(text)
+        if self.next_embedding is not None:
+            return self.next_embedding
+        return _deterministic_vector(text)

@@ -9,9 +9,10 @@ class OpenAIClient:
     `get_ai_client` for the whole suite (TESTING.md's rule for every
     external dependency, same as EmailSender/IdentityVerifier)."""
 
-    def __init__(self, *, api_key: str, chat_model: str) -> None:
+    def __init__(self, *, api_key: str, chat_model: str, embedding_model: str) -> None:
         self._client = AsyncOpenAI(api_key=api_key)
         self._chat_model = chat_model
+        self._embedding_model = embedding_model
 
     async def complete(self, *, system: str, prompt: str) -> str:
         response = await self._client.chat.completions.create(
@@ -23,3 +24,7 @@ class OpenAIClient:
         )
         content = response.choices[0].message.content
         return content or ""
+
+    async def embed(self, text: str) -> list[float]:
+        response = await self._client.embeddings.create(model=self._embedding_model, input=text)
+        return list(response.data[0].embedding)

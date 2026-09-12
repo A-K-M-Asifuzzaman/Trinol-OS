@@ -4188,7 +4188,55 @@ cron is introduced.
       Full backend suite (1261 tests, up from 1249), ruff, mypy, `alembic
       check`, `make openapi` clean; frontend tsc/eslint/prettier/vitest
       (96 tests, up from 94)/`next build` clean.
-- [ ] Stage 3 — RAG infrastructure
+- [x] Stage 3 — RAG infrastructure (no user-facing feature yet).
+      **Real infra gap found and fixed, not assumed**: `pgvector` is not
+      a "trusted" Postgres extension — confirmed directly against a real
+      Postgres that `trinol_migrator` (which merely owns the database)
+      gets a permission error trying to `CREATE EXTENSION vector`
+      itself, unlike `citext`. Fixed at the provisioning layer, not the
+      migration: `docker-compose.yml` and CI both switch from
+      `postgres:16-alpine` to `pgvector/pgvector:pg16` (a drop-in
+      `postgres:16` with pgvector built in), and
+      `infrastructure/postgres/init.sql` — which already runs as a
+      superuser at provisioning time, before any migration — installs
+      the extension there, so the migration's own `CREATE EXTENSION IF
+      NOT EXISTS vector` is always a no-op by the time it runs.
+      DEPLOYMENT.md and ADR-0014 both updated; production's managed
+      Postgres needs an admin to enable the extension the same way.
+
+      `KnowledgeChunk` (+ `KnowledgeSourceType` enum: `MEETING|LEAD|
+      PROJECT|TASK` — deliberately no `FINANCE` member, ADR-0014 §0(b))
+      + migration `0011_ai_knowledge_chunks`, including an HNSW cosine-
+      distance index declared in the ORM model's own `__table_args__`
+      (`postgresql_using="hnsw"`/`postgresql_ops`) rather than left as
+      migration-only raw SQL, so `alembic check` can actually verify it
+      like every other index in this codebase.
+
+      `AIClient.embed()` added to the Protocol/both implementations;
+      `FakeAIClient` embeds deterministically (SHA-256 of the text, no
+      network) so same-text/different-text produces the same/different
+      vector reliably in tests, plus a `next_embedding` seam for Stage
+      4's ranking tests. `embedding_service.chunk_and_embed()` (one
+      chunk per source row — no real text splitter needed at this data
+      volume) and `reindex_stale()` (bounded `max_sources`, org-wide scan
+      across all four source types, embeds only rows with no chunk yet
+      or a newer `updated_at` than the cached chunk's). `POST /ai/
+      reindex` (reuses `ORG_SETTINGS_WRITE`'s ADMIN+ tier, not a new
+      permission) as the manual recovery/backfill trigger only — nothing
+      requires it for correctness yet, since nothing calls
+      `reindex_stale` automatically until Stage 4's retrieval does.
+
+      5 new integration tests: one chunk per seeded meeting/lead/project;
+      only the row that actually changed gets re-embedded (a real
+      trigger-driven timestamp comparison doesn't work inside one test's
+      wrapping transaction — Postgres's `now()` is the *transaction*
+      timestamp, frozen for the whole test, confirmed directly rather
+      than assumed — so the test backdates the cached chunk's own
+      `source_updated_at` instead, exercising the same comparison
+      branch); the `max_sources` budget is respected; the reindex route
+      403s below ADMIN. Full backend suite (1271 tests, up from 1261),
+      ruff, mypy, `alembic check`, `make openapi` clean; no frontend
+      change this stage.
 - [ ] Stage 4 — Company assistant + semantic search + retrieval filter
 - [ ] Stage 5 — Lead scoring
 - [ ] Stage 6 — Project risk intelligence

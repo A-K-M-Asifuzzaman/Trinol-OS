@@ -79,6 +79,13 @@ GitHub Actions.
 ## 7. Backups and recovery
 
 - Managed Postgres with daily automated backups and point-in-time recovery.
+- Phase 8 Stage 3 (ADR-0014) adds the `pgvector` extension. Dev/CI use the
+  `pgvector/pgvector:pg16` image (a drop-in `postgres:16` with pgvector
+  built in); production's managed Postgres must have the `vector`
+  extension available and enabled by an admin before that migration runs
+  — it is not a "trusted" extension, so the ordinary migration role
+  cannot install it itself (`infrastructure/postgres/init.sql` handles
+  this for dev/CI, where provisioning already runs as a superuser).
 - A restore into a scratch database is exercised **before** Phase 5 ships, and
   once per quarter after. An untested backup is not a backup.
 - Object storage versioning enabled; attachments are not covered by the database

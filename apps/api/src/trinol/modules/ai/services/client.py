@@ -10,8 +10,9 @@ class AIClientError(Exception):
 
 
 class AIClient(Protocol):
-    """Phase 8 (ADR-0014). `complete()` only this stage — `embed()` is
-    added to this Protocol and both implementations in Stage 3, once RAG
-    infrastructure actually needs it (no unused method in the meantime)."""
+    """Phase 8 (ADR-0014). `embed()` added in Stage 3, once RAG
+    infrastructure actually needs it."""
 
     async def complete(self, *, system: str, prompt: str) -> str: ...
+
+    async def embed(self, text: str) -> list[float]: ...

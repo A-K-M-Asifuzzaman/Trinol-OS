@@ -22,3 +22,14 @@ $$;
 
 ALTER DATABASE trinol_os OWNER TO trinol_migrator;
 GRANT CONNECT ON DATABASE trinol_os TO trinol_app;
+
+-- ADR-0014 (Phase 8 Stage 3): pgvector is not a "trusted" extension, so
+-- only a superuser can install it — trinol_migrator (which merely owns
+-- the database) cannot, even though `alembic upgrade head`'s own
+-- `CREATE EXTENSION IF NOT EXISTS vector` runs as that role. Installing
+-- it here, at superuser-run provisioning time, means the migration's own
+-- statement is always a no-op "already exists" in every environment by
+-- the time it runs. Requires the pgvector/pgvector:pg16 image (or an
+-- equivalent managed-Postgres extension enabled by an admin) — see
+-- DEPLOYMENT.md.
+CREATE EXTENSION IF NOT EXISTS vector;

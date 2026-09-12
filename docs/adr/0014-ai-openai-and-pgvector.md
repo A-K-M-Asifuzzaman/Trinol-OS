@@ -108,6 +108,18 @@ module's real rule costs one extra lookup per candidate and is never wrong.
   talks to OpenAI directly.
 - `pgvector` is a new Postgres extension (added Stage 3), the first
   extension this project has added since `citext` in the initial migration.
+  Unlike `citext`, it is **not** a "trusted" extension — only a superuser
+  can install it, so (confirmed directly against a real Postgres, not
+  assumed) `trinol_migrator` cannot run `CREATE EXTENSION vector` itself
+  despite owning the database. `docker-compose.yml` and CI both switch
+  from `postgres:16-alpine` to `pgvector/pgvector:pg16` (a drop-in
+  `postgres:16` with pgvector built in), and
+  `infrastructure/postgres/init.sql` — which already runs as a superuser
+  at provisioning time, before any migration — installs the extension
+  there. The migration itself keeps its own `CREATE EXTENSION IF NOT
+  EXISTS vector` for documentation/idempotency, but it is always a no-op
+  by the time it runs. Production's managed Postgres needs an admin to
+  enable the extension the same way (DEPLOYMENT.md §7).
 - Every AI feature this phase adds is additive and advisory — none of them
   change what an existing route returns for non-AI data, and none of them
   are on any existing request's hot path (they are their own new routes,

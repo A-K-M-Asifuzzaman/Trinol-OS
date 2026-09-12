@@ -23,6 +23,8 @@ def get_ai_client() -> AIClient:
         if not settings.openai_api_key:
             raise AIClientError("OPENAI_API_KEY is not set; cannot call the AI provider.")
         _client = OpenAIClient(
-            api_key=settings.openai_api_key, chat_model=settings.openai_chat_model
+            api_key=settings.openai_api_key,
+            chat_model=settings.openai_chat_model,
+            embedding_model=settings.openai_embedding_model,
         )
     return _client
