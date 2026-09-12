@@ -70,6 +70,9 @@ class Permission(StrEnum):
     # Audit
     AUDIT_READ = "AUDIT_READ"
 
+    # AI — Phase 8
+    AI_ASSISTANT_USE = "AI_ASSISTANT_USE"
+
 
 # Each tier is built as an explicit superset of the one below it, so the
 # cumulative hierarchy (RBAC.md §1: MEMBER ⊂ MANAGER ⊂ ADMIN ⊂ OWNER) holds by
@@ -87,6 +90,7 @@ _MEMBER: frozenset[Permission] = frozenset(
         Permission.MEETING_WRITE_OWN,
         Permission.DOCUMENT_READ,
         Permission.TEAM_READ,
+        Permission.AI_ASSISTANT_USE,
     }
 )
 

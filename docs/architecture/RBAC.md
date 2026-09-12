@@ -56,6 +56,7 @@ test, so a hand-edit to the map cannot quietly break the hierarchy.
 | Org settings | – | – | ✓ | ✓ |
 | Delete organization | – | – | – | ✓ |
 | Audit log | – | – | ✓ | ✓ |
+| Company assistant / semantic search | ✓ | ✓ | ✓ | ✓ |
 
 `*` ADMIN may only act on MANAGER and MEMBER (see §5).
 
@@ -129,6 +130,23 @@ not one — a `MEMBER`-tier one that only gates *route access*, and a
   membership), so per guard 6's principle this always records
   `is_audit=true`, never a feed event — same reasoning as project-member
   add/remove above.
+- Company assistant / semantic search (Phase 8 Stage 4) — route:
+  `Permission.AI_ASSISTANT_USE` (**new**, `MEMBER`-tier — there is no
+  single existing resource to hang this on, unlike every rule above).
+  The real restriction is not the route gate but `ai.services.
+  retrieval_service.search_knowledge`'s own per-candidate filter: every
+  retrieved chunk's live source is re-fetched and re-checked against
+  that resource's *existing* rule above (this same section's "Meeting
+  visibility" for a meeting chunk, "Project detail" for a project chunk)
+  — never trusted from anything cached on the chunk itself. Lead/task
+  chunks pass that same check trivially, since leads/tasks already have
+  no ownership-split (`Permission.LEAD_READ`/`TASK_READ` are flat
+  `MEMBER`-tier org-wide reads per §2). Finance is not filtered by this
+  mechanism at all — it is never embedded in the first place (ADR-0014
+  §0(b)), so no amount of retrieval tuning could ever surface it; the
+  assistant's only access to a financial figure is one direct
+  `FINANCE_READ`-gated service call, made only when the asking actor's
+  role actually holds that permission.
 
 ## 4. Not-found over forbidden
 

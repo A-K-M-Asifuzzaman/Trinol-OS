@@ -584,6 +584,19 @@ export async function extractMeetingActions(
   );
 }
 
+export type AssistantAskRequest = components["schemas"]["AssistantAskRequest"];
+export type AssistantAskResponse =
+  components["schemas"]["AssistantAskResponse"];
+
+export async function askAssistant(
+  body: AssistantAskRequest,
+): Promise<AssistantAskResponse> {
+  return apiFetch<AssistantAskResponse>("/api/v1/ai/assistant/ask", {
+    method: "POST",
+    body,
+  });
+}
+
 export type DocumentReference =
   components["schemas"]["DocumentReferenceResponse"];
 export type DocumentReferenceList =

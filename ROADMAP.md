@@ -4237,7 +4237,63 @@ cron is introduced.
       403s below ADMIN. Full backend suite (1271 tests, up from 1261),
       ruff, mypy, `alembic check`, `make openapi` clean; no frontend
       change this stage.
-- [ ] Stage 4 — Company assistant + semantic search + retrieval filter
+- [x] Stage 4 — Company assistant + semantic search + retrieval filter.
+      `retrieval_service.search_knowledge()`: over-fetches candidates by
+      cosine distance (`limit * 5` — pgvector has no concept of
+      permissions, so more are requested than needed), calls
+      `embedding_service.reindex_stale()` first (self-healing, bounded,
+      no write-hooks in the other four modules), then drops any
+      candidate whose live source is no longer visible — re-fetching and
+      re-running that module's own existing rule per type: `meeting_
+      service.ensure_meeting_visible` for meetings, `project_service.
+      ensure_project_visible` **plus an `archived_at` check** for
+      projects (a gap the plan itself hadn't spelled out: an archived
+      project's chunk would otherwise never be dropped, since `reindex_
+      stale`'s own indexing query already excludes archived rows from
+      being *re-embedded*, but never removes an already-indexed one —
+      caught and fixed while implementing, not left as a latent leak);
+      leads/tasks re-check only existence/archival, never a permission,
+      per RBAC.md's own documented no-ownership-split rule for both.
+
+      `assistant_service.ask()`: retrieval, plus a finance tool call
+      (`finance.services.dashboard_service.get_finance_stats`, invoked
+      only when `Permission.FINANCE_READ in ROLE_PERMISSIONS[actor.
+      role]`) injected into the prompt as a labeled "VERIFIED FINANCIAL
+      DATA" block the system prompt is told never to alter — the
+      concrete, mechanical form of MASTER_PROMPT §30's "no LLM financial
+      totals" rule, not just a convention.
+
+      New `Permission.AI_ASSISTANT_USE` (MEMBER-tier — RBAC.md §2/§3
+      updated) — the one genuinely new permission this whole phase
+      needs, since there's no single existing resource to hang it on;
+      the real restriction lives in the retrieval filter, not the route
+      gate, same "broad route, narrow service" shape `TASK_WRITE_OWN`
+      already uses. Routes `GET /ai/search`, `POST /ai/assistant/ask`
+      added to the flat authz matrix (no ownership-split row needed —
+      the filter is internal to the service, covered by its own
+      dedicated test file, same reasoning `/leads/stats`/`/projects/
+      analytics` already established).
+
+      Frontend: new `/assistant` chat page (plain local state, no
+      react-query — a one-shot ask/answer exchange, not a cacheable
+      list) added to the sidebar's INSIGHTS group.
+
+      **The load-bearing test of the whole phase**
+      (`test_company_assistant.py`, 5 tests): forces `fake_ai_client.
+      next_embedding` to an identical fixed vector for every chunk and
+      every query, so a MANAGER-only-visible project's chunk ties for
+      closest match — proving it's excluded from a MEMBER's `/ai/search`
+      results by the permission filter alone, not by incidental low
+      similarity ranking; confirms a MANAGER *does* see it (the filter
+      isn't just "always exclude"); confirms a MEMBER's assistant prompt
+      never contains the `VERIFIED FINANCIAL DATA` block or the actual
+      figure, while an OWNER's does, verbatim. One frontend component
+      test file (3 tests): empty state, ask/answer/source-count render,
+      error state.
+
+      Full backend suite (1286 tests, up from 1271), ruff, mypy,
+      `alembic check`, `make openapi` clean; frontend tsc/eslint/
+      prettier/vitest (99 tests, up from 96)/`next build` clean.
 - [ ] Stage 5 — Lead scoring
 - [ ] Stage 6 — Project risk intelligence
 - [ ] Stage 7 — Security matrices, RBAC.md, seed data, E2E

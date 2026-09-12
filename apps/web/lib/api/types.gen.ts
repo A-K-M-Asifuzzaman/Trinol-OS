@@ -1026,6 +1026,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Route */
+        get: operations["search_route_api_v1_ai_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/assistant/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask Assistant Route */
+        post: operations["ask_assistant_route_api_v1_ai_assistant_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1102,6 +1136,18 @@ export interface components {
             items: components["schemas"]["ActivityEventResponse"][];
             /** Total */
             total: number;
+        };
+        /** AssistantAskRequest */
+        AssistantAskRequest: {
+            /** Question */
+            question: string;
+        };
+        /** AssistantAskResponse */
+        AssistantAskResponse: {
+            /** Answer */
+            answer: string;
+            /** Source Count */
+            source_count: number;
         };
         /** BoardColumn */
         BoardColumn: {
@@ -1860,6 +1906,18 @@ export interface components {
             /** Terms */
             terms?: string | null;
         };
+        /**
+         * KnowledgeSourceType
+         * @description Phase 8 Stage 3 (ADR-0014 §0(b)): deliberately no `FINANCE` member.
+         *     `Income`/`Expense`/`Invoice`/`Payment` are never chunked or embedded —
+         *     the company assistant's only access to financial figures is a direct,
+         *     already-`FINANCE_READ`-gated service call (Stage 4), never a vector
+         *     search. This is structural, not a filter: there is no code path that
+         *     could ever produce a finance `KnowledgeChunk` row, because there is no
+         *     such enum member to construct one with.
+         * @enum {string}
+         */
+        KnowledgeSourceType: "MEETING" | "LEAD" | "PROJECT" | "TASK";
         /**
          * LeadConversionResponse
          * @description work may import crm (ARCHITECTURE.md §3), so the cross-module
@@ -2745,6 +2803,22 @@ export interface components {
          * @enum {string}
          */
         RoleOnProject: "LEAD" | "CONTRIBUTOR";
+        /** SearchResponse */
+        SearchResponse: {
+            /** Items */
+            items: components["schemas"]["SearchResultItem"][];
+        };
+        /** SearchResultItem */
+        SearchResultItem: {
+            source_type: components["schemas"]["KnowledgeSourceType"];
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Content */
+            content: string;
+        };
         /** SessionExchangeRequest */
         SessionExchangeRequest: {
             /** Id Token */
@@ -6375,6 +6449,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReindexResponse"];
+                };
+            };
+        };
+    };
+    search_route_api_v1_ai_search_get: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_assistant_route_api_v1_ai_assistant_ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantAskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantAskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

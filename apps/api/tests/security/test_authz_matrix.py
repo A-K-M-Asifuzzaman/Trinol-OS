@@ -433,6 +433,22 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # same reasoning the plan gives for this being an operational action.
     # No ownership split, no parent resource.
     ("POST", "/api/v1/ai/reindex", Permission.ORG_SETTINGS_WRITE, None),
+    # Phase 8 Stage 4: broad route, narrow service (RBAC.md §3) — every
+    # role reaches the route, retrieval_service.search_knowledge's own
+    # per-candidate visibility re-check is the real restriction, covered
+    # by test_company_assistant.py, not a per-row 403 here. No `q` query
+    # param supplied (a bare path, so this row's identity matches the
+    # live route's own `route.path` for the coverage check below) — a
+    # permitted role gets a 422 for the missing required param, which
+    # still satisfies "!= 403"; require()'s own check runs regardless of
+    # (and independent from) query-param validation.
+    ("GET", "/api/v1/ai/search", Permission.AI_ASSISTANT_USE, None),
+    (
+        "POST",
+        "/api/v1/ai/assistant/ask",
+        Permission.AI_ASSISTANT_USE,
+        {"question": "What is happening?"},
+    ),
 ]
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
