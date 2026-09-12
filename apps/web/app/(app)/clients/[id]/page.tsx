@@ -75,10 +75,10 @@ export default function ClientDetailPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{data.name}</h1>
+          <h1 className="text-3xl font-bold">{data.name}</h1>
           {data.company ? (
             <p className="text-sm text-muted-foreground">{data.company}</p>
           ) : null}

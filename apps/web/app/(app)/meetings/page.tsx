@@ -31,9 +31,9 @@ export default function MeetingsPage() {
   const [showForm, setShowForm] = useState(false);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Meetings</h1>
+        <h1 className="text-3xl font-bold">Meetings</h1>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? "Cancel" : "New meeting"}
         </Button>

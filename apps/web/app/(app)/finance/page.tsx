@@ -16,9 +16,15 @@ export default function FinanceOverviewPage() {
   });
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Finance</h1>
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-end justify-between gap-5 border-b border-border pb-6">
+        <div>
+          <p className="eyebrow mb-2">Financial operations</p>
+          <h1 className="text-3xl font-bold sm:text-4xl">Finance</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Cash flow, revenue, expenses, and receivables.
+          </p>
+        </div>
         <div className="flex gap-2">
           <Link
             href="/finance/income"
@@ -125,9 +131,11 @@ function StatTile({
   sub?: string;
 }) {
   return (
-    <div className="rounded border border-border p-4">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
+    <div className="surface min-h-28 p-4">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-5 font-mono text-2xl font-semibold tracking-[-0.04em] tabular-nums">
+        {value}
+      </p>
       {sub ? <p className="mt-1 text-xs text-muted-foreground">{sub}</p> : null}
     </div>
   );

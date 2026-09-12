@@ -19,8 +19,8 @@ export default function TeamPage() {
   });
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Team</h1>
+    <div className="space-y-6">
+      <h1 className="text-3xl font-bold">Team</h1>
       {isLoading ? (
         <ListLoadingState />
       ) : error ? (

@@ -4577,15 +4577,33 @@ This closes the final feature phase in MASTER_PROMPT §39.
 
 ## Post-V1 — UI/UX upgrade
 
-Status: **Not started.** Explicitly requested by the product owner only after
-the full feature build was complete. It needs its own dedicated planning and
-design-audit session before implementation; no piecemeal visual changes were
-mixed into the Phase 8 correctness closeout.
+Status: **Complete.** Implemented after the feature build closed, as requested
+by the product owner. The direction is based on TrinolIT's public technical
+brand: a carbon application frame, warm paper workspace, one signal accent,
+compact operational typography, ledger-like data surfaces, and restrained
+motion.
 
-- [ ] Plan the cohesive full-app UI/UX upgrade
-- [ ] Implement and verify the approved design direction
-- [ ] Codex audit
-- [ ] Resolve P0/P1 findings
+- [x] Plan the cohesive full-app UI/UX upgrade — audited the existing shell,
+      shared primitives, list states, forms, tables, boards, dashboards, auth,
+      and responsive behavior first. Chose one system-wide direction and reused
+      existing Tailwind/CSS rather than adding a component or icon dependency.
+- [x] Implement and verify the approved design direction — rebuilt the desktop
+      and mobile application frame, added route-aware navigation, upgraded the
+      dashboard, reports, finance, assistant, login, Kanban, pipeline, buttons,
+      badges, inputs, tables, and all four list states. Every other page inherits
+      the same tokens, spacing, surfaces, focus treatment, and responsive shell.
+- [x] Codex audit — checked keyboard focus, reduced-motion behavior, mobile nav,
+      finance-role hiding, active-route semantics, data-table overflow, and
+      regression-sensitive copy/controls. Frontend lint, TypeScript, all 104
+      Vitest tests, and the production Next.js build pass.
+- [x] Resolve P0/P1 findings — no P0/P1 findings remain. No real browser stack
+      or AI E2E was started because the product owner explicitly disabled
+      OpenAI usage while the account has no balance; local fake-backed tests
+      cover the affected UI. Clearing the key exposed and fixed a pre-existing
+      dependency-order bug: cross-org AI requests no longer fail before their
+      resource-level 404 checks, while an authorized operation that genuinely
+      needs the unavailable provider receives a structured 503. Full backend
+      suite: 1,310 passing with the key empty.
 
 ## Technical debt ledger
 

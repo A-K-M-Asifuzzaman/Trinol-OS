@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from fastapi import status
 
-class AIClientError(Exception):
+from trinol.core.errors import AppError
+
+
+class AIClientError(AppError):
     """Raised only when a real AI call is attempted without OPENAI_API_KEY
     configured — never at app boot (same lazy-init posture as
     IdentityVerificationError for a missing FIREBASE_CREDENTIALS)."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "AI_UNAVAILABLE"
 
 
 class AIClient(Protocol):

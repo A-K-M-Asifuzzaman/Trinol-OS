@@ -83,21 +83,26 @@ export function PipelineBoard({
   }
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-2">
+    <div className="flex gap-3 overflow-x-auto pb-3">
       {columns.map((column) => (
         <div
           key={column.stage}
           data-testid={`pipeline-column-${column.stage}`}
-          className="w-64 shrink-0 rounded border border-border bg-muted/30 p-2"
+          className="w-72 shrink-0 rounded border border-border bg-muted/45 p-2.5 shadow-[inset_0_3px_0_hsl(var(--foreground)/0.12)]"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
             if (!readOnly) dropBeforeLead(column, null);
           }}
         >
-          <p className="mb-2 px-1 text-xs font-semibold uppercase text-muted-foreground">
-            {STAGE_LABELS[column.stage]} ({column.leads.length})
-          </p>
+          <div className="mb-2.5 flex items-center justify-between px-1 py-1">
+            <p className="text-[11px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
+              {STAGE_LABELS[column.stage]}
+            </p>
+            <span className="grid h-6 min-w-6 place-items-center rounded-sm border border-border bg-white px-1.5 font-mono text-[10px] font-bold tabular-nums">
+              {column.leads.length}
+            </span>
+          </div>
           <div className="space-y-2">
             {column.leads.map((lead) => (
               <div
@@ -112,16 +117,16 @@ export function PipelineBoard({
                   e.stopPropagation();
                   if (!readOnly) dropBeforeLead(column, lead.id);
                 }}
-                className={`rounded border border-border bg-background p-2 text-sm shadow-sm ${readOnly ? "" : "cursor-move"}`}
+                className={`group rounded border border-border bg-white p-3 text-sm shadow-[0_1px_1px_hsl(var(--foreground)/0.04)] transition hover:-translate-y-0.5 hover:border-foreground/35 hover:shadow-md ${readOnly ? "" : "cursor-move"}`}
               >
                 <Link
                   href={`/leads/${lead.id}`}
-                  className="font-medium hover:underline"
+                  className="font-semibold leading-snug hover:underline"
                 >
                   {lead.name}
                 </Link>
                 {lead.estimated_value ? (
-                  <div className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-3 font-mono text-xs text-muted-foreground tabular-nums">
                     {lead.estimated_value} {lead.currency}
                   </div>
                 ) : null}
@@ -147,7 +152,7 @@ function PipelineLeadScoreBadge({ leadId }: { leadId: string }) {
   });
   if (!score.data) return null;
   return (
-    <div className="mt-1 text-xs text-muted-foreground">
+    <div className="mt-2 inline-flex rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-muted-foreground tabular-nums">
       Score: {score.data.score}/100
     </div>
   );

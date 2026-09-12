@@ -69,10 +69,10 @@ export default function ProjectDetailPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{projectQuery.data.name}</h1>
+          <h1 className="text-3xl font-bold">{projectQuery.data.name}</h1>
           <p className="text-sm text-muted-foreground">
             {projectQuery.data.project_code}
           </p>

@@ -111,79 +111,98 @@ export default async function DashboardPage() {
   ]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-end justify-between gap-5 border-b border-border pb-6">
+        <div>
+          <p className="eyebrow mb-2">Operations overview</p>
+          <h1 className="text-3xl font-bold sm:text-4xl">Dashboard</h1>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+            A live read on delivery, sales, and company momentum.
+          </p>
+        </div>
         {/* MASTER_PROMPT §8 quick actions. Not role-gated here — the
         destination pages already hide their own create controls from
         MEMBER (RBAC.md §2), so a MEMBER following either link just lands
         on a read-only list, same as clicking through the sidebar would. */}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link
             href="/leads"
-            className="inline-flex h-9 items-center justify-center rounded bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90"
+            className="inline-flex h-10 items-center justify-center rounded bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:shadow-[0_0_0_3px_hsl(var(--signal)/0.42)]"
           >
             New lead
           </Link>
           <Link
             href="/clients"
-            className="inline-flex h-9 items-center justify-center rounded border border-border bg-transparent px-4 text-sm font-medium hover:bg-muted"
+            className="inline-flex h-10 items-center justify-center rounded border border-border bg-white px-4 text-sm font-semibold shadow-sm transition hover:border-foreground hover:bg-muted/50"
           >
             New client
           </Link>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <DashboardTile
-          label="Team members"
-          value={teamCount === null ? "—" : String(teamCount)}
-        />
-        <DashboardTile
-          label="Total tasks"
-          value={taskCount === null ? "—" : String(taskCount)}
-        />
-        <DashboardTile
-          label="Total projects"
-          value={projectCount === null ? "—" : String(projectCount)}
-        />
-        <DashboardTile
-          label="Total leads"
-          value={leadCount === null ? "—" : String(leadCount)}
-        />
-        <DashboardTile
-          label="At-risk projects"
-          value={atRiskProjectCount === null ? "—" : String(atRiskProjectCount)}
-        />
-        <DashboardTile
-          label="Pipeline value"
-          value={
-            leadStats.pipelineValue === null ? "—" : leadStats.pipelineValue
-          }
-        />
-        <DashboardTile
-          label="Follow-ups due"
-          value={
-            leadStats.followUpsDue === null
-              ? "—"
-              : String(leadStats.followUpsDue)
-          }
-        />
-        {/* RBAC.md §3: omitted entirely for MEMBER/MANAGER (whose own
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-bold tracking-[-0.01em]">
+            Today at a glance
+          </h2>
+          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live
+            data
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+          <DashboardTile
+            label="Team members"
+            value={teamCount === null ? "—" : String(teamCount)}
+          />
+          <DashboardTile
+            label="Total tasks"
+            value={taskCount === null ? "—" : String(taskCount)}
+          />
+          <DashboardTile
+            label="Total projects"
+            value={projectCount === null ? "—" : String(projectCount)}
+          />
+          <DashboardTile
+            label="Total leads"
+            value={leadCount === null ? "—" : String(leadCount)}
+          />
+          <DashboardTile
+            label="At-risk projects"
+            value={
+              atRiskProjectCount === null ? "—" : String(atRiskProjectCount)
+            }
+          />
+          <DashboardTile
+            label="Pipeline value"
+            value={
+              leadStats.pipelineValue === null ? "—" : leadStats.pipelineValue
+            }
+          />
+          <DashboardTile
+            label="Follow-ups due"
+            value={
+              leadStats.followUpsDue === null
+                ? "—"
+                : String(leadStats.followUpsDue)
+            }
+          />
+          {/* RBAC.md §3: omitted entirely for MEMBER/MANAGER (whose own
         server-side fetch above 403s), not shown with a "—" placeholder
         like the tiles above — those are visible-but-unknown, this is
         not-visible-at-all. */}
-        {financeStats && (
-          <>
-            <DashboardTile
-              label="Net cash flow"
-              value={financeStats.netCashFlow ?? "—"}
-            />
-            <DashboardTile
-              label="Outstanding invoices"
-              value={financeStats.outstandingInvoicesTotal ?? "—"}
-            />
-          </>
-        )}
+          {financeStats && (
+            <>
+              <DashboardTile
+                label="Net cash flow"
+                value={financeStats.netCashFlow ?? "—"}
+              />
+              <DashboardTile
+                label="Outstanding invoices"
+                value={financeStats.outstandingInvoicesTotal ?? "—"}
+              />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -199,10 +218,11 @@ function DashboardTile({
   placeholder?: boolean;
 }) {
   return (
-    <div className="rounded border border-border p-4">
-      <p className="text-sm text-muted-foreground">{label}</p>
+    <div className="surface group relative min-h-28 overflow-hidden p-4 transition-transform duration-200 hover:-translate-y-0.5">
+      <span className="absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 bg-[hsl(var(--signal))] transition-transform group-hover:scale-x-100" />
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p
-        className={`mt-1 text-2xl font-semibold ${placeholder ? "text-muted-foreground" : ""}`}
+        className={`mt-5 font-mono text-3xl font-bold tracking-[-0.04em] tabular-nums ${placeholder ? "text-muted-foreground" : ""}`}
       >
         {value}
       </p>

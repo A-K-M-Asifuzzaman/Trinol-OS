@@ -4,16 +4,19 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --border: 214 32% 91%;
-    --primary: 222 47% 11%;
-    --primary-foreground: 210 40% 98%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --radius: 0.5rem;
+    --background: 60 19% 95%;
+    --foreground: 240 8% 7%;
+    --muted: 60 10% 90%;
+    --muted-foreground: 230 4% 41%;
+    --border: 60 8% 82%;
+    --primary: 240 7% 8%;
+    --primary-foreground: 60 20% 97%;
+    --destructive: 2 70% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --signal: 78 100% 64%;
+    --signal-foreground: 240 8% 7%;
+    --surface: 0 0% 100%;
+    --radius: 0.375rem;
   }
 
   * {
@@ -21,6 +24,161 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    min-width: 320px;
+    font-family: Arial, "Helvetica Neue", sans-serif;
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.3) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.22) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  ::selection {
+    color: hsl(var(--signal-foreground));
+    background: hsl(var(--signal));
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--foreground));
+    outline-offset: 3px;
+  }
+
+  h1 {
+    letter-spacing: -0.035em;
+  }
+
+  label {
+    letter-spacing: -0.01em;
+  }
+
+  input,
+  select,
+  textarea {
+    color: hsl(var(--foreground));
+    background: hsl(var(--surface));
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.7);
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease,
+      background-color 150ms ease;
+  }
+
+  input:hover,
+  select:hover,
+  textarea:hover {
+    border-color: hsl(var(--muted-foreground) / 0.65);
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-color: hsl(var(--foreground));
+    box-shadow: 0 0 0 3px hsl(var(--signal) / 0.4);
+    outline: none;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: hsl(var(--muted-foreground) / 0.72);
+  }
+
+  table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  th {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.6875rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  tbody tr {
+    transition: background-color 140ms ease;
+  }
+
+  tbody tr:hover {
+    background: hsl(var(--muted) / 0.55);
+  }
+
+  a {
+    text-underline-offset: 3px;
+  }
+}
+
+@layer components {
+  .workspace {
+    min-width: 0;
+    background:
+      radial-gradient(
+        circle at 84% 0%,
+        hsl(var(--signal) / 0.1),
+        transparent 26rem
+      ),
+      hsl(var(--background) / 0.92);
+  }
+
+  .workspace-content {
+    margin-inline: auto;
+    width: 100%;
+    max-width: 96rem;
+  }
+
+  .workspace-content > div > .flex:first-child,
+  .workspace-content > div > h1:first-child {
+    padding-bottom: 0.25rem;
+  }
+
+  .workspace-content form.rounded.border,
+  .workspace-content div.rounded.border:not([role="alert"]),
+  .workspace-content li.rounded.border {
+    background: hsl(var(--surface));
+    box-shadow: 0 1px 0 hsl(var(--foreground) / 0.05);
+  }
+
+  .workspace-content .overflow-x-auto {
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: hsl(var(--surface));
+    box-shadow: 0 1px 0 hsl(var(--foreground) / 0.04);
+  }
+
+  .workspace-content .overflow-x-auto table th:first-child,
+  .workspace-content .overflow-x-auto table td:first-child {
+    padding-left: 1rem;
+  }
+
+  .workspace-content .overflow-x-auto table th:last-child,
+  .workspace-content .overflow-x-auto table td:last-child {
+    padding-right: 1rem;
+  }
+
+  .eyebrow {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .surface {
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: hsl(var(--surface));
+    box-shadow:
+      0 1px 0 hsl(var(--foreground) / 0.05),
+      0 12px 30px hsl(var(--foreground) / 0.035);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

@@ -99,3 +99,47 @@ running against an un-migrated schema. Uptime check on `/health` from outside
 the host. Structured logs shipped off-host; error tracking (Sentry or
 equivalent) added in Phase 1 because a silent production error is worse than
 the dependency.
+
+## 9. Recommended first production target
+
+Deploy Trinol OS to **DigitalOcean Singapore (`SGP1`)** at
+`https://os.trinolit.com`. This keeps ADR-0009's topology intact and places the
+application close to TrinolIT's Bangladesh-based users without spreading a
+small system across several providers.
+
+| Component | Production target |
+|---|---|
+| Edge | Caddy on the application VM; TLS and same-origin `/api/*` routing |
+| Web + API | One Ubuntu LTS Droplet in `SGP1`, initially 2 shared vCPU / 4 GiB RAM |
+| Database | DigitalOcean Managed PostgreSQL 16 in `SGP1`, private VPC/TLS, daily backups and PITR |
+| Vector search | The managed PostgreSQL `vector` extension, enabled before the Phase 8 migration |
+| Files | Private DigitalOcean Spaces bucket in `SGP1`, S3 API, bucket versioning enabled |
+| DNS | `os.trinolit.com` → the Droplet; keep `www.trinolit.com` independent |
+| CI/CD | Existing GitHub Actions gates, then a manually approved SHA-tagged release |
+
+DigitalOcean currently documents [PostgreSQL and Droplet availability in
+`SGP1`](https://docs.digitalocean.com/platform/regional-availability/), managed
+PostgreSQL [support for `pgvector`](https://docs.digitalocean.com/products/vector-databases/postgresql/),
+[daily backups and PITR](https://docs.digitalocean.com/products/databases/), and
+Spaces' [S3 API and bucket versioning](https://docs.digitalocean.com/products/spaces/reference/s3-compatibility/).
+Recheck these capabilities when provisioning rather than treating this dated
+recommendation as permanent provider policy.
+
+### Release order
+
+1. Build the missing production Dockerfiles and Caddy configuration; the root
+   Compose file is development-only today (`--reload`, bind mounts, dependency
+   installation at container start).
+2. Provision a separate staging Droplet/database/Space in `SGP1`; enable
+   `vector`, create the migrator/application roles, and restore representative
+   non-production data.
+3. Run `make check`, build immutable images tagged with the commit SHA, run the
+   Alembic migration as a one-shot task, deploy, then smoke-check `/health`,
+   `/ready`, login, one read, and one write.
+4. Rehearse database restore and object-version recovery before production.
+5. Repeat for production and retain the previous image SHA for rollback.
+
+Leave `OPENAI_API_KEY` unset for the first deployment while the provider account
+has no balance. AI-backed actions will remain unavailable without consuming API
+credit; configure a newly rotated key only after billing is intentionally
+enabled. Never reuse the key previously pasted into a chat.

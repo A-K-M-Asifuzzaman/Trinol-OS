@@ -104,9 +104,9 @@ export default function LeadDetailPage() {
   const alreadyConverted = data.converted_client_id !== null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">{data.name}</h1>
+        <h1 className="text-3xl font-bold">{data.name}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {[data.email, data.phone].filter(Boolean).join(" · ")}
         </p>

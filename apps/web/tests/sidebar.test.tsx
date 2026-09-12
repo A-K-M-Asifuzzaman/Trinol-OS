@@ -8,17 +8,17 @@ import { Sidebar } from "@/components/nav/sidebar";
 describe("Sidebar", () => {
   it.each(["MEMBER", "MANAGER"])("hides Finance for %s", (role) => {
     render(<Sidebar role={role} />);
-    expect(screen.queryByText("FINANCE")).not.toBeInTheDocument();
+    expect(screen.queryByText("Finance")).not.toBeInTheDocument();
   });
 
   it.each(["ADMIN", "OWNER"])("shows Finance for %s", (role) => {
     render(<Sidebar role={role} />);
-    expect(screen.getByText("FINANCE")).toBeInTheDocument();
+    expect(screen.getByText("Finance")).toBeInTheDocument();
   });
 
   it("hides Finance when the role couldn't be resolved", () => {
     render(<Sidebar role={null} />);
-    expect(screen.queryByText("FINANCE")).not.toBeInTheDocument();
+    expect(screen.queryByText("Finance")).not.toBeInTheDocument();
   });
 
   it("always shows Team, regardless of role", () => {
@@ -81,6 +81,14 @@ describe("Sidebar", () => {
     expect(screen.getByRole("link", { name: "Invoices" })).toHaveAttribute(
       "href",
       "/invoices",
+    );
+  });
+
+  it("marks the current section in the navigation", () => {
+    render(<Sidebar role="MEMBER" pathname="/projects/project-id" />);
+    expect(screen.getByRole("link", { name: "Projects" })).toHaveAttribute(
+      "aria-current",
+      "page",
     );
   });
 });

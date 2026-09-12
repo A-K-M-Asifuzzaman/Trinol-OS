@@ -51,8 +51,14 @@ export default function ReportsPage() {
   // keep the entire page on the loading skeleton for several seconds
   // while it retries a request that was never going to succeed.
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Reports</h1>
+    <div className="space-y-8">
+      <div className="border-b border-border pb-6">
+        <p className="eyebrow mb-2">Business intelligence</p>
+        <h1 className="text-3xl font-bold sm:text-4xl">Reports</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Delivery, sales, and finance signals in one view.
+        </p>
+      </div>
       {projectAnalytics.isLoading ? (
         <ListLoadingState />
       ) : projectAnalytics.error || !projectAnalytics.data ? (
@@ -234,10 +240,13 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-3">
-      <h2 className="text-lg font-semibold">{title}</h2>
+    <section className="space-y-3">
+      <div className="flex items-center gap-3">
+        <h2 className="text-lg font-bold tracking-[-0.02em]">{title}</h2>
+        <span className="h-px flex-1 bg-border" />
+      </div>
       {children}
-    </div>
+    </section>
   );
 }
 
@@ -251,9 +260,11 @@ function StatTile({
   sub?: string;
 }) {
   return (
-    <div className="rounded border border-border p-4">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
+    <div className="surface min-h-28 p-4">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-5 font-mono text-2xl font-semibold tracking-[-0.04em] tabular-nums">
+        {value}
+      </p>
       {sub ? <p className="mt-1 text-xs text-muted-foreground">{sub}</p> : null}
     </div>
   );

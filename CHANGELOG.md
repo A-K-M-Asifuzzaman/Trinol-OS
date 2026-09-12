@@ -4,6 +4,28 @@ All notable changes to Trinol OS. Format loosely follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Changed — full-app UI/UX upgrade
+
+- Reworked the application into a cohesive Trinol-branded operations workspace:
+  carbon navigation frame, warm high-clarity canvas, signal accent, stronger
+  hierarchy, denser data surfaces, and responsive route-aware navigation.
+- Upgraded shared controls, form fields, tables, badges, loading/empty/error
+  states, Kanban and pipeline boards, dashboard, reports, finance, assistant,
+  and login. No new frontend dependency or backend behavior was introduced.
+- Added accessible focus treatments and reduced-motion handling. All 104
+  frontend tests, lint, typecheck, and the production build pass.
+- Cleared the local OpenAI key at the product owner's request; no real-provider
+  service or E2E flow was started during this work.
+
+### Fixed — AI disabled-mode isolation and error handling
+
+- A missing OpenAI key previously raised while FastAPI resolved the route
+  dependency, before the service could apply organization-scoped resource
+  checks. The dependency now returns a zero-network unavailable client: hidden
+  resources retain their required 404 response, while an authorized operation
+  that actually needs AI receives a structured 503. The complete 1,310-test
+  backend suite passes with the key empty.
+
 ## Phase 8 — AI — APPROVED
 
 - Added OpenAI-backed meeting summaries and action extraction, lead scoring,

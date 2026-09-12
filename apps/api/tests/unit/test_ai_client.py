@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from trinol.modules.ai.models import EMBEDDING_DIMENSIONS, KnowledgeSourceType
+from trinol.modules.ai.services import deps
+from trinol.modules.ai.services.client import AIClientError
 from trinol.modules.ai.services.openai_client import OpenAIClient
 
 
@@ -38,3 +40,18 @@ async def test_openai_embeddings_are_batched_and_fixed_to_the_schema_dimension()
         input=["first", "second"],
         dimensions=EMBEDDING_DIMENSIONS,
     )
+
+
+@pytest.mark.asyncio
+async def test_missing_key_fails_only_when_the_provider_is_used(monkeypatch) -> None:
+    monkeypatch.setattr(deps, "_client", None)
+    monkeypatch.setattr(
+        deps,
+        "get_settings",
+        lambda: SimpleNamespace(openai_api_key=None),
+    )
+
+    client = deps.get_ai_client()
+
+    with pytest.raises(AIClientError, match="temporarily unavailable"):
+        await client.embed("test")

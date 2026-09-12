@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppShell } from "@/components/nav/app-shell";
+
+vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
 
 // AGENTS.md's definition of done: "responsive behavior works". Codex Stage
 // 10 review: the sidebar permanently reserved 14rem with no mobile

@@ -59,21 +59,26 @@ export function KanbanBoard({
   }
 
   return (
-    <div className="flex gap-4 overflow-x-auto pb-2">
+    <div className="flex gap-3 overflow-x-auto pb-3">
       {columns.map((column) => (
         <div
           key={column.status}
           data-testid={`board-column-${column.status}`}
-          className="w-64 shrink-0 rounded border border-border bg-muted/30 p-2"
+          className="w-72 shrink-0 rounded border border-border bg-muted/45 p-2.5 shadow-[inset_0_3px_0_hsl(var(--foreground)/0.12)]"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
             dropBeforeIndex(column, column.tasks.length);
           }}
         >
-          <p className="mb-2 px-1 text-xs font-semibold uppercase text-muted-foreground">
-            {STATUS_LABELS[column.status]} ({column.tasks.length})
-          </p>
+          <div className="mb-2.5 flex items-center justify-between px-1 py-1">
+            <p className="text-[11px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
+              {STATUS_LABELS[column.status]}
+            </p>
+            <span className="grid h-6 min-w-6 place-items-center rounded-sm border border-border bg-white px-1.5 font-mono text-[10px] font-bold tabular-nums">
+              {column.tasks.length}
+            </span>
+          </div>
           <div className="space-y-2">
             {column.tasks.map((task, index) => (
               <div
@@ -88,15 +93,16 @@ export function KanbanBoard({
                   e.stopPropagation();
                   dropBeforeIndex(column, index);
                 }}
-                className="cursor-move rounded border border-border bg-background p-2 text-sm shadow-sm"
+                className="group cursor-move rounded border border-border bg-white p-3 text-sm shadow-[0_1px_1px_hsl(var(--foreground)/0.04)] transition hover:-translate-y-0.5 hover:border-foreground/35 hover:shadow-md"
               >
                 <Link
                   href={`/tasks/${task.id}`}
-                  className="font-medium hover:underline"
+                  className="font-semibold leading-snug hover:underline"
                 >
                   {task.title}
                 </Link>
-                <div className="mt-1 text-xs text-muted-foreground">
+                <div className="mt-3 flex items-center gap-1.5 text-[10px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--signal))] ring-1 ring-foreground/15" />
                   {task.priority}
                 </div>
               </div>

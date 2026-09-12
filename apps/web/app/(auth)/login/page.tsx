@@ -110,91 +110,147 @@ export default function LoginPage() {
   });
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-4">
-      <div className="w-full max-w-sm space-y-6">
-        <h1 className="text-xl font-semibold">Sign in to Trinol OS</h1>
-        <form onSubmit={onSubmit} className="space-y-3" noValidate>
+    <main className="grid min-h-screen bg-[#111214] lg:grid-cols-[minmax(0,1.1fr)_minmax(28rem,0.9fr)]">
+      <section className="relative hidden overflow-hidden border-r border-white/10 p-12 text-white lg:flex lg:flex-col lg:justify-between xl:p-16">
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)] [background-size:64px_64px]"
+        />
+        <div className="relative flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-sm border border-white/20 bg-white/[0.04] text-sm font-black">
+            T/
+          </span>
           <div>
-            <label htmlFor="email" className="text-sm font-medium">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="email"
-              className="mt-1 w-full rounded border border-border px-3 py-2 text-sm"
-              {...register("email")}
-            />
-            {errors.email ? (
-              <p className="mt-1 text-sm text-destructive">
-                {errors.email.message}
-              </p>
-            ) : null}
+            <p className="font-bold">Trinol OS</p>
+            <p className="text-xs text-zinc-500">Built by TrinolIT</p>
           </div>
-          <div>
-            <label htmlFor="password" className="text-sm font-medium">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              className="mt-1 w-full rounded border border-border px-3 py-2 text-sm"
-              {...register("password")}
-            />
-            {errors.password ? (
-              <p className="mt-1 text-sm text-destructive">
-                {errors.password.message}
-              </p>
-            ) : null}
+        </div>
+        <div className="relative max-w-2xl">
+          <span className="mb-7 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-[11px] font-bold tracking-[0.12em] text-zinc-400 uppercase">
+            <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--signal))]" />
+            Internal operations
+          </span>
+          <h1 className="max-w-xl text-5xl font-bold leading-[0.98] tracking-[-0.055em] xl:text-6xl">
+            One clear view of the company.
+          </h1>
+          <p className="mt-6 max-w-lg text-base leading-7 text-zinc-400">
+            Projects, clients, meetings, finance, and company
+            knowledge—connected in one operating system.
+          </p>
+        </div>
+        <div className="relative flex items-center justify-between border-t border-white/10 pt-5 text-xs text-zinc-600">
+          <span>Software · AI · Systems</span>
+          <span>Private workspace</span>
+        </div>
+      </section>
+
+      <section className="flex min-h-screen items-center justify-center bg-background px-5 py-10 sm:px-10">
+        <div className="w-full max-w-md">
+          <div className="mb-10 lg:hidden">
+            <p className="text-sm font-bold">Trinol OS</p>
+            <div className="mt-2 h-1 w-10 bg-[hsl(var(--signal))]" />
           </div>
-          {formError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {formError}
-            </p>
-          ) : null}
-          <Button type="submit" disabled={submitting} className="w-full">
-            {submitting ? "Signing in..." : "Sign in"}
-          </Button>
-        </form>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          onClick={onGoogleSignIn}
-          disabled={submitting}
-        >
-          Continue with Google
-        </Button>
-        {E2E_TEST_MODE ? (
-          <form onSubmit={onE2ESubmit} className="space-y-3" noValidate>
+          <p className="eyebrow mb-3">Secure workspace</p>
+          <h2 className="text-3xl font-bold tracking-[-0.04em]">
+            Welcome back
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Sign in to continue to Trinol OS.
+          </p>
+          <form onSubmit={onSubmit} className="mt-8 space-y-4" noValidate>
             <div>
-              <label htmlFor="e2e-email" className="text-sm font-medium">
-                E2E test email
+              <label htmlFor="email" className="text-sm font-medium">
+                Email
               </label>
               <input
-                id="e2e-email"
+                id="email"
                 type="email"
-                className="mt-1 w-full rounded border border-border px-3 py-2 text-sm"
-                {...registerE2E("email")}
+                autoComplete="email"
+                className="mt-1.5 h-11 w-full rounded border border-border px-3 text-sm"
+                {...register("email")}
               />
-              {e2eErrors.email ? (
+              {errors.email ? (
                 <p className="mt-1 text-sm text-destructive">
-                  {e2eErrors.email.message}
+                  {errors.email.message}
                 </p>
               ) : null}
             </div>
-            <Button
-              type="submit"
-              variant="outline"
-              disabled={submitting}
-              className="w-full"
-            >
-              E2E test sign in
+            <div>
+              <label htmlFor="password" className="text-sm font-medium">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                className="mt-1.5 h-11 w-full rounded border border-border px-3 text-sm"
+                {...register("password")}
+              />
+              {errors.password ? (
+                <p className="mt-1 text-sm text-destructive">
+                  {errors.password.message}
+                </p>
+              ) : null}
+            </div>
+            {formError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {formError}
+              </p>
+            ) : null}
+            <Button type="submit" disabled={submitting} className="w-full">
+              {submitting ? "Signing in..." : "Sign in"}
             </Button>
           </form>
-        ) : null}
-      </div>
+          <div className="my-5 flex items-center gap-3 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+            <span className="h-px flex-1 bg-border" /> or{" "}
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={onGoogleSignIn}
+            disabled={submitting}
+          >
+            Continue with Google
+          </Button>
+          {E2E_TEST_MODE ? (
+            <form
+              onSubmit={onE2ESubmit}
+              className="mt-6 space-y-3 border-t border-border pt-6"
+              noValidate
+            >
+              <div>
+                <label htmlFor="e2e-email" className="text-sm font-medium">
+                  E2E test email
+                </label>
+                <input
+                  id="e2e-email"
+                  type="email"
+                  className="mt-1.5 h-11 w-full rounded border border-border px-3 text-sm"
+                  {...registerE2E("email")}
+                />
+                {e2eErrors.email ? (
+                  <p className="mt-1 text-sm text-destructive">
+                    {e2eErrors.email.message}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                type="submit"
+                variant="outline"
+                disabled={submitting}
+                className="w-full"
+              >
+                E2E test sign in
+              </Button>
+            </form>
+          ) : null}
+          <p className="mt-8 text-center text-xs text-muted-foreground">
+            Authorized TrinolIT team members only.
+          </p>
+        </div>
+      </section>
     </main>
   );
 }

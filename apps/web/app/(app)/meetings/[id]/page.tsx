@@ -98,10 +98,10 @@ export default function MeetingDetailPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{data.title}</h1>
+          <h1 className="text-3xl font-bold">{data.title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date(data.starts_at).toLocaleString()} –{" "}
             {new Date(data.ends_at).toLocaleString()}
@@ -325,7 +325,7 @@ function AttendeesTab({ meetingId }: { meetingId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-2">
         <div>
           <label htmlFor="attendee-mode" className="text-sm font-medium">
@@ -474,7 +474,7 @@ function DecisionsTab({ meetingId }: { meetingId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-2">
         <div className="flex-1">
           <label htmlFor="decision-body" className="text-sm font-medium">
@@ -609,7 +609,7 @@ function ActionItemsTab({ meetingId }: { meetingId: string }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-2">
         <div className="flex-1">
           <label htmlFor="action-description" className="text-sm font-medium">

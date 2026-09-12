@@ -54,9 +54,9 @@ export default function PipelinePage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Pipeline</h1>
+        <h1 className="text-3xl font-bold">Pipeline</h1>
         {data.truncated ? (
           <p className="text-sm text-muted-foreground">
             Showing the first leads of {data.total} total.

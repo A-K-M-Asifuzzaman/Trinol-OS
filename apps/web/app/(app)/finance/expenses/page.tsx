@@ -91,9 +91,9 @@ export default function ExpensesPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Expenses</h1>
+        <h1 className="text-3xl font-bold">Expenses</h1>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? "Cancel" : "New expense"}
         </Button>
