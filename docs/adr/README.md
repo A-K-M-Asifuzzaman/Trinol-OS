@@ -19,3 +19,4 @@ and marked, never deleted.
 | [0011](0011-selective-soft-delete.md) | Soft delete only where the product needs history | Accepted |
 | [0012](0012-v1-scope-trims.md) | Deliberate V1 scope trims | Accepted |
 | [0013](0013-firebase-as-identity-provider.md) | Firebase Authentication as identity provider, local sessions | Accepted |
+| [0014](0014-ai-openai-and-pgvector.md) | OpenAI provider, synchronous calls, finance never embedded | Accepted |
