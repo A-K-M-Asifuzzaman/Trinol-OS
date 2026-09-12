@@ -112,10 +112,6 @@ export default function LoginPage() {
   return (
     <main className="grid min-h-screen bg-[#111214] lg:grid-cols-[minmax(0,1.1fr)_minmax(28rem,0.9fr)]">
       <section className="relative hidden overflow-hidden border-r border-white/10 p-12 text-white lg:flex lg:flex-col lg:justify-between xl:p-16">
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)] [background-size:64px_64px]"
-        />
         <div className="relative flex items-center gap-3">
           <span className="grid h-10 w-10 place-items-center rounded-sm border border-white/20 bg-white/[0.04] text-sm font-black">
             T/
