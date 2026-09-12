@@ -4291,9 +4291,34 @@ cron is introduced.
       test file (3 tests): empty state, ask/answer/source-count render,
       error state.
 
-      Full backend suite (1286 tests, up from 1271), ruff, mypy,
-      `alembic check`, `make openapi` clean; frontend tsc/eslint/
-      prettier/vitest (99 tests, up from 96)/`next build` clean.
+      **Codex P1 (Stage 4 review)**: `search_knowledge`'s own automatic
+      `reindex_stale()` call gathered and embedded every non-archived
+      meeting/project in the org before retrieval-time filtering ever
+      ran — a MEMBER's query could therefore send a MANAGER-only
+      project's or a private meeting's content to the real embeddings
+      API, even though that chunk would have been excluded from the
+      *returned* results anyway. Visibility has to be enforced before
+      embedding, not just before retrieval. Fixed by scoping `_stale_
+      meetings`/`_stale_projects`'s own candidate-gathering queries to
+      the actor's live visibility — the exact same rules `ensure_
+      meeting_visible`/`ensure_project_visible` already use (creator-or-
+      participant; `project_members` membership) — so an ADMIN+ actor's
+      scope is still everything (the manual `/ai/reindex` route's own
+      full-org backfill is unaffected), while a MEMBER's search-
+      triggered call only ever proposes, and therefore only ever embeds,
+      rows that actor could already open. Leads/tasks needed no such
+      scoping (RBAC.md's own documented org-wide, no-ownership-split
+      rule already gives every actor real read access to both). Added
+      two regression tests: a service-level one asserting `reindex_
+      stale` never calls `embed()` on a meeting/project a MEMBER actor
+      can't see, and an end-to-end one via a MEMBER's `/ai/search` call
+      asserting the fake embed client's recorded calls never contain the
+      MANAGER-only project's content. Full backend suite (1288 tests,
+      up from 1286), ruff, mypy clean.
+
+      Full `make check` green end to end (1288 backend tests, up from
+      1271 at Stage 3; 99 frontend tests; ruff, mypy, eslint, prettier,
+      tsc, vitest, `next build`, `alembic check`, openapi diff clean).
 - [ ] Stage 5 — Lead scoring
 - [ ] Stage 6 — Project risk intelligence
 - [ ] Stage 7 — Security matrices, RBAC.md, seed data, E2E

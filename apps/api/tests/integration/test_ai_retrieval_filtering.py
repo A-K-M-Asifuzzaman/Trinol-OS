@@ -9,7 +9,10 @@ from sqlalchemy import select, update
 from tests.factories import (
     make_lead,
     make_meeting,
+    make_membership,
     make_project,
+    make_project_member,
+    make_user,
 )
 from tests.helpers import login_as
 from trinol.core.authz.permissions import Role
@@ -146,6 +149,66 @@ async def test_reindex_respects_max_sources_budget(
         )
     )
     assert len(result.scalars().all()) == 3
+
+
+async def test_reindex_stale_never_embeds_a_meeting_or_project_the_actor_cannot_see(
+    client: AsyncClient, fake_verifier, fake_ai_client, db_session
+) -> None:
+    """Codex Stage 4 P1: reindex_stale is triggered automatically by any
+    actor's own search (retrieval_service.search_knowledge), so it must
+    never propose a meeting/project that actor can't see as an embedding
+    candidate — retrieval's own filter only protects what's *returned*,
+    not what's already been sent to the (real, in production) embeddings
+    API by the time that filter ever runs."""
+    owner_actor = await login_as(client, fake_verifier, db_session, role=Role.OWNER)
+    member_user = await make_user(
+        db_session, email=f"reindex-member-{owner_actor.organization.id}@x.com"
+    )
+    member_membership = await make_membership(
+        db_session, organization=owner_actor.organization, user=member_user, role=Role.MEMBER
+    )
+
+    visible_meeting = await make_meeting(
+        db_session,
+        organization=owner_actor.organization,
+        created_by=member_membership,
+        title="Visible Meeting",
+    )
+    await make_meeting(
+        db_session,
+        organization=owner_actor.organization,
+        created_by=owner_actor.membership,
+        title="Private Meeting",
+    )
+    visible_project = await make_project(
+        db_session,
+        organization=owner_actor.organization,
+        owner=owner_actor.membership,
+        name="Visible Project",
+    )
+    await make_project_member(db_session, project=visible_project, user=member_user)
+    await make_project(
+        db_session,
+        organization=owner_actor.organization,
+        owner=owner_actor.membership,
+        name="Private Project",
+    )
+    await db_session.commit()
+
+    count = await reindex_stale(
+        db_session,
+        organization_id=owner_actor.organization.id,
+        actor=member_membership,
+        ai_client=fake_ai_client,
+        max_sources=20,
+    )
+    assert count == 2  # only the meeting/project this MEMBER can actually see
+
+    embedded_texts = fake_ai_client.embed_calls
+    assert any(visible_meeting.title in text for text in embedded_texts)
+    assert any("Visible Project" in text for text in embedded_texts)
+    assert not any("Private Meeting" in text for text in embedded_texts)
+    assert not any("Private Project" in text for text in embedded_texts)
 
 
 async def test_reindex_route_requires_admin(

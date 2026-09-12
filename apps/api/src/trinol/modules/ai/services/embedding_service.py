@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from trinol.core.authz.permissions import Role
 from trinol.core.db.org_session import OrgSession
 from trinol.core.errors import ForbiddenError
 from trinol.core.ids import uuid7
@@ -14,12 +15,22 @@ from trinol.modules.ai.models import KnowledgeChunk, KnowledgeSourceType
 from trinol.modules.ai.services.client import AIClient
 from trinol.modules.crm.models import Lead
 from trinol.modules.identity.models import Membership
-from trinol.modules.meetings.models import Meeting
-from trinol.modules.work.models import Project, Task
+from trinol.modules.meetings.models import Meeting, MeetingParticipant
+from trinol.modules.work.models import Project, ProjectMember, Task
 
 # Phase 8 Stage 3 (ADR-0014): no FINANCE branch exists here, and never
 # will — KnowledgeSourceType has no such member, so there is no code
 # path that could ever embed Income/Expense/Invoice/Payment data.
+
+# Codex Stage 4 P1: visibility must be enforced before embedding, not just
+# before retrieval — reindex_stale is triggered automatically by any
+# actor's own search (retrieval_service.search_knowledge), so a MEMBER's
+# query must never cause a meeting/project they can't see to be sent to
+# the AI provider's embeddings endpoint at all, even though retrieval's
+# own filter would have excluded that chunk from the results anyway.
+# Leads/tasks need no such scoping — RBAC.md documents both as org-wide,
+# no ownership-split, so every actor already has real read access.
+_MANAGER_UP = (Role.MANAGER, Role.ADMIN, Role.OWNER)
 
 _DEFAULT_MAX_SOURCES = 20
 
@@ -112,15 +123,29 @@ def _stale(
 
 
 async def _stale_meetings(
-    db: AsyncSession, *, organization_id: uuid.UUID, budget: int
+    db: AsyncSession, *, organization_id: uuid.UUID, actor: Membership, budget: int
 ) -> list[_Candidate]:
     if budget <= 0:
         return []
-    result = await db.execute(
+    stmt = (
         select(Meeting.id, Meeting.updated_at, Meeting.title, Meeting.description, Meeting.notes)
         .where(Meeting.organization_id == organization_id)
         .order_by(Meeting.updated_at.desc())
     )
+    if actor.role not in _MANAGER_UP:
+        # Same visibility rule as meeting_service.ensure_meeting_visible/
+        # list_meetings — creator or participant, re-applied here so a
+        # MEMBER's own search can never send a meeting they can't open
+        # to the embeddings API in the first place.
+        participant_rows = await db.execute(
+            select(MeetingParticipant.meeting_id).where(
+                MeetingParticipant.organization_id == organization_id,
+                MeetingParticipant.user_id == actor.user_id,
+            )
+        )
+        visible_ids = {row[0] for row in participant_rows.all()}
+        stmt = stmt.where((Meeting.created_by == actor.user_id) | (Meeting.id.in_(visible_ids)))
+    result = await db.execute(stmt)
     rows = [
         (id_, updated_at, _meeting_content(title, description, notes))
         for id_, updated_at, title, description, notes in result.all()
@@ -154,15 +179,28 @@ async def _stale_leads(
 
 
 async def _stale_projects(
-    db: AsyncSession, *, organization_id: uuid.UUID, budget: int
+    db: AsyncSession, *, organization_id: uuid.UUID, actor: Membership, budget: int
 ) -> list[_Candidate]:
     if budget <= 0:
         return []
-    result = await db.execute(
+    stmt = (
         select(Project.id, Project.updated_at, Project.name, Project.description)
         .where(Project.organization_id == organization_id, Project.archived_at.is_(None))
         .order_by(Project.updated_at.desc())
     )
+    if actor.role not in _MANAGER_UP:
+        # Same visibility rule as project_service.ensure_project_visible
+        # — project_members membership — re-applied here for the same
+        # reason as meetings above.
+        member_rows = await db.execute(
+            select(ProjectMember.project_id).where(
+                ProjectMember.organization_id == organization_id,
+                ProjectMember.user_id == actor.user_id,
+            )
+        )
+        visible_ids = {row[0] for row in member_rows.all()}
+        stmt = stmt.where(Project.id.in_(visible_ids))
+    result = await db.execute(stmt)
     rows = [
         (id_, updated_at, _project_content(name, description))
         for id_, updated_at, name, description in result.all()
@@ -251,17 +289,27 @@ async def reindex_stale(
 
     Deliberately bounded and synchronous (ADR-0014/ADR-0010): this keeps
     the index eventually-fresh entirely from the `ai` side, with no write-
-    hooks threaded through meetings/crm/work, and no background worker."""
+    hooks threaded through meetings/crm/work, and no background worker.
+
+    Meeting/project candidates are scoped to what `actor` can actually
+    see (Codex Stage 4 P1) — an ADMIN+ actor's scope is everything (same
+    as `ensure_meeting_visible`/`ensure_project_visible`), so the
+    ADMIN-only manual `/ai/reindex` route's own full-org backfill is
+    unaffected; a MEMBER's own search-triggered call only ever proposes
+    (and therefore only ever embeds) rows that actor could already open.
+    Leads/tasks are never scoped — RBAC.md documents both as org-wide,
+    no ownership-split, so every org member already has real read
+    access to all of them."""
     ensure_actor_in_org(actor, organization_id)
     candidates: list[_Candidate] = []
     candidates += await _stale_meetings(
-        db, organization_id=organization_id, budget=max_sources - len(candidates)
+        db, organization_id=organization_id, actor=actor, budget=max_sources - len(candidates)
     )
     candidates += await _stale_leads(
         db, organization_id=organization_id, budget=max_sources - len(candidates)
     )
     candidates += await _stale_projects(
-        db, organization_id=organization_id, budget=max_sources - len(candidates)
+        db, organization_id=organization_id, actor=actor, budget=max_sources - len(candidates)
     )
     candidates += await _stale_tasks(
         db, organization_id=organization_id, budget=max_sources - len(candidates)

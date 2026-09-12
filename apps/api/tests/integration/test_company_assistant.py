@@ -118,6 +118,27 @@ async def test_member_search_never_returns_a_project_they_are_not_a_member_of(
     assert "Manager Only Project" not in contents
 
 
+async def test_member_search_never_sends_an_inaccessible_projects_content_to_the_embed_api(
+    client: AsyncClient, fake_verifier, fake_ai_client, db_session
+) -> None:
+    """Codex Stage 4 P1: visibility must be enforced *before* embedding,
+    not just before retrieval — search_knowledge's own automatic
+    reindex_stale() call must never even propose the MANAGER-only
+    project as a candidate, so its content is never sent to the (real,
+    in production) embeddings API in the first place, regardless of
+    whether the resulting chunk would later have been filtered out of
+    the returned results anyway."""
+    fixture = await _setup_two_projects_and_finance(db_session)
+    await _login_as_member(client, fake_verifier, fixture)
+
+    response = await client.get("/api/v1/ai/search?q=project+status")
+    assert response.status_code == 200
+
+    embedded_texts = fake_ai_client.embed_calls
+    assert not any("Manager Only Project" in text for text in embedded_texts)
+    assert any("Member Visible Project" in text for text in embedded_texts)
+
+
 async def test_manager_search_sees_both_projects(
     client: AsyncClient, fake_verifier, fake_ai_client, db_session
 ) -> None:
