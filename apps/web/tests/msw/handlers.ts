@@ -51,4 +51,23 @@ export const handlers = [
       total: 1,
     }),
   ),
+  // Phase 8 Stage 5: default to "not scored yet" for every lead, so a
+  // test that doesn't care about scoring (lead-detail.test.tsx, pipeline-
+  // board.test.tsx) isn't forced to mock it just because LeadScorePanel/
+  // PipelineLeadScoreBadge always fetch it — same reasoning as every
+  // other default handler here, individual tests override with
+  // server.use() when the score itself is what's being tested.
+  http.get(`${APP_ORIGIN}/api/v1/leads/:leadId/score`, () =>
+    HttpResponse.json(
+      {
+        error: {
+          code: "NOT_FOUND",
+          message: "This lead has not been scored yet",
+          request_id: null,
+          details: {},
+        },
+      },
+      { status: 404 },
+    ),
+  ),
 ];

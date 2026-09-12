@@ -1,7 +1,23 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { PipelineBoard } from "@/components/board/pipeline-board";
 import type { PipelineColumn } from "@/lib/api/client";
+
+// PipelineLeadScoreBadge (Phase 8 Stage 5) needs a QueryClient even
+// though these tests don't care about scoring — the default MSW handler
+// (tests/msw/handlers.ts) answers "not scored yet" for every lead.
+function renderBoard(props: ComponentProps<typeof PipelineBoard>) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <PipelineBoard {...props} />
+    </QueryClientProvider>,
+  );
+}
 
 function makeLead(id: string, name: string, boardPosition: string) {
   return {
@@ -35,7 +51,7 @@ describe("PipelineBoard", () => {
       { stage: "NEW", leads: [makeLead("lead-a", "Lead A", "0")] },
       { stage: "WON", leads: [] },
     ];
-    render(<PipelineBoard columns={columns} onMoveLead={onMoveLead} />);
+    renderBoard({ columns, onMoveLead });
 
     fireEvent.dragStart(screen.getByTestId("pipeline-lead-lead-a"));
     fireEvent.drop(screen.getByTestId("pipeline-column-WON"));
@@ -54,7 +70,7 @@ describe("PipelineBoard", () => {
         ],
       },
     ];
-    render(<PipelineBoard columns={columns} onMoveLead={onMoveLead} />);
+    renderBoard({ columns, onMoveLead });
 
     fireEvent.dragStart(screen.getByTestId("pipeline-lead-lead-b"));
     fireEvent.drop(screen.getByTestId("pipeline-lead-lead-a"));
@@ -81,7 +97,7 @@ describe("PipelineBoard", () => {
         ],
       },
     ];
-    render(<PipelineBoard columns={columns} onMoveLead={onMoveLead} />);
+    renderBoard({ columns, onMoveLead });
 
     fireEvent.dragStart(screen.getByTestId("pipeline-lead-lead-a"));
     fireEvent.drop(screen.getByTestId("pipeline-lead-lead-c"));
@@ -109,7 +125,7 @@ describe("PipelineBoard", () => {
         ],
       },
     ];
-    render(<PipelineBoard columns={columns} onMoveLead={onMoveLead} />);
+    renderBoard({ columns, onMoveLead });
 
     fireEvent.dragStart(screen.getByTestId("pipeline-lead-lead-a"));
     fireEvent.drop(screen.getByTestId("pipeline-lead-lead-b"));
@@ -124,9 +140,7 @@ describe("PipelineBoard", () => {
       { stage: "NEW", leads: [makeLead("lead-a", "Lead A", "0")] },
       { stage: "WON", leads: [] },
     ];
-    render(
-      <PipelineBoard columns={columns} onMoveLead={onMoveLead} readOnly />,
-    );
+    renderBoard({ columns, onMoveLead, readOnly: true });
 
     const card = screen.getByTestId("pipeline-lead-lead-a");
     expect(card).toHaveAttribute("draggable", "false");

@@ -597,6 +597,21 @@ export async function askAssistant(
   });
 }
 
+export type LeadScore = components["schemas"]["LeadScoreResponse"];
+
+export async function fetchLeadScore(
+  leadId: string,
+  cookie?: string,
+): Promise<LeadScore> {
+  return apiFetch<LeadScore>(`/api/v1/leads/${leadId}/score`, { cookie });
+}
+
+export async function scoreLead(leadId: string): Promise<LeadScore> {
+  return apiFetch<LeadScore>(`/api/v1/leads/${leadId}/score`, {
+    method: "POST",
+  });
+}
+
 export type DocumentReference =
   components["schemas"]["DocumentReferenceResponse"];
 export type DocumentReferenceList =

@@ -279,6 +279,9 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # Phase 3 Stage 8: a static path, registered before /{lead_id} in
     # routes/leads.py — no placeholder to resolve, same LEAD_READ shape.
     ("GET", "/api/v1/leads/stats", Permission.LEAD_READ, None),
+    # POST .../score calls the real AI client if unmocked — see
+    # _AI_PROVIDER_ROUTES below, not a row here.
+    ("GET", "/api/v1/leads/{lead_id}/score", Permission.LEAD_READ, None),
     # Phase 4 Stage 2: RBAC.md §2 "Meetings: create/edit own" and the new
     # "Meetings: view" row are both granted to every role — create and list
     # have no per-resource restriction (list is visibility-filtered, same
@@ -427,29 +430,32 @@ _MATRIX_ROWS: list[tuple[str, str, Permission, dict[str, str] | None]] = [
     # every other read in this module — no placeholder to resolve, a
     # static path with no parent resource.
     ("GET", "/api/v1/finance/stats", Permission.FINANCE_READ, None),
-    # Phase 8 Stage 3: a manual recovery/backfill trigger, not routine use
-    # (retrieval's own reindex_stale call already keeps the index fresh) —
-    # reuses ORG_SETTINGS_WRITE's ADMIN+ tier rather than a new permission,
-    # same reasoning the plan gives for this being an operational action.
-    # No ownership split, no parent resource.
-    ("POST", "/api/v1/ai/reindex", Permission.ORG_SETTINGS_WRITE, None),
-    # Phase 8 Stage 4: broad route, narrow service (RBAC.md §3) — every
-    # role reaches the route, retrieval_service.search_knowledge's own
-    # per-candidate visibility re-check is the real restriction, covered
-    # by test_company_assistant.py, not a per-row 403 here. No `q` query
-    # param supplied (a bare path, so this row's identity matches the
-    # live route's own `route.path` for the coverage check below) — a
-    # permitted role gets a 422 for the missing required param, which
-    # still satisfies "!= 403"; require()'s own check runs regardless of
-    # (and independent from) query-param validation.
-    ("GET", "/api/v1/ai/search", Permission.AI_ASSISTANT_USE, None),
-    (
-        "POST",
-        "/api/v1/ai/assistant/ask",
-        Permission.AI_ASSISTANT_USE,
-        {"question": "What is happening?"},
-    ),
 ]
+
+# Self-caught (not Codex-flagged): every route below calls the real
+# `AIClient` if its dependency isn't overridden, and this generic
+# parametrized test has no `fake_ai_client` fixture — confirmed directly
+# (not assumed) that including `POST /api/v1/ai/assistant/ask` here made
+# genuine `api.openai.com` network calls for every role that holds
+# `AI_ASSISTANT_USE` (all four), burning real API cost on every test run
+# since Stage 4, exactly the "no test anywhere calls a real external
+# provider" rule this project's own fake-client fixtures exist to
+# prevent. `GET /api/v1/ai/search` happened to be harmless only because
+# a missing required `q` 422s before the route body (and thus `embed()`)
+# is ever reached, and `POST /api/v1/ai/reindex` only because a fresh
+# test org has no rows to embed yet — both accidental, not a real
+# guarantee, so all three (and any future AI-provider route) are
+# deliberately excluded here instead of relying on that luck. Covered
+# instead by each route's own dedicated test file, which does use
+# `fake_ai_client`: `test_ai_retrieval_filtering.py` (reindex),
+# `test_company_assistant.py` (search, assistant/ask),
+# `test_lead_scoring.py` (lead score).
+_AI_PROVIDER_ROUTES: set[tuple[str, str]] = {
+    ("POST", "/api/v1/ai/reindex"),
+    ("GET", "/api/v1/ai/search"),
+    ("POST", "/api/v1/ai/assistant/ask"),
+    ("POST", "/api/v1/leads/{lead_id}/score"),
+}
 
 # RBAC.md §3 / ROADMAP.md Phase 2 decision 6: these routes are gated at the
 # route by a MEMBER-tier permission that only controls reachability — the
@@ -1415,6 +1421,7 @@ def test_matrix_covers_every_permission_gated_route() -> None:
     cross-check against reality could."""
     matrix_routes = {(method, path) for method, path, _permission, _body in _MATRIX_ROWS}
     matrix_routes |= _OWNERSHIP_SPLIT_ROUTES
+    matrix_routes |= _AI_PROVIDER_ROUTES
     missing = _live_permission_gated_routes() - matrix_routes
     assert not missing, f"Route(s) with no authz-matrix row: {sorted(missing)}"
 

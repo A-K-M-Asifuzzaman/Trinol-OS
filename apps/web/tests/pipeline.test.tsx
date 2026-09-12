@@ -110,4 +110,28 @@ describe("PipelinePage", () => {
       ),
     );
   });
+
+  it("shows a lead's AI score on its card once it has one", async () => {
+    server.use(
+      http.get(`${APP_ORIGIN}/api/v1/pipeline`, () =>
+        HttpResponse.json(boardWith([lead])),
+      ),
+      http.get(`${APP_ORIGIN}/api/v1/leads/lead-1/score`, () =>
+        HttpResponse.json({
+          id: "score-1",
+          lead_id: "lead-1",
+          score: 55,
+          rationale: "Moderate fit.",
+          computed_at: "2026-01-01T00:00:00Z",
+          computed_by: "01960000-0000-7000-8000-000000000002",
+          stale: false,
+        }),
+      ),
+    );
+    renderPipelinePage();
+
+    await waitFor(() =>
+      expect(screen.getByText("Score: 55/100")).toBeInTheDocument(),
+    );
+  });
 });

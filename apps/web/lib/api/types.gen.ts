@@ -1060,6 +1060,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/leads/{lead_id}/score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Lead Score Route */
+        get: operations["get_lead_score_route_api_v1_leads__lead_id__score_get"];
+        put?: never;
+        /** Score Lead Route */
+        post: operations["score_lead_route_api_v1_leads__lead_id__score_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2017,6 +2035,35 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** LeadScoreResponse */
+        LeadScoreResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Score */
+            score: number;
+            /** Rationale */
+            rationale: string;
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
+            /**
+             * Computed By
+             * Format: uuid
+             */
+            computed_by: string;
+            /** Stale */
+            stale: boolean;
         };
         /**
          * LeadSource
@@ -6504,6 +6551,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssistantAskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_lead_score_route_api_v1_leads__lead_id__score_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadScoreResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    score_lead_route_api_v1_leads__lead_id__score_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadScoreResponse"];
                 };
             };
             /** @description Validation Error */

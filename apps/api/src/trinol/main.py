@@ -19,6 +19,7 @@ from trinol.core.request_id import RequestIDMiddleware
 from trinol.core.security.body_size_cap import BodySizeCapMiddleware
 from trinol.core.security.origin_check import OriginCheckMiddleware
 from trinol.modules.ai.routes.assistant import router as ai_assistant_router
+from trinol.modules.ai.routes.lead_scores import router as ai_lead_scores_router
 from trinol.modules.ai.routes.meeting_actions import router as ai_meeting_actions_router
 from trinol.modules.ai.routes.meeting_summaries import router as meeting_summaries_router
 from trinol.modules.ai.routes.reindex import router as ai_reindex_router
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_reindex_router)
     app.include_router(ai_search_router)
     app.include_router(ai_assistant_router)
+    app.include_router(ai_lead_scores_router)
 
     @app.get("/health", tags=["meta"])
     @public

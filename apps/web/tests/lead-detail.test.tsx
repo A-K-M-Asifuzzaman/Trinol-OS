@@ -110,4 +110,76 @@ describe("LeadDetailPage", () => {
       screen.queryByRole("button", { name: "Convert to client" }),
     ).not.toBeInTheDocument();
   });
+
+  it("scores the lead and renders the score and rationale for a MANAGER", async () => {
+    let scored = false;
+    server.use(
+      http.get(`${APP_ORIGIN}/api/v1/leads/lead-1`, () =>
+        HttpResponse.json(lead),
+      ),
+      http.get(`${APP_ORIGIN}/api/v1/leads/lead-1/score`, () =>
+        scored
+          ? HttpResponse.json({
+              id: "score-1",
+              lead_id: "lead-1",
+              score: 82,
+              rationale: "Strong fit given the estimated value.",
+              computed_at: "2026-01-01T00:00:00Z",
+              computed_by: "01960000-0000-7000-8000-000000000002",
+              stale: false,
+            })
+          : HttpResponse.json(
+              {
+                error: {
+                  code: "NOT_FOUND",
+                  message: "This lead has not been scored yet",
+                  request_id: null,
+                  details: {},
+                },
+              },
+              { status: 404 },
+            ),
+      ),
+      http.post(`${APP_ORIGIN}/api/v1/leads/lead-1/score`, () => {
+        scored = true;
+        return HttpResponse.json({
+          id: "score-1",
+          lead_id: "lead-1",
+          score: 82,
+          rationale: "Strong fit given the estimated value.",
+          computed_at: "2026-01-01T00:00:00Z",
+          computed_by: "01960000-0000-7000-8000-000000000002",
+          stale: false,
+        });
+      }),
+    );
+    renderLeadDetailPage("MANAGER");
+    await waitFor(() =>
+      expect(screen.getByText("Not scored yet.")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Score" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("82 / 100")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText("Strong fit given the estimated value."),
+    ).toBeInTheDocument();
+  });
+
+  it("hides the score/rescore button for a MEMBER", async () => {
+    server.use(
+      http.get(`${APP_ORIGIN}/api/v1/leads/lead-1`, () =>
+        HttpResponse.json(lead),
+      ),
+    );
+    renderLeadDetailPage("MEMBER");
+    await waitFor(() =>
+      expect(screen.getByText("Not scored yet.")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Score" }),
+    ).not.toBeInTheDocument();
+  });
 });

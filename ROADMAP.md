@@ -4319,7 +4319,73 @@ cron is introduced.
       Full `make check` green end to end (1288 backend tests, up from
       1271 at Stage 3; 99 frontend tests; ruff, mypy, eslint, prettier,
       tsc, vitest, `next build`, `alembic check`, openapi diff clean).
-- [ ] Stage 5 — Lead scoring
+- [x] Stage 5 — Lead scoring.
+      `LeadScore` (1:1 with `crm.leads.id`, regenerated in place, same
+      shape `MeetingSummary` already uses) + migration
+      `0012_ai_lead_scores`. `lead_scoring_service.score_lead()` reuses
+      `LEAD_WRITE`'s existing MANAGER+ tier (leads have no
+      ownership-split, RBAC.md) — no new permission. Line-based parsing
+      (score on the first line, rationale after — same reasoning
+      `action_extraction_service`'s own parsing already uses, more
+      robust than JSON), clamped to `[0, 100]` regardless of what the
+      model returns. `GET .../score` also returns a computed (not
+      stored) `stale: bool` — true when the lead has been edited since
+      the score was last computed — so a viewer can tell a cached score
+      might be out of date without forcing an automatic recompute on
+      every read.
+
+      **Self-caught, not Codex-flagged — a real safety defect in
+      already-merged Stage 3/4 code, found while wiring this stage's own
+      new route into the security matrix.** Adding `POST /leads/{id}/
+      score` to `test_authz_matrix.py`'s generic per-role parametrized
+      test and running it with `-s` showed genuine `api.openai.com`
+      network traffic: that test has no `fake_ai_client` fixture, and
+      FastAPI resolves the real `get_ai_client()` dependency regardless
+      of whether the route body ever calls it. Re-checked the two
+      already-merged AI routes already in that same matrix and confirmed
+      directly (not assumed) that `POST /api/v1/ai/assistant/ask` had
+      been making genuine embeddings **and** chat-completion calls to
+      the real OpenAI API on every single run of this test since Stage 4
+      — for every role that holds `AI_ASSISTANT_USE` (all four) — a real
+      violation of "no test anywhere calls a real external provider"
+      that had gone unnoticed because the test still passed (a live 200
+      response is just as `!= 403` as a mock would be). `POST /api/v1/
+      ai/reindex` was accidentally harmless only because a fresh test
+      org has no rows yet to embed, and `GET /api/v1/ai/search` only
+      because a missing required `q` 422s before the route body (and
+      thus `embed()`) is ever reached — neither was a real guarantee.
+
+      Fixed by removing all three (plus this stage's own lead-score
+      route) from the generic matrix entirely, into a new, explicitly
+      documented `_AI_PROVIDER_ROUTES` exclusion set unioned into the
+      coverage check alongside `_OWNERSHIP_SPLIT_ROUTES` — each is
+      instead covered by its own dedicated test file, all of which
+      already used (or now use) `fake_ai_client`. Re-ran the entire
+      backend suite with `-s`, grepping for `openai`/`api.openai.com`:
+      zero matches anywhere, confirmed directly rather than assumed.
+
+      Frontend: a "Score"/"Rescore" panel (MANAGER+ only, matching
+      `useCanManageCrm`) added to the lead detail page's own Notes
+      section, `retry: false` on the score query for the same "expected
+      404, don't hit the default retry backoff" reason Phase 7 Stage 3
+      and this phase's own meeting-summary/company-assistant panels
+      already established; a small read-only score badge added to each
+      pipeline board card (renders nothing for an unscored lead — same
+      "degrade gracefully" convention the Reports page's own omitted
+      Finance tile already uses), needing a `QueryClientProvider` wrapper
+      added to `pipeline-board.test.tsx`'s own component tests for the
+      first time.
+
+      8 new backend integration tests (MANAGER can score, MEMBER cannot,
+      MEMBER can view a MANAGER's score, GET before scoring is 404,
+      clamped at 100 and at 0, rescoring replaces without duplicating,
+      cross-org 404). 3 new frontend tests (score/rescore flow, the
+      button hidden for MEMBER, the pipeline card's score badge).
+
+      Full backend suite (1290 tests), ruff, mypy, `alembic check`,
+      `make openapi` clean, zero real network calls anywhere (re-
+      verified); frontend tsc/eslint/prettier/vitest (102 tests, up from
+      99)/`next build` clean.
 - [ ] Stage 6 — Project risk intelligence
 - [ ] Stage 7 — Security matrices, RBAC.md, seed data, E2E
 - [ ] Stage 8 — AI audit

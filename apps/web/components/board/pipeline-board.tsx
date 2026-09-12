@@ -1,8 +1,13 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import type { LeadStage, PipelineColumn } from "@/lib/api/client";
+import {
+  fetchLeadScore,
+  type LeadStage,
+  type PipelineColumn,
+} from "@/lib/api/client";
 
 const STAGE_LABELS: Record<LeadStage, string> = {
   NEW: "New",
@@ -120,11 +125,30 @@ export function PipelineBoard({
                     {lead.estimated_value} {lead.currency}
                   </div>
                 ) : null}
+                <PipelineLeadScoreBadge leadId={lead.id} />
               </div>
             ))}
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Phase 8 Stage 5: an unscored lead (or one this viewer can't see for
+// some other reason) simply renders nothing — same "degrade gracefully,
+// no error UI" pattern the Reports page already uses for an omitted
+// Finance tile, not every card needs a score to be useful.
+function PipelineLeadScoreBadge({ leadId }: { leadId: string }) {
+  const score = useQuery({
+    queryKey: ["lead-score", leadId],
+    queryFn: () => fetchLeadScore(leadId),
+    retry: false,
+  });
+  if (!score.data) return null;
+  return (
+    <div className="mt-1 text-xs text-muted-foreground">
+      Score: {score.data.score}/100
     </div>
   );
 }

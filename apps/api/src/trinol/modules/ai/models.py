@@ -137,3 +137,49 @@ class KnowledgeChunk(OrgScoped, Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+class LeadScore(OrgScoped, Base):
+    """Phase 8 Stage 5. 1:1 with `crm.leads.id`, regenerated in place on
+    every `score_lead()` call — same "current state only" shape
+    `MeetingSummary` already uses. Visibility is entirely the lead's own
+    (`LEAD_READ`, org-wide, no ownership-split per RBAC.md) — this table
+    carries no separate rule of its own. `score` is LLM-authored directly
+    (unlike `ProjectRiskAssessment.level`, later stage) — a lead score is
+    advisory, not a number this project's leadership would ever treat as
+    an authoritative total the way a financial figure is, so §30's "no
+    LLM financial totals" rule doesn't apply here."""
+
+    __tablename__ = "lead_scores"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid7)
+    lead_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    # 0-100, clamped in lead_scoring_service — never trusts the model's
+    # own arithmetic to stay in range.
+    score: Mapped[int] = mapped_column(nullable=False)
+    rationale: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(_TZ, server_default=text("now()"))
+    # Person reference -> memberships, not users (DATABASE.md §5.1).
+    computed_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "lead_id", name="uq_lead_scores_org_lead"),
+        ForeignKeyConstraint(
+            ["organization_id", "lead_id"],
+            ["leads.organization_id", "leads.id"],
+            name="fk_lead_scores_org_lead_leads",
+            # Leads are soft-deleted (archived_at), never hard-deleted —
+            # RESTRICT, same reasoning every other lead-referencing FK
+            # elsewhere in this codebase already uses.
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "computed_by"],
+            ["memberships.organization_id", "memberships.user_id"],
+            name="fk_lead_scores_org_computed_by_memberships",
+            ondelete="RESTRICT",
+        ),
+        # uq_lead_scores_org_lead above already covers the lead_id FK
+        # (DATABASE.md §1: "left prefix of a composite one").
+        Index("ix_lead_scores_org_computed_by", "organization_id", "computed_by"),
+    )

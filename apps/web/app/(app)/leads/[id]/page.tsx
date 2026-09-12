@@ -12,6 +12,8 @@ import {
   archiveLead,
   convertLead,
   fetchLead,
+  fetchLeadScore,
+  scoreLead,
   updateLead,
   type LeadStage,
 } from "@/lib/api/client";
@@ -157,6 +159,77 @@ export default function LeadDetailPage() {
           </Button>
         </div>
       ) : null}
+      <LeadScorePanel leadId={leadId} canManage={canManage} />
+    </div>
+  );
+}
+
+function LeadScorePanel({
+  leadId,
+  canManage,
+}: {
+  leadId: string;
+  canManage: boolean;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [scoring, setScoring] = useState(false);
+  const score = useQuery({
+    queryKey: ["lead-score", leadId],
+    queryFn: () => fetchLeadScore(leadId),
+    // A lead with no score yet 404s — the common case, not a transient
+    // failure worth react-query's default retry backoff (the same
+    // lesson Phase 7 Stage 3's stuck-loading-state bug already taught
+    // this app about an *expected* non-200 response).
+    retry: false,
+  });
+
+  async function handleScore() {
+    setError(null);
+    setScoring(true);
+    try {
+      await scoreLead(leadId);
+      await score.refetch();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Could not score this lead.",
+      );
+    } finally {
+      setScoring(false);
+    }
+  }
+
+  return (
+    <div className="rounded border border-border p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-muted-foreground">
+          AI lead score
+        </h3>
+        {canManage ? (
+          <Button variant="outline" onClick={handleScore} disabled={scoring}>
+            {scoring ? "Scoring..." : score.data ? "Rescore" : "Score"}
+          </Button>
+        ) : null}
+      </div>
+      {error ? (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {score.data ? (
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <Badge>{score.data.score} / 100</Badge>
+            {score.data.stale ? (
+              <span className="text-xs text-muted-foreground">
+                Lead has changed since this was computed.
+              </span>
+            ) : null}
+          </div>
+          <p className="text-sm">{score.data.rationale}</p>
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">Not scored yet.</p>
+      )}
     </div>
   );
 }
