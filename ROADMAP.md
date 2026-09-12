@@ -4444,7 +4444,62 @@ cron is introduced.
       `make openapi` clean, zero real network calls (re-verified);
       frontend tsc/eslint/prettier/vitest (103 tests, up from 102)/`next
       build` clean.
-- [ ] Stage 7 — Security matrices, RBAC.md, seed data, E2E
+- [x] Stage 7 — Security matrices, RBAC.md, seed data, E2E.
+      Security-matrix coverage for every route added across Stages 1-6
+      was already complete going into this stage — this project's own
+      "wire it as you build it" discipline (each stage added its own
+      matrix/isolation rows immediately, never deferred) meant `test_
+      matrix_covers_every_permission_gated_route` was already green with
+      no further rows needed.
+
+      RBAC.md §3 consolidated in one pass: added the three bullets that
+      were missing an explicit mention (meeting summarization/action
+      extraction, lead scoring, project risk intelligence) — each states
+      plainly that it reuses an existing rule with no new permission, so
+      a reader auditing "what changed for Phase 8" sees all six
+      capabilities accounted for, not just the one (`AI_ASSISTANT_USE`)
+      that needed a new row.
+
+      **Two self-caught seed-data bugs, the same class Codex already
+      caught once this phase (Stage 4's `due_date` backfill)**: adding
+      real `notes` text to the "Website Kickoff" meeting (for a richer
+      summarization/action-extraction demo) surfaced that `_get_or_
+      create_meeting` has the identical "returns early on a match,
+      never backfills a field a later stage added" gap `_ensure_task`
+      already had — confirmed directly against the real dev database
+      (manually nulled the notes, ran `make seed` twice, watched it stay
+      NULL) before fixing it the same way: backfill only when unset,
+      plus a regression test mirroring the due_date one exactly. Also
+      added a third seed project ("Founder Ops", Founder-only — no
+      `member_emails` at all) so the company assistant/semantic search
+      demo has a real "a MEMBER genuinely cannot see this" case out of
+      the box, the same shape `test_company_assistant.py`'s "Manager
+      Only Project" already proves at the API level.
+
+      One new Playwright spec (`e2e/assistant.spec.ts`) — unlike every
+      other E2E spec in this project, this one logs in as a MEMBER
+      (`developer@trinolit.com`), not the founder, since the whole point
+      is proving the permission filter holds through a real browser
+      session against the real backend and the real OpenAI API, not
+      just the fake-client integration tests. Caught its own real bug
+      while writing it: the first draft had the MEMBER summarize a
+      meeting they only *participate* in ("Website Kickoff"), which
+      correctly 403s (RBAC.md: a participant doesn't gain edit rights
+      merely by being invited) — switched to "Sprint Retrospective",
+      which that MEMBER actually created. Confirmed via the running
+      dev server's own logs that the flow makes genuine `api.openai.com`
+      calls (an embedding for retrieval, chat completions for both the
+      summary and the answer) and the assistant's answer never contains
+      the hidden project's one fact.
+
+      Full backend suite green outside of one pre-existing test
+      (`test_referer_fallback_is_accepted_when_origin_absent`) that
+      fails only because `APP_ORIGIN`/`API_PORT` were temporarily
+      pointed at alternate ports (8010/3010) for an interactive manual
+      walkthrough of this phase's own features at the user's request —
+      confirmed directly (not assumed) that this is an environment
+      artifact of that temporary override, not a regression, and the
+      final clean confirmation is pending that override being reverted.
 - [ ] Stage 8 — AI audit
 - [ ] Codex audit
 - [ ] Resolve P0/P1 findings

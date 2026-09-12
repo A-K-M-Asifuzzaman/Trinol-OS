@@ -1064,6 +1064,74 @@ async def test_seed_backfills_due_date_on_a_pre_existing_task_without_duplicatin
             await _cleanup_rows_created_since(db, snapshot)
 
 
+async def test_seed_backfills_meeting_notes_on_a_pre_existing_meeting_without_duplicating_it(
+    _isolated_seed: None,
+) -> None:
+    """Phase 8 Stage 7 (self-caught, same class of bug as the due_date
+    backfill above): an org seeded before this stage's notes text existed
+    already has the meeting, with notes still NULL — _get_or_create_
+    meeting's own get-or-create returned early on a title+starts_at match,
+    so it would never apply the backfill on its own. Reproduced the same
+    way: seed once, manually null the notes to simulate the pre-existing
+    row, seed twice more, and confirm the notes are backfilled without
+    duplicating the meeting."""
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        snapshot = await _snapshot(db)
+
+    meeting_entry = next(m for m in seed_module._SEED_MEETINGS if m.notes is not None)
+
+    try:
+        await seed_module.seed()
+
+        async with session_factory() as db:
+            organization = (
+                await db.execute(
+                    select(Organization).where(Organization.slug == seed_module._ORG_SLUG)
+                )
+            ).scalar_one()
+            meeting = (
+                await db.execute(
+                    select(Meeting).where(
+                        Meeting.organization_id == organization.id,
+                        Meeting.title == meeting_entry.title,
+                        Meeting.starts_at == meeting_entry.starts_at,
+                    )
+                )
+            ).scalar_one()
+            assert meeting.notes == meeting_entry.notes, "sanity: a fresh seed sets it directly"
+            # Simulates the org having been seeded before this stage
+            # existed — the row is real and pre-existing, just missing
+            # the field this stage added.
+            meeting.notes = None
+            await db.commit()
+
+        await seed_module.seed()
+        await seed_module.seed()
+
+        async with session_factory() as db:
+            meetings = (
+                (
+                    await db.execute(
+                        select(Meeting).where(
+                            Meeting.organization_id == organization.id,
+                            Meeting.title == meeting_entry.title,
+                            Meeting.starts_at == meeting_entry.starts_at,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(meetings) == 1, "re-running must not duplicate the pre-existing meeting"
+            assert meetings[0].notes == meeting_entry.notes, (
+                "re-running must backfill the notes onto the pre-existing row"
+            )
+    finally:
+        async with session_factory() as db:
+            await _cleanup_rows_created_since(db, snapshot)
+
+
 async def test_seed_fills_in_missing_users_without_touching_a_pre_existing_org(
     _isolated_seed: None,
 ) -> None:

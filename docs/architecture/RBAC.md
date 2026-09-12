@@ -130,6 +130,20 @@ not one — a `MEMBER`-tier one that only gates *route access*, and a
   membership), so per guard 6's principle this always records
   `is_audit=true`, never a feed event — same reasoning as project-member
   add/remove above.
+- Meeting summarization/action extraction (Phase 8 Stages 1-2) — no new
+  permission: viewing a summary follows the "Meeting visibility" rule
+  above exactly; generating one, or extracting action items, follows
+  "Meeting edit" exactly, the same as recording a decision or action
+  item already does.
+- Lead scoring (Phase 8 Stage 5) — reuses `LEAD_READ`/`LEAD_WRITE`
+  directly (§2's "Leads & clients: view"/"create/edit" rows); leads have
+  no ownership-split at all, so viewing or recomputing a score needs no
+  resource-level rule beyond the route's own permission.
+- Project risk intelligence (Phase 8 Stage 6) — reuses `PROJECT_READ`
+  and this section's own "Project detail" rule unchanged: a single
+  project's risk assessment follows the same `MANAGER+`-or-
+  `project_members` rule, and the org-wide risk list applies that same
+  rule per row, exactly like Phase 7's own project analytics aggregate.
 - Company assistant / semantic search (Phase 8 Stage 4) — route:
   `Permission.AI_ASSISTANT_USE` (**new**, `MEMBER`-tier — there is no
   single existing resource to hang this on, unlike every rule above).

@@ -256,6 +256,26 @@ _SEED_PROJECTS: tuple[_SeedProject, ...] = (
             ),
         ),
     ),
+    # Phase 8 Stage 7: deliberately no `member_emails` — Founder is the
+    # only member (via the owner's own auto-added project_members row).
+    # Gives the company assistant/semantic search demo a real "a MEMBER
+    # genuinely cannot see this" case out of the box, the same shape
+    # test_company_assistant.py's own "Manager Only Project" already
+    # proves at the API level — used by e2e/assistant.spec.ts.
+    _SeedProject(
+        project_code="INT",
+        name="Founder Ops",
+        owner_email=_FOUNDER_EMAIL,
+        member_emails=(),
+        tasks=(
+            _SeedTask(
+                "Renegotiate the Series A term sheet with investors",
+                TaskStatus.IN_PROGRESS,
+                TaskPriority.URGENT,
+                _FOUNDER_EMAIL,
+            ),
+        ),
+    ),
 )
 
 
@@ -483,6 +503,15 @@ _SEED_MEETINGS: tuple[_SeedMeeting, ...] = (
         client_name=_ACME_CORP_NAME,
         location="Zoom",
         description="Align on scope and timeline for the website redesign.",
+        # Phase 8 Stage 7: real, extractable content for the meeting
+        # summarization/action-extraction demo out of the box, not just
+        # the bare description above.
+        notes=(
+            "Acme wants a blog section added to the new homepage, on top "
+            "of the original scope. Design needs to finalize the color "
+            "palette by next week. Client mockup review is still pending "
+            "on Acme's side and is blocking the build start."
+        ),
         participants=(
             _SeedMeetingParticipant(
                 user_email=_DEVELOPER_EMAIL, response=MeetingParticipantResponse.ACCEPTED
@@ -1042,6 +1071,13 @@ async def _get_or_create_meeting(
     )
     meeting = result.scalar_one_or_none()
     if meeting is not None:
+        # Same backfill-only-if-unset reasoning as _get_or_create_project's
+        # own client_id backfill / _ensure_task's own due_date backfill
+        # (Codex Stage 4 P1): an org already seeded before this stage's
+        # notes text existed would otherwise never receive it, and a real
+        # user's own edit through the app must never be overwritten.
+        if meeting.notes is None and entry.notes is not None:
+            meeting.notes = entry.notes
         return meeting
     meeting = Meeting(
         id=uuid7(),
